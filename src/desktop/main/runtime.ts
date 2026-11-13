@@ -228,6 +228,7 @@ export class DesktopRuntime {
       outputCapabilities: CANVAS,
     })
     const runtime = DesktopRuntime.forApplication(app, options)
+    app.watchNetwork()
     if (options.serve?.host) await runtime.#listen(options.serve.host)
     return runtime
   }
@@ -1097,6 +1098,7 @@ export class DesktopRuntime {
       currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
       pairModels: [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])],
       serverModels,
+      offline: this.app.offline,
       loadStatus: this.app.models.load,
       loadedLocalModel: activeLocal
         ? { model: activeLocal.spec.id, contextLength: activeLocal.contextLength }
@@ -1215,6 +1217,10 @@ export class DesktopRuntime {
 
   setKeepAwake(enabled: boolean) {
     return this.app.setKeepAwake(enabled)
+  }
+
+  setOfflineFallback(enabled: boolean) {
+    return this.app.setOfflineFallback(enabled)
   }
 
   async setAlertSound(enabled: boolean) {
@@ -1709,6 +1715,7 @@ export class DesktopRuntime {
       notifyOnCompletion: app.settings.notifyOnCompletion ?? true,
       keepAwake: app.settings.keepAwake ?? false,
       alertSound: app.settings.alertSound ?? false,
+      offlineFallback: app.settings.offlineFallback ?? true,
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       debug: this.#debug,
       update: this.#update,

@@ -354,7 +354,7 @@ describe("artifact publication", () => {
       { name: "page.html", bytes: Buffer.from("<h1>Page</h1>"), encoding: "utf8" },
       { name: "notes.txt", bytes: Buffer.from("Notes"), encoding: "utf8" },
       { name: "report.pdf", bytes: Buffer.from(minimalPdf("PDF")), encoding: "bytes" },
-      { name: "brief.docx", bytes: Buffer.from(await minimalDocx("Word")), encoding: "html" },
+      { name: "brief.docx", bytes: Buffer.from(await minimalDocx("Word")), encoding: "bytes" },
     ]
     for (const fixture of fixtures) {
       const path = join(context.cwd, fixture.name)

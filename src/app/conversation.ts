@@ -193,7 +193,19 @@ type ConversationOptions = {
   artifacts: ArtifactStore
   /** Why a prompt cannot be admitted or the queue driven right now; undefined when it can. */
   gate: () => string | undefined
+  /**
+   * A request failed before anything streamed: whether the session now serves on another model
+   * the turn can run on instead, such as an on-device one while the provider is unreachable.
+   */
+  recover?: () => Promise<boolean>
+  /** Whether the web tools can reach their service; each turn starts without them while not. */
+  webReachable?: () => boolean
 }
+
+type Serving = NonNullable<ReturnType<ConversationOptions["serving"]>>
+
+/** Agent events that mean a turn did something: once one arrives, it cannot run again elsewhere. */
+const PROGRESS_EVENTS = new Set(["delta", "reasoning", "tool", "subagent", "compaction"])
 
 type ActiveWork = {
   controller: AbortController
@@ -448,10 +460,9 @@ export class Conversation {
       const { signal } = active.controller
       const queued = "admission" in input ? input : undefined
       const userMessage = "admission" in input ? input.admission.message : input
-      const serving = this.options.serving()
+      let serving = this.options.serving()
       if (!serving) return { status: "incomplete" }
-      const { client, provider } = serving
-      const unwatchGate = this.#watchGate(client.gate)
+      let unwatchGate = this.#watchGate(serving.client.gate)
 
       let admission: PromptAdmission
       let session: JsonlSession
@@ -527,8 +538,10 @@ export class Conversation {
         }
 
         let result: Exclude<ConversationTurnResult, { status: "incomplete" }>
-        try {
-          const turn = await executeTurn({
+        // Whether this attempt produced anything: until it does, it can run again elsewhere.
+        let progressed = false
+        const attempt = (serving: Serving) =>
+          executeTurn({
             input: admission.message,
             history: transcript.history,
             historyDetails: {
@@ -546,9 +559,9 @@ export class Conversation {
               )
             },
             agent: {
-              client,
+              client: serving.client,
               webClient: this.options.webClient,
-              webClientModel: client.model,
+              webClientModel: serving.client.model,
               webSession: { id: session.id },
               sessionId: session.id,
               cwd: this.options.cwd,
@@ -571,8 +584,8 @@ export class Conversation {
                 })
               },
               autoCompactAtTokens: serving.autoCompactAtTokens,
-              trustReportedContextLength: reportedContextLengthIsServing(provider),
-              historyTokens: transcript.contextTokens(client.inner),
+              trustReportedContextLength: reportedContextLengthIsServing(serving.provider),
+              historyTokens: transcript.contextTokens(serving.client.inner),
               onCompactionUsage: async (usage) => {
                 await session.recordUsage(usage, "compaction", {
                   promptId: admission.promptId,
@@ -585,7 +598,7 @@ export class Conversation {
               projectContext: this.options.projectContext(),
               memory: this.options.memory(),
               skills: this.options.skills(),
-              tools: providerTools(provider),
+              tools: providerTools(serving.provider, this.options.webReachable?.() !== false),
               permissionPolicy: this.options.permissionPolicy(),
               // The broker denies the request if this turn aborts while it is unanswered.
               onPermissionRequest: (request) =>
@@ -598,6 +611,7 @@ export class Conversation {
               outputCapabilities: this.options.outputCapabilities,
             },
             onEvent: (event) => {
+              if (PROGRESS_EVENTS.has(event.type)) progressed = true
               if (event.type === "compaction") {
                 projector.finishStreaming()
                 if (event.phase === "start") {
@@ -636,7 +650,7 @@ export class Conversation {
                 return
               }
               if (event.type === "context") {
-                transcript.observeContext(client.inner, event.tokens)
+                transcript.observeContext(serving.client.inner, event.tokens)
                 this.#emit({ type: "context", tokens: event.tokens })
                 return
               }
@@ -660,6 +674,23 @@ export class Conversation {
               if (projector.apply(event)) this.#emit({ type: "render" })
             },
           })
+        try {
+          let turn = await attempt(serving)
+          // A request that failed before anything streamed runs again on what the session moved
+          // to, such as an on-device model while the provider is unreachable.
+          while (
+            turn.status === "error" &&
+            !aborted() &&
+            !progressed &&
+            (await this.options.recover?.())
+          ) {
+            const next = this.options.serving()
+            if (!next) throw new Error("A recovered session serves no model.")
+            unwatchGate()
+            serving = next
+            unwatchGate = this.#watchGate(next.client.gate)
+            turn = await attempt(next)
+          }
           if (turn.status === "interrupted" || (turn.status === "error" && aborted())) {
             result = interrupted(turn.messages, turn.details)
           } else if (turn.status === "error") {

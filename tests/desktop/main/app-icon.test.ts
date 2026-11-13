@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import { app, type BrowserWindow, type NativeImage, nativeImage } from "electron"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { appIconSupported, createAppIcon } from "../../../src/desktop/main/app-icon.js"
+import { APP_ICONS } from "../../../src/local/settings.js"
 
 vi.mock("electron", () => ({
   app: { dock: { setIcon: vi.fn() } },
@@ -19,7 +20,6 @@ const location = {
 const resourcesPath = join("/Applications", "Otis.app", "Contents", "Resources")
 const packaged = { packaged: true, resourcesPath, mainDir: join("/anywhere", "out", "main") }
 const image = { isEmpty: () => false } as NativeImage
-const light = () => false
 
 describe("createAppIcon", () => {
   beforeEach(() => {
@@ -28,59 +28,38 @@ describe("createAppIcon", () => {
   })
 
   it("resolves the repo's resources/app-icons from the dev bundle in out/main", () => {
-    expect(createAppIcon({ ...location, platform: "darwin" }, light)("obsidian-dark")).toBe(image)
-    const path = join(repoRoot, "resources", "app-icons", "obsidian.png")
+    expect(createAppIcon({ ...location, platform: "darwin" })("obsidian-dark")).toBe(image)
+    const path = join(repoRoot, "resources", "app-icons", "obsidian-dark.png")
     expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(path)
     expect(existsSync(path)).toBe(true)
     expect(app.dock?.setIcon).toHaveBeenCalledExactlyOnceWith(image)
   })
 
   it("resolves inside Electron's resources directory in a packaged build", () => {
-    createAppIcon({ ...packaged, platform: "darwin" }, light)("macro")
+    createAppIcon({ ...packaged, platform: "darwin" })("macro")
     expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(
       join(resourcesPath, "app-icons", "macro.png"),
     )
     expect(app.dock?.setIcon).toHaveBeenCalledExactlyOnceWith(image)
   })
 
-  it("leaves a packaged Mac's bundle icon, which is the Obsidian pairing, until another is shown", () => {
-    let dark = false
-    const show = createAppIcon({ ...packaged, platform: "darwin" }, () => dark)
+  it("hands a packaged Mac's Dock back to the bundle icon for the default", () => {
+    const show = createAppIcon({ ...packaged, platform: "darwin" })
     expect(show("obsidian")).toBeUndefined()
-    dark = true
-    show("obsidian")
     expect(app.dock?.setIcon).not.toHaveBeenCalled()
-    show("macro")
+    show("obsidian-dark")
+    expect(show("obsidian")).toBeUndefined()
     show("obsidian")
     expect(vi.mocked(nativeImage.createFromPath).mock.calls).toEqual([
-      [join(resourcesPath, "app-icons", "macro.png")],
-      [join(resourcesPath, "app-icons", "obsidian.png")],
+      [join(resourcesPath, "app-icons", "obsidian-dark.png")],
     ])
-    // Development builds show Electron's own icon, so the pairing is drawn there.
-    createAppIcon({ ...location, platform: "darwin" }, () => false)("obsidian")
-    expect(app.dock?.setIcon).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(app.dock?.setIcon)?.mock.calls).toEqual([[image], [null]])
   })
 
-  it("shows the Obsidian pairing's pearl plate on a light appearance and its dark one on dark", () => {
-    let dark = false
-    const show = createAppIcon({ ...location, platform: "darwin" }, () => dark)
+  it("shows the default's pearl plate where no bundle icon draws it, without reloading it", () => {
+    const show = createAppIcon({ ...location, platform: "darwin" })
     show("obsidian")
-    dark = true
     show("obsidian")
-    const dir = join(repoRoot, "resources", "app-icons")
-    expect(vi.mocked(nativeImage.createFromPath).mock.calls).toEqual([
-      [join(dir, "obsidian-pearl.png")],
-      [join(dir, "obsidian.png")],
-    ])
-    expect(app.dock?.setIcon).toHaveBeenCalledTimes(2)
-  })
-
-  it("keeps the dark Obsidian plate in both appearances and does not reload an unchanged image", () => {
-    let dark = false
-    const show = createAppIcon({ ...location, platform: "darwin" }, () => dark)
-    show("obsidian-dark")
-    dark = true
-    show("obsidian-dark")
     show("night")
     show("aqua")
     show("ember")
@@ -95,8 +74,8 @@ describe("createAppIcon", () => {
 
   it("sets the window icon outside macOS", () => {
     const window = { setIcon: vi.fn() } as unknown as BrowserWindow
-    const show = createAppIcon({ ...packaged, platform: "win32" }, light)
-    expect(show("obsidian-dark")).toBe(image)
+    const show = createAppIcon({ ...packaged, platform: "win32" })
+    expect(show("obsidian")).toBe(image)
     show("night", window)
     expect(window.setIcon).toHaveBeenCalledExactlyOnceWith(image)
     expect(app.dock?.setIcon).not.toHaveBeenCalled()
@@ -106,7 +85,7 @@ describe("createAppIcon", () => {
     vi.mocked(nativeImage.createFromPath).mockReturnValue({ isEmpty: () => true } as NativeImage)
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
-      expect(createAppIcon({ ...location, platform: "darwin" }, light)("macro")).toBeUndefined()
+      expect(createAppIcon({ ...location, platform: "darwin" })("macro")).toBeUndefined()
       expect(app.dock?.setIcon).not.toHaveBeenCalled()
       expect(warn).toHaveBeenCalledOnce()
     } finally {
@@ -136,11 +115,11 @@ describe("appIconSupported", () => {
 // The alternates ship beside the bundled icon and carry the same margin, so the Dock sizes them
 // alike.
 describe("Alternate app icons", () => {
-  it("packages a 1024-pixel PNG with transparent margins for every alternate", () => {
+  it("packages a 1024-pixel PNG with transparent margins named by every icon id", () => {
     expect(readFileSync(join(repoRoot, "electron-builder.yml"), "utf8")).toMatch(
       /- from: resources\/app-icons\n {4}to: app-icons\n/,
     )
-    for (const name of ["obsidian", "obsidian-pearl", "macro", "aqua", "night", "ember"]) {
+    for (const name of APP_ICONS) {
       const png = readFileSync(join(repoRoot, "resources", "app-icons", `${name}.png`))
       expect(png.subarray(1, 4).toString()).toBe("PNG")
       expect([png.readUInt32BE(16), png.readUInt32BE(20)], name).toEqual([1024, 1024])

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, truncate, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   availableModelMemory,
   detectHardware,
@@ -492,6 +492,43 @@ describe("model picker catalog", () => {
     expect(
       unselected.filter((item) => item.kind === "model" && item.provider === "together"),
     ).toHaveLength(1)
+  })
+
+  it("greys out the last listed hosted catalog while offline, fetching nothing", async () => {
+    const list = vi.fn(async (provider: HostedProvider) => [
+      { provider, id: "a/one", displayName: "One", supportsImageInput: false },
+    ])
+    const options = {
+      hardware: await macHardware(512),
+      dataDirectory: await tempDir(),
+      hostedApiKeys: { river: "rv" },
+      listHosted: list,
+    }
+    await listModelPickerItems(options)
+    expect(list).toHaveBeenCalledOnce()
+    const returnsTo = {
+      provider: "river" as const,
+      id: "a/left",
+      displayName: "Left",
+      supportsImageInput: false,
+    }
+    const offline = await listModelPickerItems({ ...options, offline: { returnsTo } })
+    expect(list).toHaveBeenCalledOnce()
+    expect(
+      offline
+        .filter((item) => item.kind === "model" && item.provider === "river")
+        .map(
+          (item) =>
+            item.kind === "model" && [
+              item.id,
+              item.available,
+              "availabilityLabel" in item && item.availabilityLabel,
+            ],
+        ),
+    ).toEqual([
+      ["a/left", false, "Not available offline"],
+      ["a/one", false, "Not available offline"],
+    ])
   })
 
   it("lists local models in recommendation order above hosted entries", async () => {

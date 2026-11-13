@@ -40,9 +40,9 @@ it("saves the displayed revision, reports errors, and resets the action when the
     ok: true,
     payload: {
       ...next,
-      kind: "docx",
-      encoding: "html",
-      content: "<p>Another revision</p>",
+      kind: "markdown",
+      encoding: "utf8",
+      content: "Another revision",
     },
   })
   view.rerender(

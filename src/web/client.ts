@@ -1,6 +1,8 @@
 type ParallelClientConfig = {
   url?: string
   fetch?: typeof fetch
+  /** A request could not reach the server at all, as when the network is gone. */
+  onUnreachable?: () => void
 }
 
 type WebSearchOptions = {
@@ -59,10 +61,13 @@ const DEFAULT_MCP_URL = "https://search.parallel.ai/mcp"
 const MAX_SEARCH_QUERIES = 3
 const MAX_SESSION_ID_CHARS = 100
 const MAX_ERROR_CHARS = 2_000
+/** Long enough for a slow link to answer, short enough that a dead one is noticed in time. */
+const REACHABILITY_TIMEOUT_MS = 5000
 
 export class ParallelClient {
   readonly #url: string
   readonly #fetch: typeof fetch
+  readonly #onUnreachable: (() => void) | undefined
 
   constructor(config: ParallelClientConfig = {}) {
     const url = parseURL(config.url ?? DEFAULT_MCP_URL, "Parallel MCP URL")
@@ -73,6 +78,24 @@ export class ParallelClient {
     url.hash = ""
     this.#url = url.toString()
     this.#fetch = config.fetch ?? fetch
+    this.#onUnreachable = config.onUnreachable
+  }
+
+  /**
+   * Whether the server answers at all. Any HTTP response counts; a failure to connect, or
+   * silence past the timeout, does not. Nothing is sent but the request line.
+   */
+  async reachable() {
+    try {
+      const response = await this.#fetch(this.#url, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(REACHABILITY_TIMEOUT_MS),
+      })
+      await response.body?.cancel()
+      return true
+    } catch {
+      return false
+    }
   }
 
   async search(options: WebSearchOptions): Promise<WebSearchResponse> {
@@ -166,6 +189,10 @@ export class ParallelClient {
         params: { name, arguments: args },
       }),
       signal,
+    }).catch((error: unknown) => {
+      // Not reaching the server, rather than an answer it refused, is the network's to explain.
+      if (!signal?.aborted) this.#onUnreachable?.()
+      throw error
     })
     const body = await response.text().catch(() => "")
     if (!response.ok) {

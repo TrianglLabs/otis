@@ -43,6 +43,10 @@ export function describeError(error: unknown): string {
       return `${
         failure.hostname ? `The address ${failure.hostname}` : "The server's address"
       } could not be resolved. Check the network connection.`
+    case "ENETUNREACH":
+    case "EHOSTUNREACH":
+    case "ENETDOWN":
+      return "The network is unreachable. Check the network connection."
     case "ECONNRESET":
     case "EPIPE":
       return "The connection was closed unexpectedly."

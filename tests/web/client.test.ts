@@ -2,6 +2,39 @@ import { describe, expect, it, vi } from "vitest"
 import { ParallelClient } from "../../src/web/client.js"
 
 describe("ParallelClient", () => {
+  it("counts any answer as reachable and a failed connection as not", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 405 }),
+    )
+    const client = new ParallelClient({ fetch: fetchMock as typeof fetch })
+    await expect(client.reachable()).resolves.toBe(true)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://search.parallel.ai/mcp")
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "HEAD" })
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"))
+    await expect(client.reachable()).resolves.toBe(false)
+  })
+
+  it("reports a request that cannot reach the server, but not one it answers or one cancelled", async () => {
+    const onUnreachable = vi.fn()
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError")
+        throw Object.assign(new TypeError("fetch failed"), { code: "ENETUNREACH" })
+      },
+    )
+    const client = new ParallelClient({ fetch: fetchMock as typeof fetch, onUnreachable })
+    const search = { objective: "news", searchQueries: ["news"] }
+    await expect(client.search(search)).rejects.toThrow("fetch failed")
+    expect(onUnreachable).toHaveBeenCalledOnce()
+    const cancelled = new AbortController()
+    cancelled.abort()
+    await expect(client.search({ ...search, signal: cancelled.signal })).rejects.toThrow()
+    expect(onUnreachable).toHaveBeenCalledOnce()
+    fetchMock.mockResolvedValueOnce(new Response("busy", { status: 503 }))
+    await expect(client.search(search)).rejects.toThrow("HTTP 503")
+    expect(onUnreachable).toHaveBeenCalledOnce()
+  })
+
   it("calls Search MCP without auth and maps provider context onto the JSON-RPC tool call", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       mcpResponse({

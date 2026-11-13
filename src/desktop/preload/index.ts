@@ -88,6 +88,7 @@ const api: DesktopApi = {
   setThinkingVisible: (visible) => invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),
   setNotifyOnCompletion: (enabled) => invoke(DESKTOP_CHANNELS.setNotifyOnCompletion, enabled),
   setKeepAwake: (enabled) => invoke(DESKTOP_CHANNELS.setKeepAwake, enabled),
+  setOfflineFallback: (enabled) => invoke(DESKTOP_CHANNELS.setOfflineFallback, enabled),
   setAlertSound: (enabled) => invoke(DESKTOP_CHANNELS.setAlertSound, enabled),
   setLocalThinking: (model, level) => invoke(DESKTOP_CHANNELS.setLocalThinking, model, level),
   setPermissionMode: (mode) => invoke(DESKTOP_CHANNELS.setPermissionMode, mode),

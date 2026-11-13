@@ -77,6 +77,13 @@ potentially sensitive. Visible traces show a short preview and can be expanded i
   until zero data retention is switched on in the organization's privacy settings; Prime Intellect publishes no
   inference retention terms, and its gateway models route to third-party model vendors under Prime Intellect's
   terms. Check each provider's data policy before sending sensitive content.
+- While the terminal or desktop app runs, Otis checks whether the hosted providers its sessions use, and Parallel's
+  Search MCP endpoint, can be reached: when the machine's network addresses change, when a request cannot get through,
+  and every 30 seconds while one cannot. Each check is a `HEAD` request to the provider's public model-list URL or to
+  Parallel's endpoint, with no key and no conversation content. While Parallel cannot be reached, models are not
+  offered the web tools. While no provider answers, sessions move to a model on this machine until the network returns, unless
+  Local model when offline is switched off. With it on, Otis also downloads, while online, the pinned llama.cpp
+  runtime that model needs from the llama.cpp GitHub releases, verified like every runtime download.
 - NVIDIA PAIR traffic goes to a loopback proxy. PAIR owns communication and routing within the user's cluster.
 - Web search and page reading go directly to Parallel's Search MCP from the local runtime.
 - Managed llama.cpp inference stays on `127.0.0.1`.

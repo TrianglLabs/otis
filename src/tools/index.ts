@@ -230,10 +230,14 @@ function withWarnings(sections: string[], warnings: string[]) {
  * The tool catalog a top-level turn exposes for the selected model's provider. Delegation issues
  * several long model runs at once. Otis' managed llama-server serves a single slot, so only hosted
  * models, NVIDIA PAIR clusters, and oMLX's batched server offer the agent tool and its wait.
+ * Without `web`, as while Parallel cannot be reached, no model is offered the web tools, which
+ * could only fail.
  */
-export function providerTools(provider: ModelProvider): ToolDefinition[] {
+export function providerTools(provider: ModelProvider, web = true): ToolDefinition[] {
   return TOOL_DEFINITIONS.filter(
-    (tool) => provider !== "local" || (tool.name !== "agent" && tool.name !== "wait_coworkers"),
+    (tool) =>
+      (provider !== "local" || (tool.name !== "agent" && tool.name !== "wait_coworkers")) &&
+      (web || (tool.name !== "web_search" && tool.name !== "web_read")),
   )
 }
 

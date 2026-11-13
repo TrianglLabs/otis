@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { HostedClient } from "../../src/inference/client.js"
-import { HOSTED_PROVIDER_INFO, HOSTED_PROVIDERS } from "../../src/inference/types.js"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedProvider,
+} from "../../src/inference/types.js"
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -448,9 +452,9 @@ describe("HostedClient team billing", () => {
 })
 
 describe("cached prompt tokens", () => {
-  const usageOf = async (usage: Record<string, unknown>) => {
+  const usageOf = async (usage: Record<string, unknown>, provider: HostedProvider = "together") => {
     const client = new HostedClient({
-      provider: "together",
+      provider,
       apiKey: "key",
       model: "org/model",
       fetch: (async () =>
@@ -469,6 +473,31 @@ describe("cached prompt tokens", () => {
     ).resolves.toEqual({
       type: "usage",
       usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedPromptTokens: 4 },
+    })
+  })
+
+  it("reads Prime Intellect's cache hits from the usage chunk it streams", async () => {
+    // Prime's response to a repeated prefix, as recorded from its API.
+    await expect(
+      usageOf(
+        {
+          prompt_tokens: 2900,
+          completion_tokens: 2,
+          total_tokens: 2902,
+          cost: 0,
+          prompt_tokens_details: { cached_tokens: 2816 },
+          completion_tokens_details: { reasoning_tokens: 0 },
+        },
+        "primeintellect",
+      ),
+    ).resolves.toEqual({
+      type: "usage",
+      usage: {
+        promptTokens: 2900,
+        completionTokens: 2,
+        totalTokens: 2902,
+        cachedPromptTokens: 2816,
+      },
     })
   })
 

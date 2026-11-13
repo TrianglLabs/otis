@@ -208,6 +208,12 @@ export class InteractiveApp {
     this.#app.subscribe((event) => {
       if (event.type === "status") this.#syncStatus()
       else if (event.type !== "transcript") this.#onConversationEvent(event)
+      // Network notices land outside any turn, so nothing else would draw them.
+      else if (
+        event.runtime === this.#app.focused.id &&
+        this.#app.transcript.entries.at(-1)?.network
+      )
+        this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     })
     this.#setupFlow = new SetupFlow({
       ui: this.#ui,
@@ -300,6 +306,7 @@ export class InteractiveApp {
       this.#ui.showChatLayout()
       this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     }
+    this.#app.watchNetwork()
   }
 
   async #handleInput(value: string) {
@@ -455,6 +462,11 @@ export class InteractiveApp {
           const enabled = !this.#app.settings.keepAwake
           await this.#app.setKeepAwake(enabled)
           this.#ui.showTransientHint(` Keep awake while working ${enabled ? "on" : "off"} `)
+          this.#ui.focusInput()
+        } else if (command.setting === "offline-fallback") {
+          const enabled = this.#app.settings.offlineFallback === false
+          await this.#app.setOfflineFallback(enabled)
+          this.#ui.showTransientHint(` Local model when offline ${enabled ? "on" : "off"} `)
           this.#ui.focusInput()
         } else if (command.setting === "subagents") {
           await this.#setPanelVisible("subagents", !this.#subagentPanelVisible)
@@ -761,9 +773,11 @@ export class InteractiveApp {
     this.#status = next
     if (!prev) return
     const ui = this.#ui
-    const label = (model: AppStatus["model"]) =>
-      model ? modelLabel(model.provider, model.displayName ?? model.id) : "No model"
-    if (label(prev.model) !== label(next.model)) ui.setModelLabel(label(next.model))
+    const label = ({ model, offline }: AppStatus) => {
+      const name = model ? modelLabel(model.provider, model.displayName ?? model.id) : "No model"
+      return offline ? `Offline · ${name}` : name
+    }
+    if (label(prev) !== label(next)) ui.setModelLabel(label(next))
     if (next.modelState === "ready") this.#configured = true
     if ((prev.localThinking === null) !== (next.localThinking === null))
       ui.setCommands(this.#commands(next))
@@ -849,6 +863,11 @@ export class InteractiveApp {
         name: "Keep awake while working",
         description: this.#app.settings.keepAwake ? "On" : "Off",
         submission: "/settings keep-awake",
+      },
+      {
+        name: "Local model when offline",
+        description: this.#app.settings.offlineFallback === false ? "Off" : "On",
+        submission: "/settings offline-fallback",
       },
       {
         name: "Subagents",

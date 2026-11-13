@@ -174,10 +174,17 @@ export async function payloadFromBytes(
     // A tight copy: the renderer receives exactly these bytes, never a shared pool slab.
     return { ...metadata, kind, encoding: "bytes", content: new Uint8Array(bytes) }
   }
-  if (kind === "docx" || kind === "pptx") {
-    const content = await officeHtml(bytes, kind, name)
+  if ((kind === "docx" || kind === "pptx") && (bytes[0] !== 0x50 || bytes[1] !== 0x4b))
+    throw new Error(`${name} is not a ${kind.toUpperCase()} file.`)
+  if (kind === "docx") {
+    // The renderer lays the package out with Word's styles, so it receives the bytes.
+    await readOfficeArchive(bytes, "word/document.xml")
+    return { ...metadata, kind, encoding: "bytes", content: new Uint8Array(bytes) }
+  }
+  if (kind === "pptx") {
+    const content = (await slidesFromPptx(bytes)).html
     if (content.length > MAX_RENDERED_OFFICE_CHARS)
-      throw new Error(`This ${kind === "docx" ? "Word document" : "deck"} is too large to preview.`)
+      throw new Error("This deck is too large to preview.")
     return { ...metadata, kind, encoding: "html", content }
   }
   if (kind === "xlsx") {
@@ -196,16 +203,6 @@ export async function payloadFromBytes(
       "This Markdown file is too large to preview in Canvas. Save a copy to open it elsewhere.",
     )
   return { ...metadata, kind, encoding: "utf8", content: decodeArtifactText(bytes, name) }
-}
-
-/** A Word document or deck as HTML for the preview frame, from a verified package. */
-async function officeHtml(bytes: Buffer, kind: "docx" | "pptx", name: string) {
-  if (bytes[0] !== 0x50 || bytes[1] !== 0x4b)
-    throw new Error(`${name} is not a ${kind.toUpperCase()} file.`)
-  if (kind === "pptx") return (await slidesFromPptx(bytes)).html
-  await readOfficeArchive(bytes, "word/document.xml")
-  const { default: mammoth } = await import("mammoth")
-  return (await mammoth.convertToHtml({ buffer: bytes })).value
 }
 
 /** Full validation before a publication is persisted or advertised as successful; yields the text. */

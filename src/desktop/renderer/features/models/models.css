@@ -145,24 +145,8 @@
   }
 }
 
-/* Trailing marks (active check, download hint) borrow the icon buttons' exact box — 22px square, 6px inset —
-   so every row-level glyph sits on one right rail: check, hint, cancel, and delete all line up across rows. */
-.modelPicker-mark {
-  align-self: center;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-right: 6px;
-}
-
-.modelPicker-downloadHint {
-  color: var(--text-dim);
-}
-
 .modelPicker-cancel,
+.modelPicker-download,
 .modelPicker-delete {
   align-self: center;
   flex-shrink: 0;

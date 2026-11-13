@@ -62,7 +62,7 @@ import emberIcon from "../../assets/app-icons/ember.png"
 import macroIcon from "../../assets/app-icons/macro.png"
 import nightIcon from "../../assets/app-icons/night.png"
 import obsidianIcon from "../../assets/app-icons/obsidian.png"
-import obsidianPearlIcon from "../../assets/app-icons/obsidian-pearl.png"
+import obsidianDarkIcon from "../../assets/app-icons/obsidian-dark.png"
 import { Button, IconButton, Toggle } from "../../components/Button.js"
 import { Icon, RetentionBadge } from "../../components/Icon.js"
 import { TabStrip } from "../../components/TabStrip.js"
@@ -137,28 +137,15 @@ const SKILL_ORIGINS = {
 } as const
 const SETTINGS_TAB_IDS = Object.keys(SETTINGS_TABS) as SettingsTab[]
 
-/**
- * Mirrors APP_ICONS in src/local/settings.ts, for the same reason as THEMES. The Obsidian
- * pairing previews the plate the app shows in the current system appearance.
- */
+/** Mirrors APP_ICONS in src/local/settings.ts, for the same reason as THEMES. */
 const APP_ICONS = [
-  {
-    icon: "obsidian",
-    label: "settings.appIconObsidian",
-    light: obsidianPearlIcon,
-    dark: obsidianIcon,
-  },
-  {
-    icon: "obsidian-dark",
-    label: "settings.appIconObsidianDark",
-    light: obsidianIcon,
-    dark: obsidianIcon,
-  },
-  { icon: "macro", label: "settings.appIconMacro", light: macroIcon, dark: macroIcon },
-  { icon: "aqua", label: "settings.appIconAqua", light: aquaIcon, dark: aquaIcon },
-  { icon: "night", label: "settings.appIconNight", light: nightIcon, dark: nightIcon },
-  { icon: "ember", label: "settings.appIconEmber", light: emberIcon, dark: emberIcon },
-] as const satisfies readonly { icon: AppIcon; label: string; light: string; dark: string }[]
+  { icon: "obsidian", label: "settings.appIconDefault", image: obsidianIcon },
+  { icon: "obsidian-dark", label: "settings.appIconObsidianDark", image: obsidianDarkIcon },
+  { icon: "macro", label: "settings.appIconMacro", image: macroIcon },
+  { icon: "aqua", label: "settings.appIconAqua", image: aquaIcon },
+  { icon: "night", label: "settings.appIconNight", image: nightIcon },
+  { icon: "ember", label: "settings.appIconEmber", image: emberIcon },
+] as const satisfies readonly { icon: AppIcon; label: string; image: string }[]
 
 /** Mirrors TEXT_SIZES in src/local/settings.ts, for the same reason as THEMES. */
 const TEXT_SIZES: TextSize[] = ["small", "default", "large", "larger"]
@@ -211,6 +198,7 @@ export function SettingsPage({
     "notifyOnCompletion",
     "alertSound",
     "keepAwake",
+    "offlineFallback",
     "permissionMode",
     "model",
     "debug",
@@ -737,7 +725,7 @@ export function SettingsPage({
                   <div className="settingsGroup">
                     <h2 className="settings-section">{t("settings.appIcon")}</h2>
                     <div className="themeGrid settingsSurface">
-                      {APP_ICONS.map(({ icon, label, light, dark }) => (
+                      {APP_ICONS.map(({ icon, label, image }) => (
                         <button
                           key={icon}
                           type="button"
@@ -745,10 +733,13 @@ export function SettingsPage({
                           onClick={() => void api.setAppIcon(icon)}
                           aria-pressed={icon === state.appIcon}
                         >
-                          <picture className="appIconTile-preview">
-                            <source srcSet={dark} media="(prefers-color-scheme: dark)" />
-                            <img src={light} alt="" width={40} height={40} />
-                          </picture>
+                          <img
+                            className="appIconTile-preview"
+                            src={image}
+                            alt=""
+                            width={40}
+                            height={40}
+                          />
                           <span className="themeTile-name">
                             {t(label)}
                             {icon === state.appIcon ? <Icon icon={Check} size={11} /> : null}
@@ -838,6 +829,19 @@ export function SettingsPage({
                         label={t("settings.toggleKeepAwake")}
                         checked={state.keepAwake}
                         onChange={(enabled) => void api.setKeepAwake(enabled)}
+                      />
+                    </div>
+                    <div className="settingsRow">
+                      <span className="settingsRow-label">
+                        {t("settings.offlineFallback")}
+                        <span className="settingsRow-meta">
+                          {t("settings.offlineFallbackDetail")}
+                        </span>
+                      </span>
+                      <Toggle
+                        label={t("settings.offlineFallback")}
+                        checked={state.offlineFallback}
+                        onChange={(enabled) => void api.setOfflineFallback(enabled)}
                       />
                     </div>
                     {!import.meta.env.PROD ? (

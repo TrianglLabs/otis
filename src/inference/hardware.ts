@@ -19,11 +19,11 @@ const PCI_VENDORS: Record<string, GpuVendor> = { "10DE": "nvidia", "1002": "amd"
 
 export type HardwareBackend = "metal" | "cuda" | "vulkan" | "cpu"
 /**
- * Upstream's CUDA builds: 12.8 and 13.4 on Linux, 12.4 and 13.4 on Windows, plus 13.3, which only
- * `llamaRuntimeTarget` produces, for Prism's newest x64 CUDA build on a machine qualified for
- * 13.4.
+ * Upstream's CUDA builds: 12.8, 13.4 and 13.5 on Linux, 12.4, 13.4 and 13.5 on Windows, plus 13.3,
+ * which only `llamaRuntimeTarget` produces, for Prism's newest x64 CUDA build on a machine
+ * qualified for 13.4 or 13.5.
  */
-export type CudaVersion = "12.4" | "12.8" | "13.3" | "13.4"
+export type CudaVersion = "12.4" | "12.8" | "13.3" | "13.4" | "13.5"
 export type GpuVendor = "nvidia" | "amd" | "intel"
 
 export type HardwareProbe = {
@@ -199,19 +199,22 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
           device.compute <= maximum,
       )
     // Official CUDA archives' PTX kernels need the toolkit's own driver branch, not just CUDA
-    // minor-version compatibility: CUDA 13.4 is the R615 branch (the toolkit no longer bundles
-    // a driver) on both platforms. The Linux archives target Ubuntu 24.04; their 12.8 build
-    // shipped with 570.211.01 and includes kernels through SM 120, but not GB10's SM 121. The
-    // Windows 12.4 build shipped with 551.61 and includes kernels through Hopper's SM 90.
+    // minor-version compatibility: CUDA 13.5 is the R620 branch and 13.4 the R615 branch (the
+    // toolkit no longer bundles a driver) on both platforms. The Linux archives target Ubuntu
+    // 24.04; their 12.8 build shipped with 570.211.01 and includes kernels through SM 120, but not
+    // GB10's SM 121. The Windows 12.4 build shipped with 551.61 and includes kernels through
+    // Hopper's SM 90.
     let cudaVersion: CudaVersion | undefined
     if (platform === "linux") {
       const glibc = await (options.glibcVersion ?? defaultGlibcVersion)().catch(() => undefined)
       if (glibc && versionAtLeast(glibc, "2.39") && (arch === "x64" || arch === "arm64")) {
-        if (qualifies("615", 7.5, 12.1)) cudaVersion = "13.4"
+        if (qualifies("620", 7.5, 12.1)) cudaVersion = "13.5"
+        else if (qualifies("615", 7.5, 12.1)) cudaVersion = "13.4"
         else if (arch === "x64" && qualifies("570.211.01", 5, 12)) cudaVersion = "12.8"
       }
     } else if (arch === "x64" || arch === "arm64") {
-      if (qualifies("615", 7.5, 12.1)) cudaVersion = "13.4"
+      if (qualifies("620", 7.5, 12.1)) cudaVersion = "13.5"
+      else if (qualifies("615", 7.5, 12.1)) cudaVersion = "13.4"
       else if (arch === "x64" && qualifies("551.61", 5, 9)) cudaVersion = "12.4"
     }
     const knownMemory = devices.every(({ memory }) => Number.isFinite(memory) && memory > 0)

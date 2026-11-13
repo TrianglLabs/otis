@@ -102,6 +102,7 @@ export const DESKTOP_CHANNELS = {
   setThinkingVisible: "desktop:set-thinking-visible",
   setNotifyOnCompletion: "desktop:set-notify-on-completion",
   setKeepAwake: "desktop:set-keep-awake",
+  setOfflineFallback: "desktop:set-offline-fallback",
   setAlertSound: "desktop:set-alert-sound",
   setLocalThinking: "desktop:set-local-thinking",
   setPermissionMode: "desktop:set-permission-mode",
@@ -272,6 +273,13 @@ export type DesktopStatus = {
   keepAwake: boolean
   /** A short sound when a session finishes or waits for approval while Otis is not in focus. */
   alertSound: boolean
+  /** Sessions move to an on-device model while hosted providers are unreachable. */
+  offlineFallback: boolean
+  /**
+   * Hosted providers stopped answering, and the hosted model the focused session returns to once
+   * one does, when it moved to an on-device model meanwhile.
+   */
+  offline: { returnsTo: string | null } | null
   localThinking: LocalThinkingState | null
   /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
   permissionMode: PermissionMode
@@ -538,6 +546,7 @@ export type DesktopApi = {
   setThinkingVisible(visible: boolean): Promise<void>
   setNotifyOnCompletion(enabled: boolean): Promise<void>
   setKeepAwake(enabled: boolean): Promise<void>
+  setOfflineFallback(enabled: boolean): Promise<void>
   setAlertSound(enabled: boolean): Promise<void>
   setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void>
   /** Persists the permission behavior used by subsequent tool calls. */

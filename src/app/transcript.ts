@@ -17,7 +17,7 @@ import type { ReplayTurnSegment, SessionToolActivity } from "../storage/session-
 import { describeToolCall, type ToolAction, type ToolActivityKind } from "../tools/activity.js"
 import { parseSerializedToolCall } from "../tools/schema.js"
 
-type TranscriptKind = "message" | "reasoning" | "tool" | "debug"
+type TranscriptKind = "message" | "reasoning" | "tool" | "debug" | "notice"
 type TranscriptSpeaker = "You" | "Otis" | "Thinking" | "Tool" | "Debug"
 type TranscriptDelivery = "queued" | "steering"
 
@@ -62,6 +62,8 @@ export type TranscriptEntry = {
   messageText?: string
   /** Names of the images attached to a user message. */
   images?: string[]
+  /** On a notice: the network went, and the session moved on-device, or it came back. */
+  network?: "offline" | "online"
   streaming?: boolean
   delivery?: TranscriptDelivery
   /**
@@ -270,6 +272,19 @@ export class TranscriptStore {
     this.entries.push(entry)
     this.emit({ op: "upsert", id: entry.id })
     return entry
+  }
+
+  /** A line about the session itself, not the conversation; never sent to the model. */
+  addNotice(text: string, network: "offline" | "online") {
+    const entry = {
+      id: this.nextMessageID++,
+      kind: "notice" as const,
+      speaker: "Otis" as const,
+      text,
+      network,
+    }
+    this.entries.push(entry)
+    this.emit({ op: "upsert", id: entry.id })
   }
 
   addDebugMessage(text: string) {

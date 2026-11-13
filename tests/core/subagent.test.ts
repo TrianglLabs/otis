@@ -1074,6 +1074,17 @@ describe("subagent helpers", () => {
     )
   })
 
+  it("offers no model the web tools while their service cannot be reached", () => {
+    const offline = providerTools("local", false).map((tool) => tool.name)
+    expect(offline).not.toContain("web_search")
+    expect(offline).not.toContain("web_read")
+    expect(offline).toEqual(
+      providerTools("local")
+        .map((tool) => tool.name)
+        .filter((name) => name !== "web_search" && name !== "web_read"),
+    )
+  })
+
   it("defines wait_coworkers as an input-free tool shown as agent activity", () => {
     expect(
       TOOL_DEFINITIONS.find((tool) => tool.name === "wait_coworkers")?.parameters,

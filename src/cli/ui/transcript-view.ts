@@ -204,7 +204,7 @@ export class TranscriptView {
     renderable.live = entry.id === this.#liveToolId
     // Consecutive tool cards pack together; every other card gets a blank line above it.
     if (entry.kind === "tool") renderable.root.marginTop = previousEntry?.kind === "tool" ? 0 : 1
-    else renderable.root.marginTop = entry.kind === "message" || entry.kind === "reasoning" ? 1 : 0
+    else renderable.root.marginTop = entry.kind === "debug" ? 0 : 1
 
     if (renderable.kind === "tool") {
       renderable.icon.content =
@@ -257,6 +257,11 @@ export class TranscriptView {
       ? `${entry.speaker} · ${entry.delivery}`
       : entry.speaker
     renderable.speaker.fg = entry.speaker === "You" ? colors.accent : colors.muted
+    // A network notice leads with what happened, in the color of where the session now runs.
+    if (entry.network) {
+      renderable.speaker.content = entry.network === "offline" ? "Offline" : "Back online"
+      renderable.speaker.fg = entry.network === "offline" ? colors.yellow : colors.green
+    }
     renderable.content.streaming = entry.streaming === true
     renderable.content.internalBlockMode = "top-level"
     renderable.content.content =

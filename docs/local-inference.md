@@ -50,16 +50,17 @@ the official zip archives, which Otis unpacks itself: Windows' `tar` cannot open
 the system code page.
 
 CUDA selection requires glibc 2.39 or newer. CUDA 12.8 is available on x64 with NVIDIA driver 570.211.01 or newer and
-GPU compute capability 5.0–12.0. CUDA 13.4 is preferred on x64 and arm64 with an R615 (615 or newer) driver and compute
-capability 7.5–12.1. Drivers between 610 and 615 no longer qualify for the 13.x build: x64 falls back to CUDA 12.8
-where its compute range allows, arm64 to Vulkan. All detected NVIDIA GPUs must be compatible with the selected build. Unknown or incompatible
+GPU compute capability 5.0–12.0. CUDA 13.5 is preferred on x64 and arm64 with an R620 (620 or newer) driver and compute
+capability 7.5–12.1; an R615 driver (615 to 619) runs CUDA 13.4 from llama.cpp `b11438`, the last release that built
+it, instead of v1.0.0. Drivers below 615 do not qualify for a 13.x build: x64 falls back to CUDA 12.8 where its compute
+range allows, arm64 to Vulkan. All detected NVIDIA GPUs must be compatible with the selected build. Unknown or incompatible
 configurations keep Vulkan, as do AMD and Intel GPUs. Otis also checks that the downloaded CUDA server can see a CUDA
 device before loading a model; if it cannot, it uses Vulkan. Bonsai uses Prism's official CUDA binaries on Linux x64,
 paired with the same-version NVIDIA runtime/cuBLAS libraries from the pinned upstream companion archives. Prism does
 not publish a Linux arm64 CUDA binary, so Bonsai keeps Vulkan there.
 
-Windows has no glibc gate. CUDA 13.4 applies as on Linux, on x64 and arm64 with an R615 driver and compute capability
-7.5–12.1. Below that, x64 uses CUDA 12.4 with driver 551.61 or newer and compute capability 5.0–9.0, the kernels that
+Windows has no glibc gate. CUDA 13.5 and 13.4 apply as on Linux, on x64 and arm64 with an R620 or R615 driver and compute
+capability 7.5–12.1; RTX Spark's Windows driver, 616.41, runs 13.4. Below that, x64 uses CUDA 12.4 with driver 551.61 or newer and compute capability 5.0–9.0, the kernels that
 build ships; an RTX 50 series card on an older driver therefore runs Vulkan until the driver is updated. Bonsai uses
 Prism's Windows CUDA builds: 13.3 on x64 with Prism's own 13.3 companion archive, 13.4 on arm64, and 12.4 where that is
 the qualifying version; Prism publishes no Windows arm64 Vulkan build, so Bonsai runs on the CPU there without CUDA.

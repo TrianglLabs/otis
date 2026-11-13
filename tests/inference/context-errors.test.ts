@@ -29,6 +29,13 @@ describe("describeError", () => {
       "The server could not be reached. Check the network connection.",
     ],
     [
+      // Bun's fetch with no route out, as when Wi-Fi is off.
+      Object.assign(new Error("ENETUNREACH: Was there a typo in the url or port?"), {
+        code: "ENETUNREACH",
+      }),
+      "The network is unreachable. Check the network connection.",
+    ],
+    [
       Object.assign(new Error("ENOENT: no such file or directory, open '/tmp/x'"), {
         code: "ENOENT",
         path: "/tmp/x",

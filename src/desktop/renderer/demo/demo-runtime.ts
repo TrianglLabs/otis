@@ -26,6 +26,7 @@ import {
   HOSTED_PROVIDERS,
   type HostedModel,
   type HostedProvider,
+  isHostedProvider,
 } from "../../../inference/types.js"
 import type { ManagedSkillSource } from "../../../skills/catalog.js"
 import { describeToolAction, type ToolAction } from "../../../tools/activity.js"
@@ -86,8 +87,8 @@ const DEMO_SHELL: Record<string, string> = {
 
 /**
  * `start` is the demo query value: "onboarding", "failed" (a model that could not be prepared),
- * "local" (a managed model mid-session), a fixture
- * session id to show, or nothing.
+ * "local" (a managed model mid-session), "offline" (moved on-device while the network is gone), a
+ * fixture session id to show, or nothing.
  */
 export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi {
   return new DemoRuntime(hostApi, start)
@@ -338,15 +339,42 @@ const DEMO_DOCX = demoArtifact(
     editable: false,
     path: "launch-plan.docx",
   },
-  "html",
-  `<h1>Otis Canvas launch plan</h1>
-<p><strong>Owner:</strong> Product &amp; Engineering &nbsp; <strong>Status:</strong> Ready for review</p>
-<p>Canvas keeps the working document beside the conversation, so changes remain visible while Otis reads and edits the source file.</p>
-<h2>What ships</h2>
-<ul><li>Responsive previews for documents and webpages</li><li>Live refresh for Markdown, text, and HTML</li><li>Private, local rendering for PDF and Word files</li></ul>
-<h2>Release checklist</h2>
-<table><thead><tr><th>Area</th><th>Acceptance criterion</th><th>State</th></tr></thead><tbody><tr><td>Documents</td><td>Long content wraps without horizontal scrolling</td><td>Complete</td></tr><tr><td>Security</td><td>Web previews cannot access the network</td><td>Complete</td></tr><tr><td>Sessions</td><td>The active artifact restores with its conversation</td><td>Complete</td></tr></tbody></table>
-<h2>Next step</h2><p>Review the format-aware editing path before enabling Word or PDF mutation. The original file remains the source of truth.</p>`,
+  "bytes",
+  await demoDocx(
+    wordTitle("Otis Canvas launch plan") +
+      wordParagraph(
+        wordText("Owner: ", "<w:b/>") +
+          wordText("Product & Engineering    ") +
+          wordText("Status: ", "<w:b/>") +
+          wordText("Ready for review"),
+      ) +
+      wordParagraph(
+        wordText(
+          "Canvas keeps the working document beside the conversation, so changes remain visible while Otis reads and edits the source file.",
+        ),
+      ) +
+      wordHeading("What ships") +
+      [
+        "Responsive previews for documents and webpages",
+        "Live refresh for Markdown, text, and HTML",
+        "Private, local rendering for PDF and Word files",
+      ]
+        .map((item) => wordParagraph(wordText(`•  ${item}`)))
+        .join("") +
+      wordHeading("Release checklist") +
+      wordTable([
+        ["Area", "Acceptance criterion", "State"],
+        ["Documents", "Long content wraps without horizontal scrolling", "Complete"],
+        ["Security", "Web previews cannot access the network", "Complete"],
+        ["Sessions", "The active artifact restores with its conversation", "Complete"],
+      ]) +
+      wordHeading("Next step") +
+      wordParagraph(
+        wordText(
+          "Review the format-aware editing path before enabling Word or PDF mutation. The original file remains the source of truth.",
+        ),
+      ),
+  ),
 )
 
 const DEMO_WEBPAGE = demoArtifact(
@@ -460,61 +488,76 @@ const DEMO_SLIDES = demoArtifact(
     .join(""),
 )
 
-// Preview HTML stands in for converted DOCX bytes, just like the working Word fixture above.
 // These references and hashes are fixture identities only; the demo never writes published files.
-const DEMO_SAVED_WORD = [
-  {
-    status: "Initial draft",
-    date: "October 5",
-    audience: "Internal team",
-    next: "Gather feedback from the team.",
-  },
-  {
-    status: "Review",
-    date: "October 12",
-    audience: "Invited testers",
-    next: "Review accessibility and document previews.",
-  },
-  {
-    status: "Approved",
-    date: "October 19",
-    audience: "All users",
-    next: "Publish the release notes and launch.",
-  },
-].map((draft, index): DemoSavedArtifactFixture => {
-  const version = index + 1
-  const content = `<h1>Otis Canvas launch plan</h1>
-<p><strong>Version ${version} · ${draft.status}</strong></p>
-<p>A sample Word document with three saved revisions. Use the version selector above to compare the launch date, audience, and next step.</p>
-<h2>Launch details</h2>
-<table><thead><tr><th>Milestone</th><th>Plan</th></tr></thead><tbody><tr><td>Launch date</td><td>${draft.date}</td></tr><tr><td>Audience</td><td>${draft.audience}</td></tr><tr><td>Status</td><td>${draft.status}</td></tr></tbody></table>
-<h2>Next step</h2><p>${draft.next}</p>
-<h2>Revision history</h2><p>This is the saved content for version ${version}. Selecting an older version leaves the latest version unchanged.</p>`
-  const reference: PublishedArtifactReference = {
-    source: "published",
-    artifactId: "e786fe9e-e8bc-46c8-9d28-5f148538ab15",
-    version,
-    sha256: String(version).repeat(64),
-    name: "launch-plan.docx",
-    kind: "docx",
-    sourcePath: "/Users/dev/Projects/otis/launch-plan.docx",
-    excerpt: documentExcerpt("html", content),
-  }
-  const metadata: DemoSavedArtifactFixture["metadata"] = {
-    id: `published:${reference.artifactId}`,
-    revision: 1,
-    source: "published",
-    kind: "docx" as const,
-    title: reference.name,
-    mimeType: DEMO_DOCX.metadata.mimeType,
-    editable: false,
-    publication: { reference, versions: [1, 2, 3], followingLatest: true },
-  }
-  return {
-    metadata,
-    payload: { ...metadata, encoding: "html", content } as ArtifactPayload,
-  }
-})
+const DEMO_SAVED_WORD = await Promise.all(
+  [
+    {
+      status: "Initial draft",
+      date: "October 5",
+      audience: "Internal team",
+      next: "Gather feedback from the team.",
+    },
+    {
+      status: "Review",
+      date: "October 12",
+      audience: "Invited testers",
+      next: "Review accessibility and document previews.",
+    },
+    {
+      status: "Approved",
+      date: "October 19",
+      audience: "All users",
+      next: "Publish the release notes and launch.",
+    },
+  ].map(async (draft, index): Promise<DemoSavedArtifactFixture> => {
+    const version = index + 1
+    const lines = [
+      `Version ${version} · ${draft.status}`,
+      "A sample Word document with three saved revisions. Use the version selector above to compare the launch date, audience, and next step.",
+      `This is the saved content for version ${version}. Selecting an older version leaves the latest version unchanged.`,
+    ]
+    const content = await demoDocx(
+      wordTitle("Otis Canvas launch plan") +
+        wordParagraph(wordText(lines[0], "<w:b/>")) +
+        wordParagraph(wordText(lines[1])) +
+        wordHeading("Launch details") +
+        wordTable([
+          ["Milestone", "Plan"],
+          ["Launch date", draft.date],
+          ["Audience", draft.audience],
+          ["Status", draft.status],
+        ]) +
+        wordHeading("Next step") +
+        wordParagraph(wordText(draft.next)) +
+        wordHeading("Revision history") +
+        wordParagraph(wordText(lines[2])),
+    )
+    const reference: PublishedArtifactReference = {
+      source: "published",
+      artifactId: "e786fe9e-e8bc-46c8-9d28-5f148538ab15",
+      version,
+      sha256: String(version).repeat(64),
+      name: "launch-plan.docx",
+      kind: "docx",
+      sourcePath: "/Users/dev/Projects/otis/launch-plan.docx",
+      excerpt: documentExcerpt("text", ["Otis Canvas launch plan", ...lines].join("\n")),
+    }
+    const metadata: DemoSavedArtifactFixture["metadata"] = {
+      id: `published:${reference.artifactId}`,
+      revision: 1,
+      source: "published",
+      kind: "docx" as const,
+      title: reference.name,
+      mimeType: DEMO_DOCX.metadata.mimeType,
+      editable: false,
+      publication: { reference, versions: [1, 2, 3], followingLatest: true },
+    }
+    return {
+      metadata,
+      payload: { ...metadata, encoding: "bytes", content } as ArtifactPayload,
+    }
+  }),
+)
 const DEMO_LATEST_WORD = DEMO_SAVED_WORD[2]
 
 /** Published copies of the working-file fixtures, so home-screen document rows open in Canvas. */
@@ -591,6 +634,60 @@ const DEMO_ARTIFACTS_BY_SESSION = new Map<string, DemoArtifactFixture>([
   ["session_slides", DEMO_SLIDES],
   ["session_demo1", DEMO_MARKDOWN],
 ])
+
+/** A Word package around WordprocessingML body markup, on a US Letter page with 1-inch margins. */
+async function demoDocx(body: string) {
+  const { default: JSZip } = await import("jszip")
+  const zip = new JSZip()
+  zip.file(
+    "[Content_Types].xml",
+    '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+  )
+  zip.file(
+    "_rels/.rels",
+    '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+  )
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`,
+  )
+  return zip.generateAsync({ type: "uint8array" })
+}
+
+/** A run in Aptos with Word's direct formatting, such as `<w:b/>` or a half-point size. */
+function wordText(text: string, format = "") {
+  const escaped = text.replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+  return `<w:r><w:rPr><w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/><w:sz w:val="22"/>${format}</w:rPr><w:t xml:space="preserve">${escaped}</w:t></w:r>`
+}
+
+function wordParagraph(runs: string, after = 160) {
+  return `<w:p><w:pPr><w:spacing w:after="${after}" w:line="276" w:lineRule="auto"/></w:pPr>${runs}</w:p>`
+}
+
+function wordTitle(text: string) {
+  return wordParagraph(wordText(text, '<w:sz w:val="52"/><w:color w:val="17365D"/>'), 240)
+}
+
+function wordHeading(text: string) {
+  return `<w:p><w:pPr><w:keepNext/><w:spacing w:before="360" w:after="120"/></w:pPr>${wordText(text, '<w:b/><w:sz w:val="30"/><w:color w:val="2F5496"/>')}</w:p>`
+}
+
+/** A full-width table with light rules and a shaded header row. */
+function wordTable(rows: string[][]) {
+  const rule = (edge: string) => `<w:${edge} w:val="single" w:sz="4" w:color="BFBFBF"/>`
+  const borders = ["top", "left", "bottom", "right", "insideH", "insideV"].map(rule).join("")
+  return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>${borders}</w:tblBorders><w:tblCellMar><w:left w:w="108" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr>${rows
+    .map(
+      (row, index) =>
+        `<w:tr>${row
+          .map(
+            (cell) =>
+              `<w:tc>${index === 0 ? '<w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="D9E2F3"/></w:tcPr>' : ""}${wordParagraph(wordText(cell, index === 0 ? "<w:b/>" : ""), 60)}</w:tc>`,
+          )
+          .join("")}</w:tr>`,
+    )
+    .join("")}</w:tbl>`
+}
 
 function demoPdf() {
   const firstPage = `q
@@ -1126,6 +1223,46 @@ class DemoRuntime implements DesktopApi {
         supportsImageInput: false,
       }
       this.#state.speed = { tokensPerSecond: 38.4, prefillMs: 1420, exact: true }
+    } else if (start === "offline") {
+      // The network went mid-session: the session moved on-device, as the chip says. The
+      // transcript walks through every network notice: offline with nothing to take over, back,
+      // then a model downloaded, a move to it and back, and the move now in effect.
+      const returnsTo = this.#state.model?.displayName ?? "Kimi K3"
+      this.#state.model = {
+        id: "Qwen/Qwen3.8-27B",
+        provider: "local",
+        displayName: "Qwen3.8 27B",
+        supportsImageInput: true,
+      }
+      this.#state.offline = { returnsTo }
+      const entry = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => ({
+        id: this.#nextId++,
+        ...entry,
+      })
+      const notice = (network: "offline" | "online", text: string) =>
+        entry({ kind: "notice", speaker: "Otis", network, text })
+      const message = (speaker: "You" | "Otis", text: string) =>
+        entry({ kind: "message", speaker, text })
+      this.#state.entries = [
+        message("You", "Summarize the release notes in three bullets."),
+        notice(
+          "offline",
+          "No model on this machine can take over. Download one from the model picker to keep working offline",
+        ),
+        notice("online", "Hosted models are reachable again"),
+        message(
+          "Otis",
+          "- Canvas renders Word files with their own styles\n- Offline fallback\n- llama.cpp 1.0",
+        ),
+        notice("offline", "Switched to Qwen3.8 27B on this machine"),
+        message("You", "Draft a short announcement from those."),
+        message(
+          "Otis",
+          "Otis now keeps working when your network drops, switching to a model on your machine.",
+        ),
+        notice("online", `Switched back to ${returnsTo}`),
+        notice("offline", "Switched to Qwen3.8 27B on this machine"),
+      ]
     } else if (start) {
       // A session running in another pane is focused; anything else is opened from the list.
       const running = this.#state.runtimes.find((entry) => entry.session?.id === start)
@@ -1497,6 +1634,8 @@ class DemoRuntime implements DesktopApi {
     thinkingVisible: true,
     notifyOnCompletion: true,
     keepAwake: false,
+    offlineFallback: true,
+    offline: null,
     alertSound: false,
     otherAgentsEnabled: true,
     cli: { status: "current", path: "~/.local/bin/otis", version: "0.1.35" },
@@ -1632,6 +1771,11 @@ class DemoRuntime implements DesktopApi {
 
   async setNotifyOnCompletion(enabled: boolean): Promise<void> {
     this.#state = { ...this.#state, notifyOnCompletion: enabled }
+    this.#emitStatus()
+  }
+
+  async setOfflineFallback(enabled: boolean): Promise<void> {
+    this.#state = { ...this.#state, offlineFallback: enabled }
     this.#emitStatus()
   }
 
@@ -2807,7 +2951,11 @@ class DemoRuntime implements DesktopApi {
         active,
         ...(status ? { status } : {}),
         ...(item.provider === "local" ? { downloaded, hasDownloadedPacking: downloaded } : {}),
-      }
+        // Offline, hosted rows grey out as the real catalog's do.
+        ...(this.#state.offline && isHostedProvider(item.provider)
+          ? { available: false, availabilityLabel: "Not available offline" }
+          : {}),
+      } as ModelPickerChoice
     })
     return [
       { kind: "header", id: "header-local", displayName: "Local" },

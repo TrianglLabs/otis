@@ -1,13 +1,15 @@
 import { stat } from "node:fs/promises"
-import { homedir } from "node:os"
+import { homedir, networkInterfaces } from "node:os"
 import { basename, isAbsolute, parse, relative, resolve, sep } from "node:path"
 import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
+import { hostedProviderReachable } from "../inference/catalog.js"
 import { listHostedModels } from "../inference/client.js"
 import { requireLocalContextLength } from "../inference/context-policy.js"
 import { describeError } from "../inference/errors.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
+import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import { validateImageAttachments } from "../inference/images.js"
 import { localLoadStatus } from "../inference/llama-runtime.js"
 import {
@@ -15,6 +17,7 @@ import {
   findLocalModel,
   type LocalModelSpec,
 } from "../inference/local-catalog.js"
+import { fitLocalModel } from "../inference/local-fit.js"
 import type { LocalThinkingState } from "../inference/local-thinking.js"
 import { createUserMessage, imageAttachmentsFromMessages } from "../inference/messages.js"
 import {
@@ -27,6 +30,8 @@ import {
   type HostedPickerChoice,
   isSelectablePickerItem,
   isServerPickerChoice,
+  type LocalPickerChoice,
+  listModelPickerItems,
   type ModelPickerChoice,
   toLocalCatalogModel,
   toPairCatalogModel,
@@ -69,6 +74,7 @@ import {
   saveKeepAwake,
   saveLocalServers,
   saveLocalThinking,
+  saveOfflineFallback,
   savePermissionMode,
   savePrimeTeamId,
   saveProject,
@@ -209,6 +215,11 @@ export type AppStatus = {
   runtimes: RuntimeSummary[]
   /** Busy runtimes other than the focused one. */
   working: number
+  /**
+   * Hosted providers stopped answering, and the hosted model the focused session returns to once
+   * one does, when it moved to an on-device model meanwhile.
+   */
+  offline: { returnsTo: string | null } | null
 }
 
 type AppEventBody =
@@ -238,6 +249,11 @@ export type SelectModelOptions = {
   hostedApiKey?: string
   /** Replaces the default `saveSelectedModel`, e.g. to save a new key and model together. */
   persist?: (serving: CatalogModel) => Promise<void>
+  /**
+   * The session's own running turn moves with it, as when it reruns offline; other sessions'
+   * turns still refuse the switch.
+   */
+  inTurn?: boolean
 }
 
 const MODEL_START_CANCELLED = "The model start was cancelled."
@@ -258,7 +274,14 @@ export function isSelectionCancelled(result: SelectionResult) {
 
 /** The catalog model behind a hosted picker row, without the row's own fields. */
 function hostedCatalogModel(choice: HostedPickerChoice): HostedModel {
-  const { kind: _kind, available: _available, active: _active, status: _status, ...model } = choice
+  const {
+    kind: _kind,
+    available: _available,
+    availabilityLabel: _label,
+    active: _active,
+    status: _status,
+    ...model
+  } = choice
   return model
 }
 
@@ -327,6 +350,8 @@ export class SessionRuntime {
     | undefined
   /** An in-place open whose working folder is unknown or gone; prompts wait for a locate. */
   readOnly: { dirName: string; sessionId: string } | undefined
+  /** While offline: the hosted model this session left, and the on-device model it moved to. */
+  fallback: { from: HostedModel; to: CatalogModel } | undefined
   /** Settled while not focused; cleared on focus. */
   unseen = false
   failed = false
@@ -394,7 +419,12 @@ export class Application {
   routinesError: string | undefined
   /** The approval surface every runtime asks through; `status().permission` is its head. */
   readonly permissions = new PermissionBroker()
-  readonly webClient = new ParallelClient()
+  // A web request that cannot get through makes the network be checked at once.
+  readonly webClient = new ParallelClient({
+    onUnreachable: () => {
+      if (this.#networkWatch) void this.checkNetwork()
+    },
+  })
   settings: LocalSettings
   permissionMode: PermissionMode
   /** The user's own rules from settings; each workspace adds its project's. */
@@ -421,6 +451,18 @@ export class Application {
   readonly #switching = new Set<SessionRuntime>()
   /** One catalog lookup at a time resolves an unknown image capability for the selected model. */
   #imageSupport: { modelId: string; promise: Promise<void> } | undefined
+  /** Hosted providers stopped answering; cleared when one answers again. */
+  #offline = false
+  /** Parallel, which the web tools reach, stopped answering; cleared when it answers again. */
+  #webOffline = false
+  /** Sessions already told this time offline that nothing on this machine can take over. */
+  #stranded = new WeakSet<SessionRuntime>()
+  /** The network watch of an interface that shows it; headless runs keep the model they name. */
+  #networkWatch: ReturnType<typeof setInterval> | undefined
+  /** Checks and the moves they cause run one at a time, so no move supersedes another. */
+  #networkWork: Promise<unknown> = Promise.resolve()
+  /** The background install of the runtime the offline move would need, while it runs. */
+  #preparing: AbortController | undefined
 
   static async create(options: ApplicationOptions = {}) {
     const settings = await loadLocalSettings({ env: options.env })
@@ -574,6 +616,15 @@ export class Application {
       outputCapabilities: this.outputCapabilities,
       artifacts,
       gate: () => this.admissionGate(runtime),
+      // A request failed before anything streamed: when no hosted provider answers, the session
+      // moves to an on-device model mid-turn, and the turn runs again there.
+      recover: async () => {
+        const model = runtime.selection?.model
+        if (!this.#networkWatch || !model || !isHostedModel(model)) return false
+        await this.checkNetwork()
+        return this.#offline && this.#serialNetwork(() => this.#followNetwork(runtime, true))
+      },
+      webReachable: () => !this.#webOffline,
     })
     conversation.debug = this.#debug
     runtime = new SessionRuntime(
@@ -591,7 +642,12 @@ export class Application {
           sessions.subscribe(() => this.#notify({ type: "status" }, self.id)),
           transcript.subscribe((change) => this.#notify({ type: "transcript", change }, self.id)),
           conversation.subscribe((event) => {
-            if (event.type === "busy") this.#syncAwake()
+            if (event.type === "busy") {
+              this.#syncAwake()
+              // A session that worked through a change of network catches up once idle.
+              if (!self.busy && this.#networkWatch)
+                void this.#serialNetwork(() => this.#followNetwork(self)).catch(() => {})
+            }
             if (event.type === "settled") {
               if (self !== this.#focused) {
                 self.unseen = true
@@ -610,6 +666,8 @@ export class Application {
         }
       },
     )
+    // A session opened while offline starts where the focused one is, and returns with it.
+    runtime.fallback = this.#focused?.fallback
     return runtime
   }
 
@@ -671,6 +729,202 @@ export class Application {
     if (hold || !this.#releaseAwake) return
     this.#releaseAwake()
     this.#releaseAwake = undefined
+  }
+
+  /**
+   * While no hosted provider answers, what the picker greys out: the model the focused session
+   * returns to.
+   */
+  get offline(): { returnsTo?: HostedModel } | undefined {
+    return this.#offline ? { returnsTo: this.#focused.fallback?.from } : undefined
+  }
+
+  /**
+   * Turns the move to an on-device model while offline on or off. Off leaves sessions that
+   * already moved where they are; each still returns once the network does.
+   */
+  async setOfflineFallback(enabled: boolean) {
+    this.settings.offlineFallback = enabled
+    await saveOfflineFallback(enabled)
+    this.#notify({ type: "status" })
+    if (enabled && this.#networkWatch) void this.checkNetwork()
+  }
+
+  /**
+   * Starts following the network for an interface that shows it. The machine's addresses are
+   * compared every few seconds, which sends nothing; the hosted providers in use and Parallel are
+   * asked when those change, when a request cannot get through, and every half minute while
+   * either does not answer.
+   */
+  watchNetwork() {
+    if (this.#networkWatch) return
+    let addresses = interfaceAddresses()
+    let ticks = 0
+    this.#networkWatch = setInterval(() => {
+      const next = interfaceAddresses()
+      ticks += 1
+      const unreachable = this.#offline || this.#webOffline
+      if (next !== addresses || (unreachable && ticks % OFFLINE_RECHECK_TICKS === 0))
+        void this.checkNetwork()
+      addresses = next
+    }, NETWORK_POLL_MS)
+    this.#networkWatch.unref()
+    void this.checkNetwork()
+  }
+
+  /**
+   * Asks the hosted providers the sessions use, and Parallel, whether they answer, then puts every
+   * idle session where that allows: on an on-device model while no provider does, back on its own
+   * once one does. Turns offer the web tools only while Parallel answers. Never rejects: a check
+   * that could not finish waits for the next one.
+   */
+  checkNetwork() {
+    return this.#serialNetwork(async () => {
+      const providers = new Set(
+        this.#runtimes.flatMap((runtime) => {
+          const model = runtime.fallback?.from ?? runtime.selection?.model
+          return model && isHostedModel(model) ? [model.provider] : []
+        }),
+      )
+      const [reachable, web] = await Promise.all([
+        Promise.all([...providers].map(hostedProviderReachable)),
+        this.webClient.reachable(),
+      ])
+      this.#webOffline = !web
+      const offline = providers.size > 0 && !reachable.some(Boolean)
+      if (offline !== this.#offline) {
+        this.#offline = offline
+        if (!offline) {
+          // A session told nothing could take over hears that it is over; one that moved is told
+          // as it moves back.
+          for (const runtime of this.#runtimes)
+            if (this.#stranded.has(runtime))
+              runtime.transcript.addNotice("Hosted models are reachable again", "online")
+          this.#stranded = new WeakSet()
+        }
+        this.#notify({ type: "status" })
+      }
+      for (const runtime of [...this.#runtimes]) await this.#followNetwork(runtime)
+      // Online, the runtime of the model a session would move to offline installs in the
+      // background, since none can download then; a failure waits for the next check.
+      if (offline || !providers.size || this.settings.offlineFallback === false || this.#preparing)
+        return
+      const preparing = new AbortController()
+      this.#preparing = preparing
+      void this.#onDevice()
+        .then(async ([first]) => {
+          const start = first?.start
+          if (start && !(await this.models.llama.runtimeInstalled(start.spec, start.hardware)))
+            await this.models.llama.installRuntime(start.spec, start.hardware, preparing.signal)
+        })
+        .catch(() => {})
+        .finally(() => {
+          this.#preparing = undefined
+        })
+    }).catch(() => {})
+  }
+
+  /**
+   * What could take over while offline, best first: models on a running oMLX or custom server,
+   * else downloaded managed-local models this machine can run, the last on-device model selected
+   * leading. A managed-local one carries what its runtime is resolved from.
+   */
+  async #onDevice(): Promise<
+    { model: CatalogModel; start?: { spec: LocalModelSpec; hardware: HardwareProbe } }[]
+  > {
+    const lastFirst = <T extends CatalogModel>(models: T[]) => {
+      const last = models.filter(
+        (model) => modelKey(model.provider, model.id) === this.settings.lastLocalModel,
+      )
+      return [...last, ...models.filter((model) => !last.includes(model))]
+    }
+    const servers = Object.values(await this.models.discoverServers()).flat()
+    if (servers.length) return lastFirst(servers).map((model) => ({ model }))
+    const hardware = await detectHardware()
+    const local = (await listModelPickerItems({ hardware })).filter(
+      (item): item is LocalPickerChoice =>
+        item.kind === "model" && item.provider === "local" && item.downloaded && item.available,
+    )
+    return lastFirst(local).map((item) => {
+      const spec = findLocalModel(item.id)
+      if (!spec) throw new Error(`Unknown local model: ${item.id}`)
+      return {
+        model: toLocalCatalogModel(item),
+        start: { spec: fitLocalModel(spec, hardware).model, hardware },
+      }
+    })
+  }
+
+  #serialNetwork<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.#networkWork.then(work)
+    this.#networkWork = result.catch(() => undefined)
+    return result
+  }
+
+  /**
+   * Puts a session where the network allows: on an on-device model while offline, when the
+   * setting allows, and back on the hosted model it left once online, unless the user picked
+   * another meanwhile. A busy session is left to catch up once idle.
+   */
+  async #followNetwork(runtime: SessionRuntime, inTurn = false) {
+    if ((runtime.busy && !inTurn) || !this.#runtimes.includes(runtime)) return false
+    const { fallback } = runtime
+    if (!this.#offline) {
+      if (!fallback) return false
+      runtime.fallback = undefined
+      const current = runtime.selection?.model
+      if (current?.provider !== fallback.to.provider || current.id !== fallback.to.id) {
+        this.#notify({ type: "status" })
+        return false
+      }
+      const { from } = fallback
+      const result = await this.selectModel(from, { runtime, persist: async () => {} })
+      runtime.transcript.addNotice(
+        result.ok
+          ? `Switched back to ${from.displayName}`
+          : `${from.displayName} could not be restored: ${result.reason}`,
+        "online",
+      )
+      this.#notify({ type: "status" })
+      return result.ok
+    }
+    const from = runtime.selection?.model
+    if (fallback || !from || !isHostedModel(from) || this.settings.offlineFallback === false)
+      return false
+    // Offline, a downloaded model starts only on a runtime already installed: none downloads.
+    const candidates = await this.#onDevice()
+    const startable: CatalogModel[] = []
+    for (const { model, start } of candidates)
+      if (!start || (await this.models.llama.runtimeInstalled(start.spec, start.hardware)))
+        startable.push(model)
+    // One whose window holds the conversation keeps it whole; any other compacts it to fit, and
+    // the summary is what the hosted model continues from once back.
+    const tokens = this.contextTokens(undefined, runtime)
+    const to =
+      startable.find((model) => tokens < this.models.autoCompactAtTokens(model)) ?? startable[0]
+    // Why nothing took over is told once each time offline; the move is tried at every check.
+    const tell = (text: string) => {
+      if (!this.#stranded.has(runtime)) runtime.transcript.addNotice(text, "offline")
+      this.#stranded.add(runtime)
+    }
+    if (!to) {
+      tell(
+        candidates.length
+          ? "Downloaded models need their llama.cpp runtime, which downloads next time you're online"
+          : "No model on this machine can take over. Download one from the model picker to keep working offline",
+      )
+      return false
+    }
+    const result = await this.selectModel(to, { runtime, persist: async () => {}, inTurn })
+    if (!result.ok) {
+      tell(`${to.displayName} could not start: ${result.reason}`)
+      return false
+    }
+    runtime.fallback = { from, to }
+    const where = isServerProvider(to.provider) ? SERVER_INFO[to.provider].name : "this machine"
+    runtime.transcript.addNotice(`Switched to ${to.displayName} on ${where}`, "offline")
+    this.#notify({ type: "status" })
+    return true
   }
 
   /**
@@ -977,6 +1231,9 @@ export class Application {
       modelState: this.#focused.modelState,
       modelError: this.#focused.modelError,
       modelLoad: models.load ?? null,
+      offline: this.#offline
+        ? { returnsTo: this.#focused.fallback?.from.displayName ?? null }
+        : null,
       session: sessions.current ? { id: sessions.current.id, title: sessions.activeLabel() } : null,
       diffs: sessions.diffs,
       contextTokens: this.contextTokens(),
@@ -1386,7 +1643,7 @@ export class Application {
     options: SelectModelOptions = {},
   ): Promise<SelectionResult> {
     const runtime = options.runtime ?? this.#focused
-    const refusal = this.#switchRefusal(runtime, target.provider)
+    const refusal = this.#switchRefusal(runtime, target.provider, options.inTurn)
     if (refusal) return refusal
     const models = this.models
     const choice = "kind" in target ? target : undefined
@@ -1409,7 +1666,7 @@ export class Application {
           return { ok: true }
         // Defense in depth: no session a switch affects can start a turn while one is queued, so
         // running work here means a turn outlived the entry check.
-        const refusal = this.#switchRefusal(runtime, target.provider)
+        const refusal = this.#switchRefusal(runtime, target.provider, options.inTurn)
         if (refusal) return refusal
         const selected: CatalogModel = !choice
           ? target
@@ -1460,7 +1717,11 @@ export class Application {
    * A switch is refused while its session works, and a switch of the managed server while any
    * session on it works, since the server restart would cut those turns off.
    */
-  #switchRefusal(runtime: SessionRuntime, provider: ModelProvider): SelectionResult | undefined {
+  #switchRefusal(
+    runtime: SessionRuntime,
+    provider: ModelProvider,
+    inTurn = false,
+  ): SelectionResult | undefined {
     const restartsServer =
       provider === "local" ||
       (runtime.selection?.model.provider === "local" && !this.#localElsewhere(runtime))
@@ -1469,7 +1730,7 @@ export class Application {
           (other) => other === runtime || other.selection?.model.provider === "local",
         )
       : [runtime]
-    if (this.#deleting || affected.some((other) => other.busy))
+    if (this.#deleting || affected.some((other) => other.busy && !(inTurn && other === runtime)))
       return { ok: false, reason: "Finish the current work before switching models." }
     return undefined
   }
@@ -1647,6 +1908,8 @@ export class Application {
 
   /** Disposes every runtime (turns stopped, locks released), then stops the models. */
   async shutdown() {
+    clearInterval(this.#networkWatch)
+    this.#preparing?.abort()
     for (const runtime of this.#runtimes) runtime.conversation.stop()
     for (const { id } of this.permissions.pending) this.permissions.respond(id, false)
     this.models.cancelPrepare()
@@ -1660,6 +1923,19 @@ export class Application {
 }
 
 const MAX_VISIBLE_SEGMENTS = 3
+const NETWORK_POLL_MS = 5_000
+/** Poll ticks between reachability checks while offline: half a minute. */
+const OFFLINE_RECHECK_TICKS = 6
+
+/** This machine's external addresses, which change as networks come and go. */
+function interfaceAddresses() {
+  return Object.values(networkInterfaces())
+    .flatMap((addresses) => addresses ?? [])
+    .filter((address) => !address.internal)
+    .map((address) => address.address)
+    .sort()
+    .join(" ")
+}
 
 export function formatWorkspaceLabel(cwd: string, userHome = homedir()) {
   const absoluteCwd = resolve(cwd)

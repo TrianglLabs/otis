@@ -65,6 +65,7 @@ import type {
 import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
+import { docxWithBody } from "../../inference/support/document-fixtures.js"
 import { fakeApi as fakeDesktopApi, snapshotFixture } from "../support/desktop-api.js"
 
 // Ghostty paints to a canvas; the shell tests care about the tab around it.
@@ -2661,7 +2662,7 @@ describe("AppShell settings navigation", () => {
     expect(open).toHaveBeenCalledExactlyOnceWith("https://example.com/docs", "_blank", "noopener")
   })
 
-  it("renders Word artifacts as styled semantic documents without script access", async () => {
+  it("lays Word artifacts out with their own styles, without script access", async () => {
     const artifact = {
       id: "workspace:plan.docx",
       revision: 1,
@@ -2682,18 +2683,23 @@ describe("AppShell settings navigation", () => {
           ok: true as const,
           payload: {
             ...artifact,
-            encoding: "html" as const,
-            content:
-              "<h1>Launch plan</h1><table><tr><th>State</th></tr><tr><td>Ready</td></tr></table>",
+            encoding: "bytes" as const,
+            content: await docxWithBody(
+              '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"/><w:b/><w:color w:val="C00000"/><w:sz w:val="40"/></w:rPr><w:t>Launch plan</w:t></w:r></w:p>' +
+                '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>',
+            ),
           },
         })),
       }),
     )
 
-    await screen.findByTitle("plan.docx")
-    const frame = document.querySelector('iframe[title="plan.docx"]')
-    expect(frame).toBeTruthy()
-    if (!frame) throw new Error("Word Canvas frame is missing")
+    // The pages are laid out asynchronously, then framed.
+    const frame = await waitFor(() => {
+      const found = document.querySelector('iframe[title="plan.docx"]')
+      if (!found)
+        throw new Error(document.querySelector(".canvas-empty")?.textContent ?? "no frame")
+      return found
+    })
     // The converted document goes through the same policy-owning host as source HTML.
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
     expect(frame.getAttribute("srcdoc")).toBeNull()
@@ -2705,12 +2711,22 @@ describe("AppShell settings navigation", () => {
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "otis-webpage-source",
+        // A page of the document's own section, its runs carrying Word's formatting. (happy-dom
+        // keeps only some of the inline styles Chromium does.)
         source: expect.stringMatching(
-          /<h1>Launch plan<\/h1>[\s\S]*border-collapse: collapse|border-collapse: collapse[\s\S]*<h1>Launch plan<\/h1>/,
+          /<div class="docx-wrapper"><section class="docx"[^>]*><article><p[^>]*><span style="font-weight: bold;[^"]*">Launch plan<\/span>/,
         ),
       }),
       "*",
     )
+    // Its pages fit the frame's width, as PDF pages fit the panel.
+    expect(
+      postMessage.mock.calls.some(([message]) =>
+        String((message as { source?: string }).source).includes(
+          "page.style.zoom = String((innerWidth - 32) / parseFloat(page.dataset.width))",
+        ),
+      ),
+    ).toBe(true)
   })
 
   it("does not offer an incomplete streaming Mermaid block to Canvas", async () => {
@@ -3500,6 +3516,55 @@ describe("text size", () => {
   })
 })
 
+describe("offline fallback", () => {
+  it("marks the model chip offline and names the model the session returns to", async () => {
+    await renderApp(
+      fakeDesktopApi({
+        ...SNAPSHOT,
+        model: {
+          id: "Qwen/Qwen3.8-27B",
+          provider: "local",
+          displayName: "Qwen3.8 27B",
+          supportsImageInput: false,
+        },
+        offline: { returnsTo: "gpt-oss 20B" },
+        entries: [
+          { id: 1, kind: "message", speaker: "You", text: "hello" },
+          {
+            id: 2,
+            kind: "notice",
+            speaker: "Otis",
+            network: "offline",
+            text: "Switched to Qwen3.8 27B on this machine",
+          },
+        ],
+      }),
+    )
+    const chip = document.querySelector(".composer-model") as HTMLElement
+    expect(chip.classList.contains("composer-model-offline")).toBe(true)
+    expect(chip.textContent).toBe("OfflineQwen3.8 27B")
+    expect(chip.getAttribute("title")).toBe(
+      "Offline — returns to gpt-oss 20B when the network is back",
+    )
+    const notice = document.querySelector(".networkNotice") as HTMLElement
+    expect(notice.getAttribute("role")).toBe("status")
+    expect(notice.classList.contains("networkNotice-offline")).toBe(true)
+    expect(notice.textContent).toBe("OfflineSwitched to Qwen3.8 27B on this machine")
+  })
+
+  it("switches the move to a local model off from General settings", async () => {
+    const api = fakeDesktopApi(SNAPSHOT)
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    await act(async () => {})
+    const toggle = screen.getByRole("switch", { name: "Local model when offline" })
+    expect(toggle.getAttribute("aria-checked")).toBe("true")
+    fireEvent.click(toggle)
+    expect(api.setOfflineFallback).toHaveBeenCalledWith(false)
+  })
+})
+
 describe("app icon", () => {
   it("picks the app icon from tiles in Appearance", async () => {
     const api = fakeApi({
@@ -3517,10 +3582,10 @@ describe("app icon", () => {
     const pressed = (name: string) =>
       icons.getByRole("button", { name }).getAttribute("aria-pressed")
     expect(
-      ["Obsidian", "Obsidian dark", "Macro", "Aqua", "Night", "Ember"].map((name) => pressed(name)),
+      ["Default", "Obsidian Dark", "Macro", "Aqua", "Night", "Ember"].map((name) => pressed(name)),
     ).toEqual(["true", "false", "false", "false", "false", "false"])
-    fireEvent.click(icons.getByRole("button", { name: "Macro" }))
-    expect(api.setAppIcon).toHaveBeenCalledWith("macro")
+    fireEvent.click(icons.getByRole("button", { name: "Obsidian Dark" }))
+    expect(api.setAppIcon).toHaveBeenCalledWith("obsidian-dark")
   })
   it("names every theme in the interface language, as a word, and applies the one chosen", async () => {
     const api = fakeApi({ setTheme: vi.fn(async () => {}) })
@@ -3529,9 +3594,15 @@ describe("app icon", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Appearance" }))
     await act(async () => {})
     const panel = within(screen.getByRole("tabpanel", { name: "Appearance" }))
-    expect(panel.getByRole("button", { name: "Default" }).getAttribute("aria-pressed")).toBe("true")
-    expect(panel.queryByRole("button", { name: "midnight" })).toBeNull()
-    fireEvent.click(panel.getByRole("button", { name: "Midnight" }))
+    // The default app icon tile shares its name with the default theme tile.
+    const themes = within(
+      panel.getByRole("heading", { name: "Theme" }).closest(".settingsGroup") as HTMLElement,
+    )
+    expect(themes.getByRole("button", { name: "Default" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    )
+    expect(themes.queryByRole("button", { name: "midnight" })).toBeNull()
+    fireEvent.click(themes.getByRole("button", { name: "Midnight" }))
     expect(api.setTheme).toHaveBeenCalledWith("midnight")
   })
   it("leaves the app icon out of Appearance where the system ignores it", async () => {

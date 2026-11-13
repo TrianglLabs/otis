@@ -117,7 +117,7 @@ const mocks = vi.hoisted(() => {
       return { model: config.model, streamChat, complete: generateCompletion }
     }),
     ParallelClient: vi.fn(function ParallelClient() {
-      return { search: vi.fn(), read: vi.fn() }
+      return { search: vi.fn(), read: vi.fn(), reachable: vi.fn(async () => true) }
     }),
     createPairClient: vi.fn(function createPairClient(config: { model: string }) {
       return { model: config.model, streamChat, complete: generateCompletion }
@@ -179,6 +179,8 @@ const mocks = vi.hoisted(() => {
     ),
     saveSubagentPanelVisible: vi.fn(async () => undefined),
     saveKeepAwake: vi.fn(async () => undefined),
+    saveOfflineFallback: vi.fn(async () => undefined),
+    hostedProviderReachable: vi.fn(async () => true),
     savePermissionMode: vi.fn(async () => undefined),
     detectHardware: vi.fn(async () => ({
       platform: "darwin" as const,
@@ -295,6 +297,10 @@ vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
   }
 })
 vi.mock("../../../src/web/client.js", () => ({ ParallelClient: mocks.ParallelClient }))
+vi.mock("../../../src/inference/catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/inference/catalog.js")>()),
+  hostedProviderReachable: mocks.hostedProviderReachable,
+}))
 vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../src/local/settings.js")>()),
   clearSelectedModel: mocks.clearSelectedModel,
@@ -308,6 +314,7 @@ vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   saveLocalThinking: mocks.saveLocalThinking,
   saveSubagentPanelVisible: mocks.saveSubagentPanelVisible,
   saveKeepAwake: mocks.saveKeepAwake,
+  saveOfflineFallback: mocks.saveOfflineFallback,
   savePermissionMode: mocks.savePermissionMode,
 }))
 vi.mock("../../../src/local/stats.js", () => ({

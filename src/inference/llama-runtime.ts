@@ -270,7 +270,7 @@ export class LlamaCppRuntime {
     if (!fit.available) throw unavailableError(fit)
     const key = JSON.stringify([
       model.id,
-      llamaRuntimeReleaseTag(model.runtime),
+      llamaRuntimeReleaseTag(model.runtime, hardware.cudaVersion),
       model.ggufRepo,
       model.ggufRevision,
       model.quant,
@@ -650,45 +650,39 @@ export class LlamaCppRuntime {
     return childEnv
   }
 
-  async #resolveBinary(
+  /**
+   * Whether the runtime a model starts on is installed and verified, so it starts without a
+   * download, as it must offline. A custom server executable always counts.
+   */
+  async runtimeInstalled(model: LocalModelSpec, hardware: HardwareProbe) {
+    if ((this.#options.env ?? process.env).OTIS_LLAMA_SERVER?.trim()) return true
+    const target = llamaRuntimeTarget(hardware, model.runtime)
+    const { binaryDir, releaseTag, artifactSha256 } = this.#bundle(model, target)
+    return isUsableRuntimeBundle(binaryDir, releaseTag, target, artifactSha256)
+  }
+
+  /**
+   * Downloads and installs the runtime a model starts on ahead of its first start, so it can start
+   * later without a network, then removes the bundles no release pins any more.
+   */
+  async installRuntime(model: LocalModelSpec, hardware: HardwareProbe, signal: AbortSignal) {
+    const target = llamaRuntimeTarget(hardware, model.runtime)
+    const { binaryRoot } = await this.#ensureBundle(model, target, signal)
+    await removeUnpinnedRuntimeBundles(binaryRoot)
+  }
+
+  /** The verified bundle a model's runtime runs from, downloaded and installed when missing. */
+  async #ensureBundle(
     model: LocalModelSpec,
     hardware: HardwareProbe,
-    context: StartContext,
-    failures: string[],
-  ): Promise<ResolvedRuntime> {
-    const { signal, onProgress, onNotice } = context
-    const configured = (this.#options.env ?? process.env).OTIS_LLAMA_SERVER?.trim()
-    if (configured) {
-      await assertExecutable(configured)
-      return { binaryPath: configured, hardware, managed: false }
-    }
-
-    const binaryRoot = this.#options.dataDirectory
-      ? join(this.#options.dataDirectory, "bin")
-      : dirname(llamaBinaryDirectory("release"))
-    const releaseTag = llamaRuntimeReleaseTag(model.runtime)
-    // Keep CUDA, Vulkan, and the CPU bundle side by side so a failed device probe can reuse the
-    // next backend without redownloading either runtime on every model load. macOS has one build.
-    const bundleName =
-      hardware.backend === "cuda"
-        ? `${releaseTag}-cuda-${hardware.cudaVersion}`
-        : hardware.backend === "cpu" && hardware.platform !== "darwin"
-          ? `${releaseTag}-cpu`
-          : releaseTag
-    const binaryDir = join(binaryRoot, bundleName)
-    const binaryPath = join(binaryDir, serverExecutable(hardware))
-    const asset = (this.#options.runtimeAsset ?? pinnedLlamaCppAsset)(
-      {
-        platform: hardware.platform,
-        arch: hardware.arch,
-        backend: hardware.backend,
-        cudaVersion: hardware.cudaVersion,
-      },
-      model.runtime,
+    signal: AbortSignal,
+    onProgress?: (progress: LocalLoadProgress) => void,
+  ) {
+    const { binaryRoot, releaseTag, bundleName, binaryDir, asset, artifactSha256 } = this.#bundle(
+      model,
+      hardware,
     )
-    const artifactSha256 = asset.companion
-      ? createHash("sha256").update(`${asset.sha256}:${asset.companion.sha256}`).digest("hex")
-      : asset.sha256
+    const binaryPath = join(binaryDir, serverExecutable(hardware))
     const usable = () => isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256)
     if (!(await usable())) {
       // Archives and partial downloads persist beside the bundle root, so a retry after a failed
@@ -711,7 +705,59 @@ export class LlamaCppRuntime {
       }
       await assertExecutable(binaryPath)
     }
+    return { binaryRoot, binaryPath }
+  }
 
+  /** Where a model's runtime bundle lives for this hardware, and the archives it comes from. */
+  #bundle(model: LocalModelSpec, hardware: HardwareProbe) {
+    const binaryRoot = this.#options.dataDirectory
+      ? join(this.#options.dataDirectory, "bin")
+      : dirname(llamaBinaryDirectory("release"))
+    const releaseTag = llamaRuntimeReleaseTag(model.runtime, hardware.cudaVersion)
+    // Keep CUDA, Vulkan, and the CPU bundle side by side so a failed device probe can reuse the
+    // next backend without redownloading either runtime on every model load. macOS has one build.
+    const bundleName =
+      hardware.backend === "cuda"
+        ? `${releaseTag}-cuda-${hardware.cudaVersion}`
+        : hardware.backend === "cpu" && hardware.platform !== "darwin"
+          ? `${releaseTag}-cpu`
+          : releaseTag
+    const asset = (this.#options.runtimeAsset ?? pinnedLlamaCppAsset)(
+      {
+        platform: hardware.platform,
+        arch: hardware.arch,
+        backend: hardware.backend,
+        cudaVersion: hardware.cudaVersion,
+      },
+      model.runtime,
+    )
+    const artifactSha256 = asset.companion
+      ? createHash("sha256").update(`${asset.sha256}:${asset.companion.sha256}`).digest("hex")
+      : asset.sha256
+    return {
+      binaryRoot,
+      releaseTag,
+      bundleName,
+      binaryDir: join(binaryRoot, bundleName),
+      asset,
+      artifactSha256,
+    }
+  }
+
+  async #resolveBinary(
+    model: LocalModelSpec,
+    hardware: HardwareProbe,
+    context: StartContext,
+    failures: string[],
+  ): Promise<ResolvedRuntime> {
+    const { signal, onProgress, onNotice } = context
+    const configured = (this.#options.env ?? process.env).OTIS_LLAMA_SERVER?.trim()
+    if (configured) {
+      await assertExecutable(configured)
+      return { binaryPath: configured, hardware, managed: false }
+    }
+
+    const { binaryRoot, binaryPath } = await this.#ensureBundle(model, hardware, signal, onProgress)
     const runtime = { binaryPath, hardware, managed: true }
     const label = BACKEND_LABEL[hardware.backend]
     const notice = () => {
@@ -1163,9 +1209,11 @@ async function removeUnpinnedRuntimeBundles(binaryRoot: string) {
     throw error
   }
   const pinned = new Set<string>(PINNED_LLAMA_CPP_RELEASE_TAGS)
+  // The 13.4 release is pinned for its CUDA 13.4 bundle alone.
+  const cuda13_4 = `${llamaRuntimeReleaseTag("upstream", "13.4")}-cuda-13.4`
   const stale = entries.filter((entry) => {
     const tag = /^(b\d+|prism-b\d+-[a-f0-9]+)(?:-cuda-\d+\.\d+|-cpu)?$/.exec(entry.name)?.[1]
-    return entry.isDirectory() && tag !== undefined && !pinned.has(tag)
+    return entry.isDirectory() && tag !== undefined && !pinned.has(tag) && entry.name !== cuda13_4
   })
   await Promise.allSettled(
     stale.map((entry) => rm(join(binaryRoot, entry.name), { recursive: true, force: true })),

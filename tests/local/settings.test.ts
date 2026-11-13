@@ -16,6 +16,7 @@ import {
   saveKeepAwake,
   saveLocalServers,
   saveLocalThinking,
+  saveOfflineFallback,
   savePermissionMode,
   savePrimeTeamId,
   saveProject,
@@ -40,6 +41,28 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("keeps the offline fallback switch and the last on-device model selected", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveOfflineFallback(false, { file })
+    await saveSelectedModel(
+      {
+        provider: "local",
+        id: "Qwen/Qwen3.8-27B",
+        displayName: "Qwen3.8 27B",
+        contextLength: 32_768,
+        supportsImageInput: false,
+      },
+      { file },
+    )
+    // A hosted selection afterwards leaves the last on-device one in place.
+    await saveSelectedModel(model("org/hosted", "Hosted", 65_536), { file })
+    const saved = await loadLocalSettings({ file, env: {} })
+    expect(saved).toMatchObject({
+      offlineFallback: false,
+      lastLocalModel: "local:Qwen/Qwen3.8-27B",
+      modelDisplayName: "Hosted",
+    })
+  })
   it("keeps the chat text size and rejects sizes it does not know", async () => {
     const file = join(await tempDirectory(), "config.json")
     await saveTextSize("large", { file })
@@ -327,12 +350,14 @@ describe("local settings", () => {
       { file },
     )
     await clearSelectedModel({ file })
+    // Clearing the selection keeps the last on-device model, which only ever picks a downloaded one.
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
       version: 1,
       fireworksApiKey: "fw_key",
       togetherApiKey: "tg_key",
       basetenApiKey: "bt_key",
       primeintellectApiKey: "pi_key",
+      lastLocalModel: "local:openai/gpt-oss-20b",
     })
     expect(hostedApiKeys(await loadLocalSettings({ file, env: {} }))).toEqual({
       fireworks: "fw_key",

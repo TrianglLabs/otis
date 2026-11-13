@@ -143,6 +143,8 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     notifyOnCompletion: true,
     keepAwake: false,
     alertSound: false,
+    offlineFallback: true,
+    offline: null,
     otherAgentsEnabled: true,
     cli: null,
     permissionMode: "ask",
