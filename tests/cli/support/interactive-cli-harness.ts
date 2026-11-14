@@ -167,7 +167,7 @@ const mocks = vi.hoisted(() => {
       remove: vi.fn(async (id: string) => ({ id, url: "", skills: [] as ManagedSkill[] })),
     },
     openSession: vi.fn(),
-    openHostedKeyPage: vi.fn(async () => true),
+    openURL: vi.fn(async (_url: string) => true),
     saveHostedApiKey: vi.fn(async () => undefined),
     saveHiddenModels: vi.fn(async () => undefined),
     saveLocalServers: vi.fn(async () => undefined),
@@ -352,9 +352,9 @@ vi.mock("../../../src/inference/llama-runtime.js", async (importOriginal) => {
   }
 })
 vi.mock("../../../src/cli/chat-ui.js", () => ({ createChatUI: mocks.createChatUI }))
-vi.mock("../../../src/cli/provider-links.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../src/cli/provider-links.js")>()
-  return { ...actual, openHostedKeyPage: mocks.openHostedKeyPage }
+vi.mock("../../../src/cli/links.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/cli/links.js")>()
+  return { ...actual, openURL: mocks.openURL }
 })
 vi.mock("../../../src/cli/update.js", () => ({
   checkForUpdate: mocks.checkForUpdate,

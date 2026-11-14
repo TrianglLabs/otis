@@ -1,6 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { buildSystemPrompt } from "../../src/inference/system-prompt.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
+
+/** The computer the prompt names: this machine unless a test describes another. */
+const computer = vi.hoisted(() => ({ platform: "linux" as NodeJS.Platform, os: "", arch: "" }))
+vi.mock("../../src/local/paths.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/local/paths.js")>()
+  Object.assign(computer, actual.THIS_COMPUTER)
+  return { ...actual, THIS_COMPUTER: computer }
+})
+const THIS_MACHINE = { ...computer }
+afterEach(() => {
+  Object.assign(computer, THIS_MACHINE)
+})
 
 describe("system prompt", () => {
   it("requires format and design preservation and only offers enabled document operations", () => {
@@ -23,18 +35,36 @@ describe("system prompt", () => {
     expect(buildSystemPrompt({ now: new Date() })).not.toContain("Document work:")
   })
 
+  it("names the computer's operating system and processor on every platform", () => {
+    Object.assign(computer, { platform: "darwin", os: "macOS 26.1", arch: "arm64" })
+    expect(buildSystemPrompt({ now: new Date() })).toContain(
+      "The computer runs macOS 26.1 on arm64.",
+    )
+    Object.assign(computer, { platform: "linux", os: "Linux (Ubuntu 24.04.1 LTS)", arch: "x64" })
+    expect(buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS })).toContain(
+      "The computer runs Linux (Ubuntu 24.04.1 LTS) on x64.",
+    )
+    // This machine, as read from the system itself.
+    Object.assign(computer, THIS_MACHINE)
+    const name = { darwin: /macOS [\d.]+/, linux: /Linux/, win32: /Windows 1[01]/ }[
+      process.platform as "darwin" | "linux" | "win32"
+    ]
+    expect(buildSystemPrompt({ now: new Date() })).toMatch(
+      new RegExp(`The computer runs ${name?.source ?? ".+"} .*on ${process.arch}\\.`),
+    )
+  })
+
   it("tells a Windows model that bash is Git Bash, only when bash is offered", () => {
-    const windows = buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS }, "win32")
-    expect(windows).toContain("The computer runs Windows. bash runs commands in Git Bash")
-    expect(buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS }, "linux")).not.toContain(
+    Object.assign(computer, { platform: "win32", os: "Windows 11", arch: "x64" })
+    expect(buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS })).toContain(
+      "The computer runs Windows 11 on x64. bash runs commands in Git Bash",
+    )
+    const withoutBash = TOOL_DEFINITIONS.filter((tool) => tool.name !== "bash")
+    expect(buildSystemPrompt({ now: new Date(), tools: withoutBash })).not.toContain("Git Bash")
+    Object.assign(computer, { platform: "linux", os: "Linux", arch: "x64" })
+    expect(buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS })).not.toContain(
       "Git Bash",
     )
-    expect(
-      buildSystemPrompt(
-        { now: new Date(), tools: TOOL_DEFINITIONS.filter((tool) => tool.name !== "bash") },
-        "win32",
-      ),
-    ).not.toContain("Git Bash")
   })
 
   it("instructs final-path publication only when the tool is offered", () => {

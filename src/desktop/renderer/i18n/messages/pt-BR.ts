@@ -193,6 +193,7 @@ export const ptBR: Messages = {
   "composer.sendTitle": "Enviar (Enter)",
   "composer.followUp": "Continuar",
   "composer.skillMenu": "Habilidades",
+  "home.solveCube": "Embaralhar e resolver o cubo",
   "home.noModel": "Nenhum modelo foi configurado ainda.",
   "home.setupHint":
     "Execute otis uma vez neste espaço de trabalho para configurar a inferência; o aplicativo usa a mesma configuração e sessões.",
@@ -604,6 +605,14 @@ export const ptBR: Messages = {
   "settings.debugMode": "Modo de depuração",
   "settings.debugHint": "Somente nesta sessão — vale a partir do próximo turno",
   "settings.toggleDebug": "Alternar modo de depuração",
+  "settings.feedback": "Feedback",
+  "settings.feedbackPrompt": "Encontrou um bug ou tem uma ideia?",
+  "settings.feedbackDetail":
+    "Abre um rascunho de e-mail com sua versão do Otis e seu sistema, para você completar e enviar.",
+  "settings.feedbackOpened":
+    "Rascunho aberto no seu app de e-mail. Usa outro? Escreva para {{address}}.",
+  "settings.feedbackNoMail": "Nenhum app de e-mail abriu. Escreva para {{address}}.",
+  "settings.sendFeedback": "Enviar feedback",
   "updates.title": "Atualizações",
   "updates.checking": "Verificando…",
   "updates.downloading": "Baixando…",

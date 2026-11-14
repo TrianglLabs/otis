@@ -893,4 +893,10 @@ export class SteeringInbox implements SteeringSource {
     this.#accepting = false
     return this.drain()
   }
+
+  /** Takes back what a failed attempt drained, already recorded, for the turn's rerun. */
+  reopen(messages: UserChatMessage[]) {
+    this.#accepting = true
+    this.#pending.unshift(...messages.map((message) => ({ message, persisted: Promise.resolve() })))
+  }
 }

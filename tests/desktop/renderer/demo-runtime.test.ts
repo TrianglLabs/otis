@@ -404,6 +404,46 @@ describe("demo runtime model lifecycle", () => {
     })
   })
 
+  it("plays the network dropping mid-turn, telling the on-device model's start as it loads", async () => {
+    vi.useFakeTimers()
+    const api = createDemoRuntime(undefined, "dropout")
+    const at = async (ms: number) => {
+      await vi.advanceTimersByTimeAsync(ms)
+      const { entries, ...status } = await api.getSnapshot()
+      return {
+        status,
+        kinds: entries.map((entry) => entry.kind),
+        texts: entries.map((e) => e.text),
+      }
+    }
+    // The hosted model thinks, then stalls.
+    const thinking = await at(4000)
+    expect(thinking.status).toMatchObject({ busy: true, phase: "thinking", offline: null })
+    expect(thinking.kinds.at(-1)).toBe("reasoning")
+    // The stalled thinking goes as the move starts; the notice says so while the model loads.
+    const loading = await at(2600)
+    expect(loading.status).toMatchObject({ modelState: "starting", phase: "working" })
+    expect(loading.kinds).not.toContain("reasoning")
+    expect(loading.texts.at(-1)).toBe("Starting Qwen3.8 27B on this machine…")
+    // Loaded, the same notice says it took over, and the turn runs there.
+    const done = await at(10_000)
+    expect(done.status).toMatchObject({ modelState: "ready", busy: false })
+    expect(done.status.offline).toEqual({ returnsTo: "GLM-5.3" })
+    expect(done.texts.slice(-3, -1)).toEqual([
+      "Summarize the release notes in three bullets.",
+      "Switched to Qwen3.8 27B on this machine",
+    ])
+    // Catalogs list slowly there, so the model lists show their loader.
+    let listed = false
+    void api.listModels().then(() => {
+      listed = true
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(listed).toBe(false)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(listed).toBe(true)
+  })
+
   it("restores the deletable state after a deleted model is downloaded again", async () => {
     vi.useFakeTimers()
     const api = createDemoRuntime()

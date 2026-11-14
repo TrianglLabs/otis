@@ -169,6 +169,7 @@ export function fakeApi(
     setLocalThinking: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async () => {}),
     openHostedKeyPage: vi.fn(async () => {}),
+    sendFeedback: vi.fn(async () => ({ opened: true, address: "feedback@example.com" })),
     setHostedApiKey: vi.fn(async () => ({ ok: true as const })),
     connectLocalServers: vi.fn(async () => ({ ok: true as const })),
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),

@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process"
-import { createWriteStream, existsSync } from "node:fs"
+import { createWriteStream, existsSync, readFileSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { homedir } from "node:os"
+import { homedir, release } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { openPromise } from "yauzl"
@@ -159,3 +159,31 @@ export function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals
     }
   }
 }
+
+/**
+ * This machine as a prompt or a bug report names it, read once: macOS by its marketing version
+ * rather than its Darwin kernel's, Linux by its distribution, which decides the package manager,
+ * and Windows 10 or 11 by its build.
+ */
+export const THIS_COMPUTER = ((): { platform: NodeJS.Platform; os: string; arch: string } => {
+  const read = (path: string) => {
+    try {
+      return readFileSync(path, "utf8")
+    } catch {
+      return ""
+    }
+  }
+  const { platform, arch } = process
+  if (platform === "darwin") {
+    const plist = read("/System/Library/CoreServices/SystemVersion.plist")
+    const version = /<key>ProductVersion<\/key>\s*<string>([^<]+)</.exec(plist)?.[1]
+    return { platform, arch, os: version ? `macOS ${version}` : "macOS" }
+  }
+  if (platform === "linux") {
+    const name = /^PRETTY_NAME="?([^"\n]+)/m.exec(read("/etc/os-release"))?.[1]
+    return { platform, arch, os: name ? `Linux (${name})` : "Linux" }
+  }
+  if (platform !== "win32") return { platform, arch, os: `${platform} ${release()}` }
+  // Windows 11 still reports itself as 10.0; its builds start at 22000.
+  return { platform, arch, os: `Windows ${Number(release().split(".")[2]) >= 22000 ? 11 : 10}` }
+})()

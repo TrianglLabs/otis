@@ -197,6 +197,7 @@ export const pl: Messages = {
   "composer.sendTitle": "Wyślij (Enter)",
   "composer.followUp": "Kolejne polecenie",
   "composer.skillMenu": "Umiejętności",
+  "home.solveCube": "Pomieszaj i ułóż kostkę",
   "home.noModel": "Nie skonfigurowano jeszcze modelu.",
   "home.setupHint":
     "Uruchom raz Otis w tym obszarze roboczym, aby skonfigurować inferencję — aplikacja komputerowa używa tej samej konfiguracji i sesji.",
@@ -669,6 +670,14 @@ export const pl: Messages = {
   "settings.debugMode": "Tryb debugowania",
   "settings.debugHint": "Tylko ta sesja — obowiązuje od następnej tury",
   "settings.toggleDebug": "Przełącz tryb debugowania",
+  "settings.feedback": "Opinie",
+  "settings.feedbackPrompt": "Zgłoś błąd albo podziel się pomysłem",
+  "settings.feedbackDetail":
+    "Otwiera szkic e-maila z wersją Otis i informacjami o systemie — dokończ go i wyślij.",
+  "settings.feedbackOpened":
+    "Szkic otwarty w aplikacji pocztowej. Używasz innej? Napisz na {{address}}.",
+  "settings.feedbackNoMail": "Nie otworzyła się żadna aplikacja pocztowa. Napisz na {{address}}.",
+  "settings.sendFeedback": "Wyślij opinię",
   "updates.title": "Aktualizacje",
   "updates.checking": "Sprawdzanie…",
   "updates.downloading": "Pobieranie…",

@@ -274,7 +274,10 @@ export class TranscriptStore {
     return entry
   }
 
-  /** A line about the session itself, not the conversation; never sent to the model. */
+  /**
+   * A line about the session itself, not the conversation; never sent to the model. Its id lets
+   * the line say how something it announced turned out.
+   */
   addNotice(text: string, network: "offline" | "online") {
     const entry = {
       id: this.nextMessageID++,
@@ -285,6 +288,7 @@ export class TranscriptStore {
     }
     this.entries.push(entry)
     this.emit({ op: "upsert", id: entry.id })
+    return entry.id
   }
 
   addDebugMessage(text: string) {
@@ -477,6 +481,8 @@ export class TranscriptProjector {
   #assistantEntry: TranscriptEntry | undefined
   readonly #reasoning = new Map<string, { entryId: number; text: string }>()
   readonly #tools = new Map<string, number>()
+  /** The text and thinking entries this projector added, which discarding takes back. */
+  readonly #added: number[] = []
 
   constructor(private readonly transcript: TranscriptStore) {}
 
@@ -508,6 +514,7 @@ export class TranscriptProjector {
           startedAt: event.startedAt,
           streaming: true,
         })
+        this.#added.push(entry.id)
         this.#reasoning.set(event.reasoningId, { entryId: entry.id, text: "" })
         return true
       }
@@ -553,8 +560,20 @@ export class TranscriptProjector {
    * any yet.
    */
   ensureAssistantEntry(): TranscriptEntry {
-    this.#assistantEntry ??= this.transcript.addAssistantMessage("")
+    if (this.#assistantEntry) return this.#assistantEntry
+    this.#assistantEntry = this.transcript.addAssistantMessage("")
+    this.#added.push(this.#assistantEntry.id)
     return this.#assistantEntry
+  }
+
+  /**
+   * Removes the text and thinking this projector showed, for a run that starts over in its place;
+   * one that ran a tool never does.
+   */
+  discard() {
+    for (const id of this.#added.splice(0)) this.transcript.removeEntry(id)
+    this.#assistantEntry = undefined
+    this.#assistantText = ""
   }
 
   /** Marks the streaming assistant message as finished once the run ends or is interrupted. */

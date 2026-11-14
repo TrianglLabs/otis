@@ -6,6 +6,7 @@ import { type AppEvent, Application, formatWorkspaceLabel } from "../../src/app/
 import type { ModelSelection } from "../../src/app/models.js"
 import { SESSION_REASONS } from "../../src/app/sessions.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
+import { describeError } from "../../src/inference/errors.js"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
 import { userMessageText } from "../../src/inference/messages.js"
 import type {
@@ -818,6 +819,84 @@ describe("Application offline fallback", () => {
     await app.shutdown()
   })
 
+  it("cuts a hosted stream the lost network left hanging and reruns the turn on-device", async () => {
+    const app = await ready("otis-app-offline-")
+    const thinking = () => app.transcript.entries.some((entry) => entry.kind === "reasoning")
+    const texts = () => app.transcript.entries.map((entry) => entry.text)
+    // What the session shows while the on-device model loads.
+    let loading: { texts: string[]; thinking: boolean; phase: string } | undefined
+    preparing(app, async () => {
+      loading = { texts: texts(), thinking: thinking(), phase: app.conversation.phase }
+    })
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    app.watchNetwork()
+    await app.checkNetwork()
+    // A response that starts thinking, then hangs on a dead connection until its request ends.
+    const stalled: InferenceClient = {
+      model: "stalled",
+      async *streamChat(options) {
+        yield { type: "reasoning_delta", field: "reasoning_content", text: "Let me think" }
+        await new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => reject(options.signal?.reason))
+        })
+      },
+      complete: vi.fn(),
+    }
+    serve(app, stalled)
+    const providers: string[] = []
+    const steered: ChatMessage[] = []
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      providers.push(app.focused.selection?.model.provider ?? "")
+      steered.push(...((await options.agent.steering?.drain()) ?? []))
+      if (providers.length > 1) return turnEvents("answered offline")(options)
+      // As the agent streams: the thinking shows, and a failure closes what was steered into
+      // the failed turn.
+      await options.onEvent?.({ type: "model" } as never)
+      try {
+        const request = { messages: [], signal: options.agent.signal }
+        for await (const event of options.agent.client.streamChat(request)) {
+          if (event.type !== "reasoning_delta") continue
+          const reasoning = { type: "reasoning", reasoningId: "r1", field: event.field } as const
+          await options.onEvent?.({ ...reasoning, phase: "start", startedAt: "" })
+          await options.onEvent?.({ ...reasoning, phase: "delta", text: event.text })
+          await options.onEvent?.({ type: "delta", text: "A partial answer" })
+        }
+        return { status: "complete", messages: [], details: {} }
+      } catch (error) {
+        const steering = (await options.agent.steering?.close()) ?? []
+        const messages = [options.input as ChatMessage, ...steering]
+        return { status: "error", message: describeError(error), messages, details: {} }
+      }
+    })
+    const submitted = app.conversation.submit({ role: "user", content: "hello" })
+    await vi.waitFor(() => expect(thinking()).toBe(true))
+    await app.conversation.steer({ role: "user", content: "and be brief" })
+    // Wi-Fi goes off: the watcher sees the addresses change and no provider answers.
+    mocks.reachable.mockResolvedValue(false)
+    await app.checkNetwork()
+    await submitted
+    await app.conversation.idle()
+    expect(providers).toEqual(["fireworks", "local"])
+    expect(steered).toEqual([{ role: "user", content: "and be brief" }])
+    // The move is told as it starts, with the hosted attempt's output already gone, and the
+    // same notice then says it is done.
+    expect(loading).toEqual({
+      texts: ["hello", "and be brief", "Starting Qwen3.8 27B on this machine…"],
+      thinking: false,
+      phase: "working",
+    })
+    expect(thinking()).toBe(false)
+    expect(texts()).toEqual([
+      "hello",
+      "and be brief",
+      "Switched to Qwen3.8 27B on this machine",
+      "answered offline",
+    ])
+    await app.shutdown()
+  })
+
   it("offers the web tools only while Parallel answers, on hosted and local models alike", async () => {
     const app = await ready("otis-app-offline-")
     serve(app, fakeClient, gptOss)
@@ -845,7 +924,7 @@ describe("Application offline fallback", () => {
     await app.shutdown()
   })
 
-  it("does not rerun a turn that already streamed, which could repeat its work", async () => {
+  it("does not rerun a turn that already ran a tool, which could repeat its work", async () => {
     const app = await ready("otis-app-offline-")
     preparing(app)
     vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
@@ -856,6 +935,8 @@ describe("Application offline fallback", () => {
     mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
       mocks.reachable.mockResolvedValue(false)
       await options.onEvent?.({ type: "delta", text: "partial" })
+      const tool = { type: "tool", toolCallId: "t1", label: "Running command: ls" }
+      await options.onEvent?.({ ...tool, phase: "start", activityKind: "command" } as never)
       return { status: "error", message: "The connection was closed.", messages: [], details: {} }
     })
     await app.conversation.submit({ role: "user", content: "hello" })

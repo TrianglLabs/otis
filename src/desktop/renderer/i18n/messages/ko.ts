@@ -191,6 +191,7 @@ export const ko: Messages = {
   "composer.sendTitle": "보내기 (Enter)",
   "composer.followUp": "후속 메시지",
   "composer.skillMenu": "스킬",
+  "home.solveCube": "큐브를 섞고 맞추기",
   "home.noModel": "아직 모델이 설정되지 않았습니다.",
   "home.setupHint":
     "이 작업 공간에서 otis를 한 번 실행해 추론을 설정하세요. 데스크톱 앱은 같은 설정과 세션을 사용합니다.",
@@ -599,6 +600,14 @@ export const ko: Messages = {
   "settings.debugMode": "디버그 모드",
   "settings.debugHint": "이 세션에만 적용 — 다음 턴부터 적용",
   "settings.toggleDebug": "디버그 모드 전환",
+  "settings.feedback": "피드백",
+  "settings.feedbackPrompt": "버그를 발견했거나 아이디어가 있나요?",
+  "settings.feedbackDetail":
+    "Otis 버전과 시스템 정보가 담긴 이메일 초안을 엽니다. 내용을 작성해 보내 주세요.",
+  "settings.feedbackOpened":
+    "이메일 앱에서 초안을 열었습니다. 다른 앱을 쓰신다면 {{address}}(으)로 보내 주세요.",
+  "settings.feedbackNoMail": "이메일 앱이 열리지 않았습니다. {{address}}(으)로 보내 주세요.",
+  "settings.sendFeedback": "피드백 보내기",
   "updates.title": "업데이트",
   "updates.checking": "확인 중…",
   "updates.downloading": "다운로드 중…",

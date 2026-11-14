@@ -198,6 +198,7 @@ export const uk: Messages = {
   "composer.sendTitle": "Надіслати (Enter)",
   "composer.followUp": "Наступний запит",
   "composer.skillMenu": "Навички",
+  "home.solveCube": "Перемішати й скласти кубик",
   "home.noModel": "Модель ще не налаштована.",
   "home.setupHint":
     "Запустіть Otis у цьому робочому просторі один раз, щоб налаштувати інференс — настільний застосунок використовує ті самі налаштування й сеанси.",
@@ -669,6 +670,14 @@ export const uk: Messages = {
   "settings.debugMode": "Режим налагодження",
   "settings.debugHint": "Лише для цього сеансу — діє з наступного ходу",
   "settings.toggleDebug": "Перемкнути режим налагодження",
+  "settings.feedback": "Відгук",
+  "settings.feedbackPrompt": "Знайшли помилку чи маєте ідею?",
+  "settings.feedbackDetail":
+    "Відкриває чернетку листа з версією Otis і даними про систему — допишіть і надішліть її.",
+  "settings.feedbackOpened":
+    "Чернетку відкрито в поштовому застосунку. Користуєтеся іншим? Напишіть на {{address}}.",
+  "settings.feedbackNoMail": "Поштовий застосунок не відкрився. Напишіть на {{address}}.",
+  "settings.sendFeedback": "Надіслати відгук",
   "updates.title": "Оновлення",
   "updates.checking": "Перевірка…",
   "updates.downloading": "Завантаження…",

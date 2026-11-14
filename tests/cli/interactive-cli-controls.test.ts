@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { FEEDBACK_ADDRESS } from "../../src/cli/links.js"
 import {
   getMocks,
   loadCli,
@@ -143,6 +144,23 @@ describe("CLI mode toggle", () => {
     await loadCli()
 
     expect(mocks.createChatUI.mock.calls.at(-1)?.[1]).toMatchObject({ modeLabel: "? ask" })
+  })
+
+  it("opens a feedback draft from /feedback and names the address either way", async () => {
+    await loadCli()
+
+    await submit("/feedback")
+    const draft = mocks.openURL.mock.calls.at(-1)?.[0] ?? ""
+    expect(draft).toMatch(/^mailto:[^?]+@[^?]+\?subject=Otis%20feedback&body=/)
+    expect(decodeURIComponent(draft)).toContain("(terminal)")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(
+      ` Opened an email draft · or write to ${FEEDBACK_ADDRESS} `,
+    )
+
+    // No launcher, as over SSH: the address is the way to write.
+    mocks.openURL.mockResolvedValueOnce(false)
+    await submit("/feedback")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(` Write to ${FEEDBACK_ADDRESS} `)
   })
 })
 

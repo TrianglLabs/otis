@@ -411,8 +411,8 @@ if (!app.requestSingleInstanceLock()) {
       window,
       devServerUrl ?? pathToFileURL(join(__dirname, "../renderer/index.html")).href,
     )
-    // OTIS_DEMO=1 opens the fixture home screen; "onboarding", "failed", "local", "offline" or a
-    // fixture session id opens there.
+    // OTIS_DEMO=1 opens the fixture home screen; "onboarding", "failed", "local", "offline",
+    // "dropout" (the network dropping mid-turn, played live) or a fixture session id opens there.
     const demo =
       process.env.OTIS_DEMO === "1"
         ? "demo"

@@ -10,6 +10,7 @@ const SLASH_COMMANDS = slashCommands({ effort: true })
 describe("slash commands", () => {
   it("parses known commands and leaves unknown input for the agent", () => {
     expect(parseSlashCommand("/exit")).toEqual({ type: "exit" })
+    expect(parseSlashCommand("/feedback")).toEqual({ type: "feedback" })
     expect(parseSlashCommand("/effort")).toEqual({ type: "effort" })
     expect(parseSlashCommand("/effort medium")).toEqual({ type: "effort", level: "medium" })
     expect(parseSlashCommand("/skills")).toEqual({ type: "skills" })
@@ -161,6 +162,7 @@ describe("slash commands", () => {
       "/compact",
       "/thinking",
       "/effort",
+      "/feedback",
       "/exit",
     ])
   })

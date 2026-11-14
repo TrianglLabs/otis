@@ -192,6 +192,7 @@ export const de: Messages = {
   "composer.sendTitle": "Senden (Enter)",
   "composer.followUp": "Folgeanfrage",
   "composer.skillMenu": "Skills",
+  "home.solveCube": "Würfel verdrehen und lösen",
   "home.noModel": "Noch kein Modell eingerichtet.",
   "home.setupHint":
     "Führe otis einmal in diesem Arbeitsbereich aus, um die Inferenz einzurichten; die Desktop-App verwendet dieselbe Konfiguration und dieselben Sitzungen.",
@@ -604,6 +605,14 @@ export const de: Messages = {
   "settings.debugMode": "Debugmodus",
   "settings.debugHint": "Nur diese Sitzung — gilt ab dem nächsten Durchlauf",
   "settings.toggleDebug": "Debugmodus umschalten",
+  "settings.feedback": "Feedback",
+  "settings.feedbackPrompt": "Einen Fehler gefunden oder eine Idee?",
+  "settings.feedbackDetail":
+    "Öffnet einen E-Mail-Entwurf mit deiner Otis-Version und deinem System, den du fertig schreibst und sendest.",
+  "settings.feedbackOpened":
+    "Entwurf in deiner E-Mail-App geöffnet. Du nutzt eine andere? Schreib an {{address}}.",
+  "settings.feedbackNoMail": "Keine E-Mail-App geöffnet. Schreib an {{address}}.",
+  "settings.sendFeedback": "Feedback senden",
   "updates.title": "Updates",
   "updates.checking": "Wird geprüft…",
   "updates.downloading": "Wird heruntergeladen…",

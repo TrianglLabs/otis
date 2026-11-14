@@ -974,3 +974,20 @@
   border-radius: 1px;
   background: currentColor;
 }
+
+/* The cube loader: the mark turning above its label, centred in the space a list will fill. */
+.cubeLoader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px;
+  font-size: var(--text-ui);
+  color: var(--text-dim);
+}
+
+.cubeLoader-mark {
+  display: block;
+  width: 32px;
+  height: auto;
+}

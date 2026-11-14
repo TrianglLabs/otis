@@ -93,6 +93,9 @@ potentially sensitive. Visible traces show a short preview and can be expanded i
   Otis, so use a private network such as a tailnet. The pairing token is saved in the client's `config.json` under
   `remote`, with the same `0600` protection as provider keys, and stays there while the app works on this machine so
   the next connect needs only the Connect button; it never reaches the window.
+- Send feedback (Settings → General or the ⌘K palette in the desktop app, `/feedback` in the terminal) opens a draft
+  in the computer's own email app, to the developer, with the Otis version and the operating system below room for
+  the message. Otis sends nothing itself: the draft goes only if the user sends it, from their own account.
 
 Read the [Fireworks Zero Data Retention policy](https://docs.fireworks.ai/guides/security_compliance/data_handling)
 and the data policies of [Together AI](https://www.together.ai/privacy),

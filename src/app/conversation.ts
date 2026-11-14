@@ -194,18 +194,22 @@ type ConversationOptions = {
   /** Why a prompt cannot be admitted or the queue driven right now; undefined when it can. */
   gate: () => string | undefined
   /**
-   * A request failed before anything streamed: whether the session now serves on another model
+   * A turn failed before it changed anything: whether the session now serves on another model
    * the turn can run on instead, such as an on-device one while the provider is unreachable.
+   * `moving` is called as such a move starts, before its model loads.
    */
-  recover?: () => Promise<boolean>
+  recover?: (moving: () => void) => Promise<boolean>
   /** Whether the web tools can reach their service; each turn starts without them while not. */
   webReachable?: () => boolean
 }
 
 type Serving = NonNullable<ReturnType<ConversationOptions["serving"]>>
 
-/** Agent events that mean a turn did something: once one arrives, it cannot run again elsewhere. */
-const PROGRESS_EVENTS = new Set(["delta", "reasoning", "tool", "subagent", "compaction"])
+/**
+ * Agent events that change something: once one arrives, a turn cannot run again elsewhere.
+ * Streamed text and thinking change nothing, and a rerun takes them back.
+ */
+const EFFECT_EVENTS = new Set(["tool", "subagent", "compaction"])
 
 type ActiveWork = {
   controller: AbortController
@@ -538,8 +542,8 @@ export class Conversation {
         }
 
         let result: Exclude<ConversationTurnResult, { status: "incomplete" }>
-        // Whether this attempt produced anything: until it does, it can run again elsewhere.
-        let progressed = false
+        // Whether the turn changed anything: until it does, it can run again elsewhere.
+        let changed = false
         const attempt = (serving: Serving) =>
           executeTurn({
             input: admission.message,
@@ -611,7 +615,7 @@ export class Conversation {
               outputCapabilities: this.options.outputCapabilities,
             },
             onEvent: (event) => {
-              if (PROGRESS_EVENTS.has(event.type)) progressed = true
+              if (EFFECT_EVENTS.has(event.type)) changed = true
               if (event.type === "compaction") {
                 projector.finishStreaming()
                 if (event.phase === "start") {
@@ -676,16 +680,28 @@ export class Conversation {
           })
         try {
           let turn = await attempt(serving)
-          // A request that failed before anything streamed runs again on what the session moved
-          // to, such as an on-device model while the provider is unreachable.
+          // A turn that failed before it changed anything runs again on what the session moved
+          // to, such as an on-device model while the provider is unreachable, with what was
+          // steered into it. A model can take a while to load, so what the failed attempt
+          // streamed goes as the move starts, and the turn shows as working meanwhile.
           while (
             turn.status === "error" &&
             !aborted() &&
-            !progressed &&
-            (await this.options.recover?.())
+            !changed &&
+            (await this.options.recover?.(() => {
+              projector.discard()
+              this.#setPhase("working")
+              this.#emit({ type: "render" })
+            }))
           ) {
             const next = this.options.serving()
             if (!next) throw new Error("A recovered session serves no model.")
+            // Past the prompt itself, a failed turn's user messages are what was steered into it.
+            steering.reopen(
+              turn.messages
+                .slice(1)
+                .filter((message): message is UserChatMessage => message.role === "user"),
+            )
             unwatchGate()
             serving = next
             unwatchGate = this.#watchGate(next.client.gate)

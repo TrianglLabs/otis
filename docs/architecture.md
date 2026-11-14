@@ -53,9 +53,12 @@ src/cli
   chat, the home screen, and the file never disagree.
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
 - `src/inference` owns hosted-provider, PAIR, and local llama.cpp request serialization, model discovery, hardware fit, the
-  human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing.
-- `src/local` owns platform paths, shells and process control, the private provider configuration file, and
-  home-screen statistic derivation.
+  human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing. Every prompt names
+  the computer's operating system and processor, e.g. "macOS 26.1 on arm64" or "Linux (Ubuntu 24.04 LTS) on x64",
+  read once from the system, so a model does not assume Linux commands and packages elsewhere; on Windows it adds that
+  bash is Git Bash.
+- `src/local` owns platform paths, shells and process control, the computer's description for prompts and feedback,
+  the private provider configuration file, and home-screen statistic derivation.
 - `src/skills` owns portable Agent Skill discovery, manifest validation, precedence, and confined resource reads.
 - `src/storage` owns append-only session events, validation, replay, titles, tool cards, and diffs.
   A branch (`/fork` in the terminal, "Branch from here" on a finished turn or "Branch session" in the
@@ -107,8 +110,8 @@ model leaves the server running for the others and stops it only when no session
 Interactive interfaces (the terminal, the desktop app, `otis serve`) follow the network; headless runs keep the model
 they name. `Application.watchNetwork` compares the machine's interface addresses every five seconds, which sends
 nothing, and asks the hosted providers the sessions use whether they answer (a keyless `HEAD` of each provider's
-model-list URL, where any HTTP response counts) when those addresses change, when a request fails before anything
-streams, and every 30 seconds while none answers. While none does, and `offlineFallback` is not switched off (the
+model-list URL, where any HTTP response counts) when those addresses change, when a turn fails before it changes
+anything, and every 30 seconds while none answers. While none does, and `offlineFallback` is not switched off (the
 terminal's `/settings`, the desktop's General settings), every idle session on a hosted model moves through the normal
 selection transaction to an on-device model: a model on a running oMLX or custom server first, else a downloaded
 managed-local model this machine can run whose llama.cpp runtime is already installed (none can download offline),
@@ -118,9 +121,13 @@ one takes over and compacts it, and the hosted model continues from that summary
 the runtime of the first of those, through the same download lock and verification a start uses, so an Otis update
 that pins a new llama.cpp does not leave the move without one; only that one model's runtime is fetched. When nothing
 can take over, or the chosen model fails to start, the session's transcript says why, once each time offline.
-The move is not saved as the default, so a restart while offline moves again. A busy session moves once its turn
-ends; a turn whose first request failed this way moves mid-turn and runs again on the on-device model, which is safe
-because nothing streamed and no tool ran. Once a provider answers, each moved session returns to the hosted model it
+The move is not saved as the default, so a restart while offline moves again. While offline, hosted requests in
+flight end at once and new ones fail before they are sent (`ModelHost.setOffline`), rather than wait minutes on a
+connection that went with the network. A busy session moves once its turn ends; a turn that failed before it ran a
+tool, a coworker or a compaction moves mid-turn and runs again on the on-device model, which is safe because only
+streamed text and thinking happened: those are taken off the transcript, and what the user steered into the turn is
+delivered to the rerun. A turn that already changed something ends with the error instead, as a rerun could repeat
+its work. Once a provider answers, each moved session returns to the hosted model it
 left, unless the user picked another meanwhile. Each move adds a notice entry to that session's transcript (never
 model history), and the status carries `offline` with the model the focused session returns to, which the desktop
 model chip and the terminal status line show. The same checks ask Parallel's endpoint (a keyless `HEAD`, and at once when a web
@@ -205,7 +212,12 @@ Every document kind shares one find bar and zoom control: Markdown and PDF match
 Highlight API in this window, while HTML and Word previews answer through an agent injected beside the source in the
 sandboxed frame, which also relays link clicks and shortcuts out. Word previews are laid out in the renderer by
 docx-preview with the document's own styles, numbering, tables, page sizes, headers, and footers, images and fonts
-inlined as data URLs, and the pages' markup is shown in that same frame.
+inlined as data URLs, and the pages' markup is shown in that same frame. docx-preview has no layout engine, so pages
+break only where the document says (page breaks, and section breaks other than continuous ones); Word's saved
+page-break hints are dropped, since they follow Word's fonts. A script in the frame then measures each page as shown
+and moves whatever crosses its bottom margin to a new page with the same size, margins, header and footer, splitting
+tables between rows, and lays the pages out again when the frame or zoom changes, since text wraps differently at
+each zoom.
 PDF previews use a dedicated worker and virtualized pages with bounded bitmap sizes, disposing rendering tasks and
 worker resources when closed; page bitmaps re-render once the panel width settles and scale in CSS meanwhile. Each
 page carries a PDF.js text layer, so text selects and copies, and find reads page text in order to report matches

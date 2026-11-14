@@ -93,6 +93,7 @@ const api: DesktopApi = {
   setLocalThinking: (model, level) => invoke(DESKTOP_CHANNELS.setLocalThinking, model, level),
   setPermissionMode: (mode) => invoke(DESKTOP_CHANNELS.setPermissionMode, mode),
   openHostedKeyPage: (provider) => invoke(DESKTOP_CHANNELS.openHostedKeyPage, provider),
+  sendFeedback: () => invoke(DESKTOP_CHANNELS.sendFeedback),
   setHostedApiKey: (provider, apiKey) => invoke(DESKTOP_CHANNELS.setHostedApiKey, provider, apiKey),
   connectLocalServers: (endpoints) => invoke(DESKTOP_CHANNELS.connectLocalServers, endpoints),
   deleteLocalModel: (id) => invoke(DESKTOP_CHANNELS.deleteLocalModel, id),

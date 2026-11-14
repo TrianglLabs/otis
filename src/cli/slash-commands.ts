@@ -29,6 +29,7 @@ export type SlashCommand =
   | { type: "history" }
   | { type: "new" }
   | { type: "fork" }
+  | { type: "feedback" }
   | { type: "home" }
   | { type: "thinking" }
   | { type: "effort"; level?: string }
@@ -54,6 +55,7 @@ const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
   "history",
   "home",
   "fork",
+  "feedback",
   "model",
   "new",
   "thinking",
@@ -86,6 +88,7 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
   { type: "thinking", name: "/thinking", description: "Show or hide model thinking traces" },
   { type: "effort", name: "/effort", description: "Set local thinking effort" },
+  { type: "feedback", name: "/feedback", description: "Email the developer a bug or an idea" },
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 

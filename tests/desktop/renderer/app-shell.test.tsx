@@ -1547,6 +1547,35 @@ describe("AppShell settings navigation", () => {
     expect(updated.installUpdate).toHaveBeenCalled()
   })
 
+  it("sends feedback from Settings and the palette, naming the address after a click", async () => {
+    const sendFeedback = vi
+      .fn()
+      .mockResolvedValueOnce({ opened: true, address: "dev@example.com" })
+      .mockResolvedValueOnce({ opened: false, address: "dev@example.com" })
+      .mockResolvedValueOnce({ opened: false, address: "dev@example.com" })
+    const api = fakeApi({ sendFeedback })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    expect(screen.getByText(/Opens an email draft with your Otis version/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Send feedback" }))
+    await act(async () => {})
+    expect(screen.getByText(/Draft opened in your email app.*dev@example\.com/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Send feedback" }))
+    await act(async () => {})
+    expect(screen.getByText("No email app opened. Write to dev@example.com.")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+    fireEvent.click(palette.getByText("Send feedback"))
+    await act(async () => {})
+    expect(sendFeedback).toHaveBeenCalledTimes(3)
+    // The palette stays open to show where to write instead.
+    expect(palette.getByText("No email app opened. Write to dev@example.com.")).toBeTruthy()
+  })
+
   it("checks for updates only from Settings and keeps download progress when Settings reopens", async () => {
     let emit!: (event: DesktopEvent) => void
     let finish!: () => void
@@ -1800,7 +1829,7 @@ describe("AppShell settings navigation", () => {
     }
     expect(startNewSession).toHaveBeenCalledOnce()
     await act(async () => {})
-    expect(screen.getByLabelText("Otis")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Scramble and solve the cube" })).toBeTruthy()
     expect(workspace.className).toBe("workspaceView")
     expect(workspace.inert).toBe(false)
     expect(screen.queryByRole("button", { name: "Fresh start" })).toBeNull()
@@ -2719,14 +2748,14 @@ describe("AppShell settings navigation", () => {
       }),
       "*",
     )
-    // Its pages fit the frame's width, as PDF pages fit the panel.
-    expect(
-      postMessage.mock.calls.some(([message]) =>
-        String((message as { source?: string }).source).includes(
-          "page.style.zoom = String((innerWidth - 32) / parseFloat(page.dataset.width))",
-        ),
-      ),
-    ).toBe(true)
+    // Its pages are laid out by measuring, and fit the frame's width as PDF pages fit the panel.
+    const source = postMessage.mock.calls
+      .map(([message]) => String((message as { source?: string }).source))
+      .join("")
+    expect(source).toContain("page.after(next)")
+    expect(source).toContain(
+      "page.style.zoom = String((innerWidth - 32) / parseFloat(getComputedStyle(page).width))",
+    )
   })
 
   it("does not offer an incomplete streaming Mermaid block to Canvas", async () => {

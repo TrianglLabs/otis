@@ -268,14 +268,15 @@ Each provider you add gets its own section in `/model`; type to search the list.
 | `/history` | Browse, open, or delete local sessions |
 | `/model` | Choose a managed-local, local-server, or hosted model |
 | `/settings` | Add hosted provider keys, hide hosted models from the picker, configure local servers, delete local models, toggle debug mode, or keep the machine awake while working |
-
-The desktop app has the same under Settings → Inference (a switch per hosted model), and Settings → Usage shows token
-usage by day and model.
 | `/skills` | List loaded Agent Skills; install, update, or remove Git collections |
 | `/memory` | See what Otis remembers for this workspace; add or forget a fact |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/thinking` | Toggle model-provided thinking traces |
+| `/feedback` | Open an email to the developer in your email app, with your Otis version and system filled in |
 | `/exit` | Exit Otis |
+
+The desktop app has the same under Settings → Inference (a switch per hosted model), and Settings → Usage shows token
+usage by day and model. Settings → General and the ⌘K palette have Send feedback.
 
 | Control | Action |
 | --- | --- |
