@@ -133,6 +133,33 @@ describe("model card", () => {
     expect(within(list).queryByRole("button", { name: /^Download and use Kimi/ })).toBeNull()
   })
 
+  it("shows the turning cube with its label while the catalog loads, and the list after", async () => {
+    let finish!: (items: ModelPickerItem[]) => void
+    const api = fakeApi(SNAPSHOT, {
+      listModels: vi.fn(
+        () =>
+          new Promise<ModelPickerItem[]>((resolve) => {
+            finish = resolve
+          }),
+      ),
+    })
+    const store = new DesktopViewStore(api)
+    await store.start()
+    render(
+      <DesktopProvider value={{ api, store }}>
+        <App />
+      </DesktopProvider>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Kimi K2.6" }))
+    const dialog = within(await screen.findByRole("dialog", { name: "Select a model" }))
+    const loader = dialog.getByRole("status")
+    expect(loader.textContent).toBe("Loading models…")
+    expect(loader.querySelector("svg")).toBeTruthy()
+    await act(async () => finish(CATALOG))
+    expect(dialog.queryByText("Loading models…")).toBeNull()
+    expect(dialog.getByText("Qwen3.8 27B")).toBeTruthy()
+  })
+
   it("greys out hosted rows while offline and says why", async () => {
     const offline = CATALOG.map((item) =>
       item.kind === "model" && item.provider === "together"

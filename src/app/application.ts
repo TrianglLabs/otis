@@ -616,13 +616,15 @@ export class Application {
       outputCapabilities: this.outputCapabilities,
       artifacts,
       gate: () => this.admissionGate(runtime),
-      // A request failed before anything streamed: when no hosted provider answers, the session
+      // A turn failed before it changed anything: when no hosted provider answers, the session
       // moves to an on-device model mid-turn, and the turn runs again there.
-      recover: async () => {
+      recover: async (moving) => {
         const model = runtime.selection?.model
         if (!this.#networkWatch || !model || !isHostedModel(model)) return false
         await this.checkNetwork()
-        return this.#offline && this.#serialNetwork(() => this.#followNetwork(runtime, true))
+        return (
+          this.#offline && this.#serialNetwork(() => this.#followNetwork(runtime, true, moving))
+        )
       },
       webReachable: () => !this.#webOffline,
     })
@@ -794,6 +796,7 @@ export class Application {
       const offline = providers.size > 0 && !reachable.some(Boolean)
       if (offline !== this.#offline) {
         this.#offline = offline
+        this.models.setOffline(offline)
         if (!offline) {
           // A session told nothing could take over hears that it is over; one that moved is told
           // as it moves back.
@@ -866,7 +869,7 @@ export class Application {
    * setting allows, and back on the hosted model it left once online, unless the user picked
    * another meanwhile. A busy session is left to catch up once idle.
    */
-  async #followNetwork(runtime: SessionRuntime, inTurn = false) {
+  async #followNetwork(runtime: SessionRuntime, inTurn = false, moving?: () => void) {
     if ((runtime.busy && !inTurn) || !this.#runtimes.includes(runtime)) return false
     const { fallback } = runtime
     if (!this.#offline) {
@@ -903,26 +906,34 @@ export class Application {
     const to =
       startable.find((model) => tokens < this.models.autoCompactAtTokens(model)) ?? startable[0]
     // Why nothing took over is told once each time offline; the move is tried at every check.
-    const tell = (text: string) => {
-      if (!this.#stranded.has(runtime)) runtime.transcript.addNotice(text, "offline")
-      this.#stranded.add(runtime)
-    }
+    const { transcript } = runtime
     if (!to) {
-      tell(
-        candidates.length
-          ? "Downloaded models need their llama.cpp runtime, which downloads next time you're online"
-          : "No model on this machine can take over. Download one from the model picker to keep working offline",
-      )
+      const text = candidates.length
+        ? "Downloaded models need their llama.cpp runtime, which downloads next time you're online"
+        : "No model on this machine can take over. " +
+          "Download one from the model picker to keep working offline"
+      if (!this.#stranded.has(runtime)) transcript.addNotice(text, "offline")
+      this.#stranded.add(runtime)
       return false
     }
+    // A model can take a while to load, so the move is told as it starts and the notice then says
+    // how it went; after a failed start, retries this time offline go untold until one works.
+    const where = isServerProvider(to.provider) ? SERVER_INFO[to.provider].name : "this machine"
+    const notice = this.#stranded.has(runtime)
+      ? undefined
+      : transcript.addNotice(`Starting ${to.displayName} on ${where}…`, "offline")
+    moving?.()
     const result = await this.selectModel(to, { runtime, persist: async () => {}, inTurn })
     if (!result.ok) {
-      tell(`${to.displayName} could not start: ${result.reason}`)
+      const text = `${to.displayName} could not start: ${result.reason}`
+      if (notice !== undefined) transcript.updateEntry(notice, { text })
+      this.#stranded.add(runtime)
       return false
     }
     runtime.fallback = { from, to }
-    const where = isServerProvider(to.provider) ? SERVER_INFO[to.provider].name : "this machine"
-    runtime.transcript.addNotice(`Switched to ${to.displayName} on ${where}`, "offline")
+    const text = `Switched to ${to.displayName} on ${where}`
+    if (notice === undefined) transcript.addNotice(text, "offline")
+    else transcript.updateEntry(notice, { text })
     this.#notify({ type: "status" })
     return true
   }

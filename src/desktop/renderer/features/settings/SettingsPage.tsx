@@ -65,6 +65,7 @@ import obsidianIcon from "../../assets/app-icons/obsidian.png"
 import obsidianDarkIcon from "../../assets/app-icons/obsidian-dark.png"
 import { Button, IconButton, Toggle } from "../../components/Button.js"
 import { Icon, RetentionBadge } from "../../components/Icon.js"
+import { CubeLoader } from "../../components/OtisMark.js"
 import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
 import { formatTokenCount, usageBreakdown } from "../../format.js"
@@ -251,6 +252,7 @@ export function SettingsPage({
   const [pairError, setPairError] = useState<string>()
   const [pairModels, setPairModels] = useState<(PairPickerChoice | ServerPickerChoice)[]>()
   const [pairCatalogReload, setPairCatalogReload] = useState(0)
+  const [feedback, setFeedback] = useState<{ opened: boolean; address: string }>()
 
   // Hidden, not unmounted, while closed (see AppShell). Closing leaves the tab, so a tab's
   // leave effects such as marking achievements seen still run, and drops open forms; each open
@@ -552,7 +554,7 @@ export function SettingsPage({
                                 {t("settings.availableModels")}
                               </div>
                               {pairModels === undefined ? (
-                                <div className="settings-message">{t("common.loadingModels")}</div>
+                                <CubeLoader label={t("common.loadingModels")} />
                               ) : null}
                               {pairModels?.length === 0 ? (
                                 <div className="settings-message">
@@ -875,6 +877,32 @@ export function SettingsPage({
                     <SoftwareUpdates installing={installing} onInstall={onInstallUpdate} />
                   </div>
                 </div>
+
+                <div className="settingsGroup">
+                  <h2 className="settings-section">{t("settings.feedback")}</h2>
+                  <div className="settingsSurface">
+                    <div className="settingsRow">
+                      <span className="settingsRow-label">
+                        {t("settings.feedbackPrompt")}
+                        {/* After a click it names the address, for anyone whose email is not
+                            the app that opened, or when none did. */}
+                        <span className="settingsRow-meta" role={feedback ? "status" : undefined}>
+                          {feedback
+                            ? t(
+                                feedback.opened
+                                  ? "settings.feedbackOpened"
+                                  : "settings.feedbackNoMail",
+                                { address: feedback.address },
+                              )
+                            : t("settings.feedbackDetail")}
+                        </span>
+                      </span>
+                      <Button size="sm" onClick={async () => setFeedback(await api.sendFeedback())}>
+                        {t("settings.sendFeedback")}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </>
             ) : null}
           </div>
@@ -1062,7 +1090,7 @@ function HostedModelsSettings({
               {t("settings.hostedModelsFailed")}
             </div>
           ) : catalogs === undefined ? (
-            <div className="settingsRow settings-message">{t("common.loadingModels")}</div>
+            <CubeLoader label={t("common.loadingModels")} />
           ) : models.length ? (
             models.map((model) => (
               <div className="settingsRow" key={model.id}>

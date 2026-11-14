@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { dialog, ipcMain } from "electron"
+import { dialog, ipcMain, shell } from "electron"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DESKTOP_CHANNELS } from "../../../src/desktop/contracts.js"
 import { localBackend } from "../../../src/desktop/main/api.js"
@@ -9,6 +9,7 @@ import { registerDesktopIpc } from "../../../src/desktop/main/ipc.js"
 import type { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 
 vi.mock("electron", () => ({
+  app: { getVersion: () => "9.9.9" },
   ipcMain: { handle: vi.fn() },
   dialog: { showSaveDialog: vi.fn() },
   BrowserWindow: { fromWebContents: () => undefined, getAllWindows: () => [] },
@@ -132,6 +133,19 @@ it("rejects calls from anything but our own renderer", async () => {
   for (const url of ["https://evil.example/index.html", "not a url", ""]) {
     await expect(stop({ sender: {}, senderFrame: { url } })).rejects.toThrow("untrusted sender")
   }
+})
+
+it("opens feedback in this computer's email app, never through the daemon", async () => {
+  const handler = handlerFor(DESKTOP_CHANNELS.sendFeedback, {})
+  vi.mocked(shell.openExternal).mockResolvedValueOnce()
+  const opened = (await handler()) as { opened: boolean; address: string }
+  expect(opened.opened).toBe(true)
+  const draft = vi.mocked(shell.openExternal).mock.calls[0]?.[0] ?? ""
+  expect(draft.startsWith(`mailto:${opened.address}?subject=Otis%20feedback&body=`)).toBe(true)
+  expect(decodeURIComponent(draft)).toContain("Otis 9.9.9 (desktop)")
+  // No email app to handle mailto: the address still comes back to show.
+  vi.mocked(shell.openExternal).mockRejectedValueOnce(new Error("no handler"))
+  await expect(handler()).resolves.toEqual({ opened: false, address: opened.address })
 })
 
 it("validates and forwards the workspace panel width", async () => {

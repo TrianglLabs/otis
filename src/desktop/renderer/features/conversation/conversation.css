@@ -1244,6 +1244,7 @@ button.composer-workspace:hover {
   color: var(--text);
 }
 
+/* While its model starts, the chip breathes in its own hover color. */
 button.composer-model-starting {
   animation: composer-model-starting 1.2s ease-in-out infinite;
 }
@@ -1253,9 +1254,9 @@ button.composer-model-failed {
   color: var(--danger);
 }
 
-/* Offline, the chip wears the warning color and its label leads. */
+/* Offline, the chip's label leads with the word in the warning color, on the chip's usual
+   ground. */
 button.composer-model-offline {
-  background: color-mix(in srgb, var(--warning) 14%, transparent);
   color: var(--text);
 }
 
@@ -1276,10 +1277,10 @@ button.composer-model-offline {
 @keyframes composer-model-starting {
   0%,
   100% {
-    background: color-mix(in srgb, var(--warning) 8%, transparent);
+    background: transparent;
   }
   50% {
-    background: color-mix(in srgb, var(--warning) 22%, transparent);
+    background: var(--bg-hover);
   }
 }
 

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { rename, rm, writeFile } from "node:fs/promises"
 import { dirname, extname, join } from "node:path"
-import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
+import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
+import { FEEDBACK_ADDRESS, feedbackEmail } from "../../cli/links.js"
 import { describeError } from "../../inference/errors.js"
 import { HOSTED_PROVIDER_INFO, isHostedProvider } from "../../inference/types.js"
 import { DESKTOP_CHANNELS, type SessionOpResult } from "../contracts.js"
@@ -77,6 +78,12 @@ export function registerDesktopIpc(
       if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
       return shell.openExternal(HOSTED_PROVIDER_INFO[provider].keyURL)
     },
+    // A draft in the user's own email app: nothing leaves the machine until they send it.
+    sendFeedback: () =>
+      shell.openExternal(feedbackEmail(app.getVersion(), "desktop")).then(
+        () => ({ opened: true, address: FEEDBACK_ADDRESS }),
+        () => ({ opened: false, address: FEEDBACK_ADDRESS }),
+      ),
     connectRemote: (_event: IpcMainInvokeEvent, url: unknown, token: unknown) => {
       if (typeof url !== "string" || typeof token !== "string")
         throw new Error("connectRemote expects an address and a token")

@@ -46,6 +46,7 @@ import { forget, listMemory, remember } from "../memory/memory.js"
 import { SkillManager } from "../skills/manager.js"
 import { AttachmentFlow } from "./attachment-flow.js"
 import { createChatUI } from "./chat-ui.js"
+import { FEEDBACK_ADDRESS, feedbackEmail, openURL } from "./links.js"
 import { SetupFlow } from "./setup-flow.js"
 import { formatSource, skillCount } from "./skills-cli.js"
 import {
@@ -514,6 +515,18 @@ export class InteractiveApp {
         this.#ui.clearInput()
         await this.#forkSession()
         return
+      case "feedback": {
+        this.#ui.clearInput()
+        const opened = await openURL(feedbackEmail(process.env.OTIS_VERSION ?? "dev", "terminal"))
+        // A launcher can start with no email app behind it, so the address shows either way.
+        this.#ui.showTransientHint(
+          opened
+            ? ` Opened an email draft · or write to ${FEEDBACK_ADDRESS} `
+            : ` Write to ${FEEDBACK_ADDRESS} `,
+        )
+        this.#ui.focusInput()
+        return
+      }
       case "home":
         this.#ui.clearInput()
         this.#ui.showHomeLayout()

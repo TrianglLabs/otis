@@ -498,7 +498,7 @@ function EmptyState({ view, onView }: { view: HomeView; onView: (view: HomeView)
   return (
     <div className="home">
       <div className="home-center">
-        <OtisMark className="home-logo" />
+        <OtisMark className="home-logo" solvable />
         {/* A model that could not start is reported once, at the composer. */}
         {state.modelState === "unconfigured" ? (
           <div className="home-setup">

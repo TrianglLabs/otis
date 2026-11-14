@@ -196,6 +196,7 @@ export const fr: Messages = {
   "composer.sendTitle": "Envoyer (Entrée)",
   "composer.followUp": "Suivi",
   "composer.skillMenu": "Compétences",
+  "home.solveCube": "Mélanger et résoudre le cube",
   "home.noModel": "Aucun modèle n’est encore configuré.",
   "home.setupHint":
     "Exécutez otis une fois dans cet espace de travail pour configurer l’inférence ; l’application de bureau utilise les mêmes réglages et sessions.",
@@ -613,6 +614,14 @@ export const fr: Messages = {
   "settings.debugMode": "Mode de débogage",
   "settings.debugHint": "Session uniquement — appliqué dès le prochain tour",
   "settings.toggleDebug": "Activer ou désactiver le débogage",
+  "settings.feedback": "Commentaires",
+  "settings.feedbackPrompt": "Un bug ou une idée ?",
+  "settings.feedbackDetail":
+    "Ouvre un brouillon d’e-mail avec votre version d’Otis et votre système, à compléter et envoyer.",
+  "settings.feedbackOpened":
+    "Brouillon ouvert dans votre app de messagerie. Vous en utilisez une autre ? Écrivez à {{address}}.",
+  "settings.feedbackNoMail": "Aucune app de messagerie ne s’est ouverte. Écrivez à {{address}}.",
+  "settings.sendFeedback": "Envoyer un commentaire",
   "updates.title": "Mises à jour",
   "updates.checking": "Vérification…",
   "updates.downloading": "Téléchargement…",

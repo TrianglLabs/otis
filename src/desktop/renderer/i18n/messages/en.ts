@@ -189,6 +189,7 @@ export const en = {
   "composer.sendTitle": "Send (Enter)",
   "composer.followUp": "Follow up",
   "composer.skillMenu": "Skills",
+  "home.solveCube": "Scramble and solve the cube",
   "home.noModel": "No model is configured yet.",
   "home.setupHint":
     "Run otis in this workspace once to set up inference — the desktop app uses the same configuration and sessions.",
@@ -598,6 +599,14 @@ export const en = {
   "settings.debugMode": "Debug mode",
   "settings.debugHint": "Session only — applies from the next turn",
   "settings.toggleDebug": "Toggle debug mode",
+  "settings.feedback": "Feedback",
+  "settings.feedbackPrompt": "Found a bug or have an idea?",
+  "settings.feedbackDetail":
+    "Opens an email draft with your Otis version and system, for you to finish and send.",
+  "settings.feedbackOpened":
+    "Draft opened in your email app. Use another one? Write to {{address}}.",
+  "settings.feedbackNoMail": "No email app opened. Write to {{address}}.",
+  "settings.sendFeedback": "Send feedback",
   "updates.title": "Updates",
   "updates.checking": "Checking…",
   "updates.downloading": "Downloading…",

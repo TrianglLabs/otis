@@ -191,6 +191,7 @@ export const ja: Messages = {
   "composer.sendTitle": "送信 (Enter)",
   "composer.followUp": "フォローアップ",
   "composer.skillMenu": "スキル",
+  "home.solveCube": "キューブを崩して揃える",
   "home.noModel": "モデルがまだ設定されていません。",
   "home.setupHint":
     "このワークスペースで一度 otis を実行して推論を設定してください。デスクトップアプリは同じ設定とセッションを使用します。",
@@ -600,6 +601,14 @@ export const ja: Messages = {
   "settings.debugMode": "デバッグモード",
   "settings.debugHint": "このセッションのみ — 次のターンから適用",
   "settings.toggleDebug": "デバッグモードを切り替え",
+  "settings.feedback": "フィードバック",
+  "settings.feedbackPrompt": "不具合を見つけた、またはアイデアがありますか？",
+  "settings.feedbackDetail":
+    "Otis のバージョンとシステム情報を入れたメールの下書きを開きます。内容を書いて送信してください。",
+  "settings.feedbackOpened":
+    "メールアプリで下書きを開きました。別のアプリを使う場合は {{address}} 宛てに送ってください。",
+  "settings.feedbackNoMail": "メールアプリが開きませんでした。{{address}} 宛てに送ってください。",
+  "settings.sendFeedback": "フィードバックを送信",
   "updates.title": "更新",
   "updates.checking": "確認中…",
   "updates.downloading": "ダウンロード中…",

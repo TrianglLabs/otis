@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
 import type { LocalPickerChoice, ModelPickerItem } from "../../src/inference/picker-catalog.js"
+import { HOSTED_PROVIDER_INFO } from "../../src/inference/types.js"
 import { hostedChoice } from "./support/chat-ui-harness.js"
 import {
   getMocks,
@@ -45,7 +46,7 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSetup?.()
     expect(mocks.ui.showSetupInferenceChoice).toHaveBeenCalledOnce()
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
-    expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
+    expect(mocks.openURL).not.toHaveBeenCalled()
 
     mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
     expect(mocks.ui.showSetupHostedChoice).toHaveBeenCalledExactlyOnceWith({
@@ -58,7 +59,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
     expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith("", "hosted", "fireworks")
-    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("fireworks")
+    expect(mocks.openURL).toHaveBeenCalledExactlyOnceWith(HOSTED_PROVIDER_INFO.fireworks.keyURL)
 
     mocks.uiOptions?.onSetupSubmit?.(" ")
     expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith(
@@ -98,7 +99,7 @@ describe("interactive CLI setup", () => {
 
     expect(mocks.ui.showSetupStatus).toHaveBeenCalledOnce()
     expect(mocks.listHostedModels).not.toHaveBeenCalled()
-    expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
+    expect(mocks.openURL).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
     expect(picker[0]).toMatchObject({ kind: "header", displayName: "Local" })
@@ -407,7 +408,7 @@ describe("interactive CLI setup", () => {
     await submit("/settings hosted fireworks")
     expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "configured", "fireworks")
-    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("fireworks")
+    expect(mocks.openURL).toHaveBeenCalledExactlyOnceWith(HOSTED_PROVIDER_INFO.fireworks.keyURL)
 
     mocks.uiOptions?.onSetupSubmit?.("fw_added_key")
     await vi.waitFor(() =>
@@ -486,7 +487,7 @@ describe("interactive CLI setup", () => {
     // Returning to the list and picking the same provider does not reopen its key page.
     mocks.uiOptions?.onSetupHostedChoice?.("together")
     expect(mocks.ui.showSetupInput).toHaveBeenCalledTimes(2)
-    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("together")
+    expect(mocks.openURL).toHaveBeenCalledExactlyOnceWith(HOSTED_PROVIDER_INFO.together.keyURL)
 
     mocks.uiOptions?.onSetupSubmit?.("  ")
     expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith(
@@ -530,7 +531,7 @@ describe("interactive CLI setup", () => {
     await submit("/settings hosted baseten")
     expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith("", "configured", "baseten")
-    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("baseten")
+    expect(mocks.openURL).toHaveBeenCalledExactlyOnceWith(HOSTED_PROVIDER_INFO.baseten.keyURL)
 
     mocks.uiOptions?.onSetupSubmit?.("")
     expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith(
@@ -604,7 +605,7 @@ describe("interactive CLI setup", () => {
     await submit("/settings hosted")
     expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
-    expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
+    expect(mocks.openURL).not.toHaveBeenCalled()
     expect(mocks.ui.showCommandSubmenu).toHaveBeenCalledExactlyOnceWith(
       [
         {
@@ -644,7 +645,9 @@ describe("interactive CLI setup", () => {
       "configured",
       "primeintellect",
     )
-    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("primeintellect")
+    expect(mocks.openURL).toHaveBeenCalledExactlyOnceWith(
+      HOSTED_PROVIDER_INFO.primeintellect.keyURL,
+    )
   })
 
   it("asks for the missing provider key when the saved model is hosted elsewhere", async () => {
@@ -664,7 +667,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showSetupInferenceChoice).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith("", "hosted", "together")
-    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("together")
+    expect(mocks.openURL).toHaveBeenCalledExactlyOnceWith(HOSTED_PROVIDER_INFO.together.keyURL)
     expect(mocks.listHostedModels).not.toHaveBeenCalled()
   })
 

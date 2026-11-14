@@ -545,6 +545,58 @@ describe("ModelHost", () => {
     expect(gated?.gate).not.toBe(host.gate)
   })
 
+  it("ends hosted requests while offline, at once, and lets loopback servers carry on", async () => {
+    const host = new ModelHost({ llama: fakeLlama() })
+    // A stream that answers once, then hangs as on a dead connection until its signal ends it.
+    const hanging = () => ({
+      model: "fake",
+      async *streamChat(options: StreamChatOptions): AsyncGenerator<ChatStreamEvent> {
+        // As a fetch does, a request whose signal already ended fails before it is sent.
+        options.signal?.throwIfAborted()
+        yield { type: "text_delta", text: "hi" }
+        await new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => reject(options.signal?.reason))
+        })
+      },
+      complete: vi.fn(),
+    })
+    const server: ServerCatalogModel = {
+      provider: "omlx",
+      id: "qwen",
+      displayName: "qwen",
+      contextLength: 32_768,
+      supportsImageInput: false,
+      baseURL: "http://127.0.0.1:8000/v1",
+    }
+    const client = (owner: number, model: FireworksModel | ServerCatalogModel) =>
+      host.clientFor(owner, { model, supportsImageInput: false, client: hanging() })
+    const first = async (owner: number, model: FireworksModel | ServerCatalogModel) => {
+      const stream = client(owner, model)?.streamChat({ messages: [] })
+      await stream?.next()
+      return stream?.next()
+    }
+    const inFlight = first(1, hosted)
+    const onLoopback = first(2, server)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    host.setOffline(true)
+    await expect(inFlight).rejects.toThrow("The network went away")
+    // A request started while offline fails before it is sent.
+    await expect(first(3, hosted)).rejects.toThrow("The network went away")
+    let settled = false
+    void onLoopback.finally(() => {
+      settled = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    // Back online, hosted requests run again.
+    host.setOffline(false)
+    const stream = client(4, hosted)?.streamChat({ messages: [] })
+    await expect(stream?.next()).resolves.toEqual({
+      done: false,
+      value: { type: "text_delta", text: "hi" },
+    })
+  })
+
   it("sizes the gate to the local server's slots and leaves hosted providers unbounded", async () => {
     const llama = fakeLlama()
     vi.mocked(llama.ensureServing).mockResolvedValue({

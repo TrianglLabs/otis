@@ -194,6 +194,7 @@ export const es: Messages = {
   "composer.sendTitle": "Enviar (Enter)",
   "composer.followUp": "Seguimiento",
   "composer.skillMenu": "Habilidades",
+  "home.solveCube": "Mezclar y resolver el cubo",
   "home.noModel": "Aún no hay ningún modelo configurado.",
   "home.setupHint":
     "Ejecuta otis una vez en este espacio de trabajo para configurar la inferencia; la aplicación de escritorio usa la misma configuración y sesiones.",
@@ -609,6 +610,14 @@ export const es: Messages = {
   "settings.debugMode": "Modo de depuración",
   "settings.debugHint": "Solo esta sesión; se aplica desde el próximo turno",
   "settings.toggleDebug": "Alternar modo de depuración",
+  "settings.feedback": "Comentarios",
+  "settings.feedbackPrompt": "¿Encontraste un error o tienes una idea?",
+  "settings.feedbackDetail":
+    "Abre un borrador de correo con tu versión de Otis y tu sistema, para que lo completes y lo envíes.",
+  "settings.feedbackOpened":
+    "Borrador abierto en tu app de correo. ¿Usas otra? Escribe a {{address}}.",
+  "settings.feedbackNoMail": "No se abrió ninguna app de correo. Escribe a {{address}}.",
+  "settings.sendFeedback": "Enviar comentarios",
   "updates.title": "Actualizaciones",
   "updates.checking": "Comprobando…",
   "updates.downloading": "Descargando…",

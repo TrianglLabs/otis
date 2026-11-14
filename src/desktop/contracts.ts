@@ -107,6 +107,7 @@ export const DESKTOP_CHANNELS = {
   setLocalThinking: "desktop:set-local-thinking",
   setPermissionMode: "desktop:set-permission-mode",
   openHostedKeyPage: "desktop:open-hosted-key-page",
+  sendFeedback: "desktop:send-feedback",
   setHostedApiKey: "desktop:set-hosted-api-key",
   connectLocalServers: "desktop:connect-local-servers",
   deleteLocalModel: "desktop:delete-local-model",
@@ -553,6 +554,11 @@ export type DesktopApi = {
   setPermissionMode(mode: "ask" | "auto"): Promise<void>
   /** Opens the provider's API-key page in the system browser. */
   openHostedKeyPage(provider: HostedProvider): Promise<void>
+  /**
+   * Opens a feedback draft in this computer's email app, never the paired daemon's, and names the
+   * address it is to, which the user can write to when no email app opened.
+   */
+  sendFeedback(): Promise<{ opened: boolean; address: string }>
   /** Validates a provider's API key against its catalog, then persists and activates it. */
   setHostedApiKey(provider: HostedProvider, apiKey: string): Promise<ModelSelectResult>
   /** Validates, probes, and persists NVIDIA PAIR endpoints, keeping only the ones that respond. */

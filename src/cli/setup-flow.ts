@@ -33,7 +33,7 @@ import {
   serverFormInputs,
 } from "../inference/types.js"
 import { saveHostedApiKey, saveSelectedModel } from "../local/settings.js"
-import { openHostedKeyPage } from "./provider-links.js"
+import { openURL } from "./links.js"
 import type { ChatUI, SetupInferenceChoice, SetupLocalInferenceChoice } from "./ui/types.js"
 
 type SetupFlowOptions = {
@@ -334,7 +334,7 @@ export class SetupFlow {
     this.options.ui.showSetupInput("", this.#keyFormCancelTarget, provider)
     if (this.#openedKeyPage === provider) return
     this.#openedKeyPage = provider
-    void openHostedKeyPage(provider)
+    void openURL(HOSTED_PROVIDER_INFO[provider].keyURL)
   }
 
   private requestPairEndpoints(message = "") {

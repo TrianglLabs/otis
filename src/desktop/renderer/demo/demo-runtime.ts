@@ -1263,6 +1263,11 @@ class DemoRuntime implements DesktopApi {
         notice("online", `Switched back to ${returnsTo}`),
         notice("offline", "Switched to Qwen3.8 27B on this machine"),
       ]
+    } else if (start === "dropout") {
+      // The network drops while a hosted model thinks, played live; catalogs list slowly, as on
+      // a poor network, so the model lists show their loader.
+      this.#catalogDelay = 1600
+      setTimeout(() => this.#playDropout(), 1200)
     } else if (start) {
       // A session running in another pane is focused; anything else is opened from the list.
       const running = this.#state.runtimes.find((entry) => entry.session?.id === start)
@@ -1284,6 +1289,8 @@ class DemoRuntime implements DesktopApi {
   #permissionResolve: ((allow: boolean) => void) | undefined
   #modelTimer: ReturnType<typeof setTimeout> | undefined
   #modelSeq = 0
+  /** How long catalogs take to list, as on a slow network; none unless a scenario says. */
+  #catalogDelay = 0
   #memory: MemoryEntry[] = [
     {
       scope: "workspace",
@@ -2036,6 +2043,10 @@ class DemoRuntime implements DesktopApi {
   }
 
   async openHostedKeyPage(_provider: HostedProvider): Promise<void> {}
+
+  async sendFeedback() {
+    return { opened: true, address: "feedback@example.com" }
+  }
 
   async setHostedApiKey(provider: HostedProvider, apiKey: string): Promise<ModelSelectResult> {
     if (!apiKey.trim())
@@ -2938,6 +2949,11 @@ class DemoRuntime implements DesktopApi {
   }
 
   async listModels(): Promise<ModelPickerItem[]> {
+    if (this.#catalogDelay) await new Promise((resolve) => setTimeout(resolve, this.#catalogDelay))
+    return this.#catalog()
+  }
+
+  #catalog(): ModelPickerItem[] {
     const current = this.#state.model
     const load = this.#state.modelLoad
     const rows = DEMO_MODELS.map((item): ModelPickerChoice => {
@@ -2991,6 +3007,7 @@ class DemoRuntime implements DesktopApi {
   }
 
   async listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>> {
+    if (this.#catalogDelay) await new Promise((resolve) => setTimeout(resolve, this.#catalogDelay))
     return Object.fromEntries(
       HOSTED_PROVIDERS.filter((provider) => this.#state.hostedConfigured[provider]).map(
         (provider) => [
@@ -3017,7 +3034,7 @@ class DemoRuntime implements DesktopApi {
   async selectModel(id: string): Promise<ModelSelectResult> {
     if (this.#state.busy)
       return { ok: false, reason: "Finish the current work before switching models." }
-    const item = (await this.listModels()).find(
+    const item = this.#catalog().find(
       (entry): entry is ModelPickerChoice => entry.kind === "model" && pickerItemKey(entry) === id,
     )
     if (!item) return { ok: false, reason: "That model is no longer in the catalog." }
@@ -3150,6 +3167,76 @@ class DemoRuntime implements DesktopApi {
         this.#after(generation, 250, () => {
           this.#streamText(this.#pushAssistant("", true).id, reply.intro, generation, () => {
             this.#runTools(generation, reply)
+          })
+        })
+      })
+    })
+  }
+
+  /**
+   * `OTIS_DEMO=dropout`, as the runtime plays it: a hosted model starts thinking and stalls on a
+   * connection the Wi-Fi took with it. Once the network watcher notices, the stalled thinking goes,
+   * a notice says the on-device model is starting while it loads, then that it took over, and the
+   * turn runs again there.
+   */
+  #playDropout() {
+    const generation = ++this.#generation
+    const returnsTo = this.#state.model?.displayName ?? "GLM-5.3"
+    this.#push(this.#entry("You", "Summarize the release notes in three bullets."))
+    this.#setBusy(true, "thinking")
+    this.#emitStatus()
+    const reasoning = this.#push({
+      id: this.#nextId++,
+      kind: "reasoning",
+      speaker: "Thinking",
+      text: "",
+      streaming: true,
+      reasoningId: `demo-${generation}`,
+      startedAt: new Date().toISOString(),
+    })
+    const stalled =
+      "Three bullets, then. The notes cover Canvas rendering Word files with their own styles, and"
+    this.#streamText(reasoning.id, stalled, generation, () => {
+      this.#patch(reasoning.id, { streaming: true })
+      this.#after(generation, 2600, () => {
+        this.#state = {
+          ...this.#state,
+          entries: this.#state.entries.filter((entry) => entry.id !== reasoning.id),
+        }
+        this.#emitOps([{ op: "remove", id: reasoning.id }])
+        const notice = this.#push({
+          id: this.#nextId++,
+          kind: "notice",
+          speaker: "Otis",
+          network: "offline",
+          text: "Starting Qwen3.8 27B on this machine…",
+        })
+        this.#state = {
+          ...this.#state,
+          phase: "working",
+          model: {
+            id: "Qwen/Qwen3.8-27B",
+            provider: "local",
+            displayName: "Qwen3.8 27B",
+            supportsImageInput: true,
+          },
+          modelState: "starting",
+          offline: { returnsTo },
+          speed: null,
+        }
+        this.#emitStatus()
+        this.#after(generation, 3200, () => {
+          this.#patch(notice.id, { text: "Switched to Qwen3.8 27B on this machine" })
+          this.#state = { ...this.#state, modelState: "ready" }
+          this.#emitStatus()
+          const answer = [
+            "- Canvas renders Word files with their own styles and real pages",
+            "- Otis keeps working offline on a model on your machine",
+            "- llama.cpp moves to 1.0",
+          ].join("\n")
+          this.#streamText(this.#pushAssistant("", true).id, answer, generation, () => {
+            this.#setBusy(false, "idle")
+            this.#emitStatus()
           })
         })
       })

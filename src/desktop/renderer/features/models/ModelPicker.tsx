@@ -24,6 +24,7 @@ import type {
 import { filterModelPickerItems, pickerItemKey } from "../../../../inference/picker-filter.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { CubeLoader } from "../../components/OtisMark.js"
 import { ProgressStop } from "../../components/Progress.js"
 import { formatContextWindow, formatMemory } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
@@ -193,9 +194,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
           {actionError ? (
             <div className="modelPicker-message modelPicker-error">{actionError}</div>
           ) : null}
-          {!items && !listError ? (
-            <div className="modelPicker-message">{t("common.loadingModels")}</div>
-          ) : null}
+          {!items && !listError ? <CubeLoader label={t("common.loadingModels")} /> : null}
           {/* The thumb appears on hover and flashes while scrolling, like the transcript. */}
           <div
             ref={listRef}

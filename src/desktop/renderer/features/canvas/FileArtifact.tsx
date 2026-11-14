@@ -32,18 +32,95 @@ const WORD_PREVIEW_CSS = `
 `
 
 /**
- * Fits each page's width to the frame, as PDF pages fit the panel, and again as it resizes; the
- * view's zoom scales the whole document on top. A page's own width is read before any fit.
+ * Lays a Word document out as pages and fits each page's width to the frame, as PDF pages fit the
+ * panel; the view's zoom scales the whole document on top.
+ *
+ * docx-preview has no layout engine: a page holds everything up to the next page break. A page
+ * whose content outgrows its height moves the first block that crosses its bottom margin, and
+ * everything after it, to a new page of the same size, margins, header and footer. A table that
+ * crosses splits between rows; a multi-column block moves whole; a block taller than a page stays,
+ * as it would fit no better on the next. Text wraps differently at each zoom, so pages are
+ * measured as shown and laid out again from the document once the fonts are in, and whenever the
+ * frame or the view's zoom changes. Styles and offsets are in the page's own units; boxes are on
+ * screen.
  */
-const WORD_FIT_SCRIPT = `<script>(() => {
+const WORD_LAYOUT_SCRIPT = `<script>(() => {
+  const wrapper = document.querySelector(".docx-wrapper")
+  const source = wrapper.innerHTML
+  const pages = () => wrapper.querySelectorAll(":scope > section.docx")
   const fit = () => {
-    for (const page of document.querySelectorAll("section.docx")) {
-      page.dataset.width ??= getComputedStyle(page).width
-      page.style.zoom = String((innerWidth - 32) / parseFloat(page.dataset.width))
+    for (const page of pages())
+      page.style.zoom = String((innerWidth - 32) / parseFloat(getComputedStyle(page).width))
+  }
+  const layout = () => {
+    wrapper.innerHTML = source
+    fit()
+    for (let page = pages()[0]; page; page = page.nextElementSibling) {
+      const style = getComputedStyle(page)
+      const height = parseFloat(style.minHeight)
+      if (page.offsetHeight <= height + 1) continue
+      const box = page.getBoundingClientRect()
+      const footer = page.querySelector(":scope > footer")
+      const floor =
+        height - parseFloat(style.paddingBottom) -
+        (footer ? footer.offsetHeight + parseFloat(getComputedStyle(footer).marginBottom) : 0)
+      const bottom = box.top + (floor * box.width) / parseFloat(style.width)
+      const articles = [...page.querySelectorAll(":scope > article")]
+      let split
+      let placed = false
+      for (const article of articles) {
+        const columns = Number(getComputedStyle(article).columnCount)
+        const blocks = columns > 1 ? [article] : [...article.children]
+        for (const block of blocks) {
+          const crosses = block.getBoundingClientRect().bottom > bottom
+          const rows = crosses && block.tagName === "TABLE" ? [...block.rows] : []
+          const row = rows.findIndex((row) => row.getBoundingClientRect().bottom > bottom)
+          if (row > 0) {
+            const rest = block.cloneNode(false)
+            const colgroup = block.querySelector(":scope > colgroup")
+            if (colgroup) rest.append(colgroup.cloneNode(true))
+            rest.append(document.createElement("tbody"))
+            rest.lastChild.append(...rows.slice(row))
+            block.after(rest)
+            split = { article, block: rest }
+            break
+          }
+          if (crosses && placed) {
+            split = { article, block }
+            break
+          }
+          placed = true
+        }
+        if (split) break
+      }
+      if (!split) continue
+      const next = page.cloneNode(false)
+      const header = page.querySelector(":scope > header")
+      if (header) next.append(header.cloneNode(true))
+      const { article, block } = split
+      const whole = block === article || block === article.firstElementChild
+      const moved = whole ? article : article.cloneNode(false)
+      if (!whole) {
+        const blocks = [...article.children]
+        moved.append(...blocks.slice(blocks.indexOf(block)))
+      }
+      next.append(moved, ...articles.slice(articles.indexOf(article) + 1))
+      if (footer) next.append(footer.cloneNode(true))
+      page.after(next)
     }
   }
+  let timer
+  const relayout = () => {
+    clearTimeout(timer)
+    timer = setTimeout(layout, 150)
+  }
   fit()
-  addEventListener("resize", fit)
+  document.fonts.ready.then(layout)
+  addEventListener("resize", () => {
+    fit()
+    relayout()
+  })
+  new MutationObserver(relayout).observe(document.documentElement, { attributeFilter: ["style"] })
 })()</script>`
 
 /**
@@ -117,11 +194,31 @@ export function FileArtifact({
           // Loaded on first use. Images and fonts inline as data URLs, the only kind the
           // preview frame loads; the laid-out nodes reach the frame as their markup.
           const { parseAsync, renderDocument } = await import("docx-preview")
-          const options = { useBase64URL: true }
-          const pages = document.createElement("div")
-          pages.append(
-            ...(await renderDocument(await parseAsync(payload.content, options), options)),
+          const options = { useBase64URL: true, ignoreLastRenderedPageBreak: false }
+          const parsed = await parseAsync(payload.content, options)
+          // Pages come from measuring in the frame, not from Word's saved page-break hints,
+          // which follow Word's fonts rather than these. Honoring no hints, docx-preview groups
+          // sections onto pages only as page breaks say, so each section break gets the one its
+          // next section asks for: a new page unless that section is continuous.
+          const { body } = parsed.documentPart
+          const paragraphs = body.children.filter(
+            (block: { type: string }) => block.type === "paragraph",
           )
+          for (const run of paragraphs.flatMap(
+            (paragraph: { children: object[] }) => paragraph.children,
+          ))
+            run.children = run.children?.filter(
+              (child: { break?: string }) => child.break !== "lastRenderedPageBreak",
+            )
+          const ends = paragraphs.filter(
+            (paragraph: { sectionProps?: object }) => paragraph.sectionProps,
+          )
+          ends.forEach((paragraph: { children: object[] }, index: number) => {
+            if ((ends[index + 1]?.sectionProps ?? body.props).type !== "continuous")
+              paragraph.children.push({ type: "run", children: [{ type: "break", break: "page" }] })
+          })
+          const pages = document.createElement("div")
+          pages.append(...(await renderDocument(parsed, options)))
           word = pages.innerHTML
         }
         if (current) setLoaded({ id, payload, word })
@@ -194,7 +291,7 @@ export function FileArtifact({
   const office = word ?? (payload?.encoding === "html" ? payload.content : undefined)
   const framed =
     payload && office !== undefined
-      ? `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${payload.title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title><style>${payload.kind === "docx" ? WORD_PREVIEW_CSS : SLIDES_PREVIEW_CSS}</style></head><body>${office}${payload.kind === "docx" ? WORD_FIT_SCRIPT : ""}</body></html>`
+      ? `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${payload.title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title><style>${payload.kind === "docx" ? WORD_PREVIEW_CSS : SLIDES_PREVIEW_CSS}</style></head><body>${office}${payload.kind === "docx" ? WORD_LAYOUT_SCRIPT : ""}</body></html>`
       : payload?.kind === "html"
         ? payload.content
         : undefined

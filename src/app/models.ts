@@ -32,6 +32,7 @@ import {
   type HostedApiKeys,
   type HostedProvider,
   type InferenceClient,
+  isHostedProvider,
   isLocalCatalogModel,
   isPairCatalogModel,
   isServerCatalogModel,
@@ -172,7 +173,8 @@ function gateAbortError() {
 /**
  * One owner's view of the shared client: every stream or completion holds a gate lease from the
  * request to the end of its stream, so tool execution between requests never occupies a slot.
- * Token counting runs ungated. Identity is stable while the inner client is.
+ * A hosted client's requests also end when the network goes away. Token counting runs ungated.
+ * Identity is stable while the inner client is.
  */
 export class GatedInferenceClient implements InferenceClient {
   countTokens?: (options: StreamChatOptions) => Promise<number>
@@ -181,8 +183,15 @@ export class GatedInferenceClient implements InferenceClient {
     readonly inner: InferenceClient,
     readonly gate: InferenceGate,
     readonly owner: number,
+    private readonly offline?: () => AbortSignal,
   ) {
     if (inner.countTokens) this.countTokens = inner.countTokens.bind(inner)
+  }
+
+  #cut<T extends { signal?: AbortSignal }>(options: T): T {
+    if (!this.offline) return options
+    const signals = [this.offline(), ...(options.signal ? [options.signal] : [])]
+    return { ...options, signal: AbortSignal.any(signals) }
   }
 
   get model() {
@@ -192,7 +201,7 @@ export class GatedInferenceClient implements InferenceClient {
   async *streamChat(options: StreamChatOptions) {
     const lease = await this.gate.acquire(this.owner, options.signal)
     try {
-      yield* this.inner.streamChat(options)
+      yield* this.inner.streamChat(this.#cut(options))
     } finally {
       lease.release()
     }
@@ -201,7 +210,7 @@ export class GatedInferenceClient implements InferenceClient {
   async complete(messages: ChatMessage[], options: CompleteOptions = {}) {
     const lease = await this.gate.acquire(this.owner, options.signal)
     try {
-      return await this.inner.complete(messages, options)
+      return await this.inner.complete(messages, this.#cut(options))
     } finally {
       lease.release()
     }
@@ -295,6 +304,8 @@ export class ModelHost {
   onLocal: ((selection: ModelSelection | undefined) => void) | undefined
   /** Per-owner gated views; an entry is stale once its inner client is replaced. */
   readonly #gated = new Map<number, GatedInferenceClient>()
+  /** Aborted while offline; hosted requests carry it. */
+  #offline = new AbortController()
   #state: Exclude<ModelState, "ready"> = "unconfigured"
   #error: string | undefined
   #selecting = 0
@@ -320,8 +331,10 @@ export class ModelHost {
     if (!client) return undefined
     const memo = this.#gated.get(owner)
     if (memo?.inner === client) return memo
-    const gate = selection.model.provider === "local" ? this.gate : OPEN_GATE
-    const gated = new GatedInferenceClient(client, gate, owner)
+    const { provider } = selection.model
+    const gate = provider === "local" ? this.gate : OPEN_GATE
+    const offline = isHostedProvider(provider) ? () => this.#offline.signal : undefined
+    const gated = new GatedInferenceClient(client, gate, owner, offline)
     this.#gated.set(owner, gated)
     return gated
   }
@@ -329,6 +342,15 @@ export class ModelHost {
   /** A closed runtime's gated view goes with it. */
   releaseClient(owner: number) {
     this.#gated.delete(owner)
+  }
+
+  /**
+   * While offline, hosted requests in flight end and new ones fail at once, rather than wait on a
+   * connection that went with the network. Servers and PAIR on loopback carry on.
+   */
+  setOffline(offline: boolean) {
+    if (!offline) this.#offline = new AbortController()
+    else this.#offline.abort(new Error("The network went away before the provider could answer."))
   }
 
   /** The state behind a selection without a client: its server starting, failed, or unset. */
