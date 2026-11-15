@@ -3,7 +3,6 @@ import {
   FilePlus2,
   FolderOpen,
   GitBranch,
-  Mail,
   Pin,
   PinOff,
   Search,
@@ -217,17 +216,6 @@ export function CommandPalette({
         const result = await api.openWorkspace(path)
         if (result.ok) onClose()
         else setActionError(result.reason)
-      },
-    },
-    {
-      kind: "action" as const,
-      id: "send-feedback",
-      label: t("settings.sendFeedback"),
-      icon: Mail,
-      run: async () => {
-        const { opened, address } = await api.sendFeedback()
-        if (opened) onClose()
-        else setActionError(t("settings.feedbackNoMail", { address }))
       },
     },
   ].filter((action) => !needle || action.label.toLowerCase().includes(needle.toLowerCase()))

@@ -118,8 +118,8 @@ export class HomeStats {
       statBoxes[index].value.content = items[index].value
       statBoxes[index].label.content = items[index].label
     }
-    // Bars grow left to right across the same window as the cards.
-    const activity = this.to.recentActivity
+    // Bars grow left to right across the same window as the cards, over the chart's last days.
+    const activity = this.to.recentActivity.slice(-ACTIVITY_DAYS)
     const grown = Array.from({ length: ACTIVITY_DAYS }, (_, day) =>
       elapsedOrRest === "rest"
         ? 1

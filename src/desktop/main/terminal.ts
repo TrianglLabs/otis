@@ -7,9 +7,6 @@ export type SpawnPty = typeof spawn
 const FLUSH_INTERVAL_MS = 16
 /** Retained output, in characters; the oldest whole lines go first once it is exceeded. */
 const HISTORY_LIMIT = 1_000_000
-/** The grid until the renderer reports its own. */
-const COLS = 80
-const ROWS = 24
 
 /**
  * The workspace's shell behind a pseudo-terminal: the login shell, or on Windows PowerShell 7
@@ -17,29 +14,43 @@ const ROWS = 24
  * own commands run through Git Bash instead (src/local/paths.ts). Output is coalesced per frame
  * before it crosses to the renderer, so a build's stream of small writes does not become a stream
  * of IPC messages, and retained so a renderer that comes back, or comes later, can replay it.
+ * The shell starts at the first size the view reports, so its first lines fit the grid they are
+ * shown on: zsh's end-of-line mark, padded to the width it starts at, would otherwise wrap into a
+ * stray % above the prompt.
  */
 export class WorkspaceTerminal {
-  readonly #pty: IPty
+  #pty: IPty | undefined
   #pending = ""
   #flush: ReturnType<typeof setTimeout> | undefined
   #history = ""
 
   constructor(
-    spawnPty: SpawnPty,
-    cwd: string,
+    private readonly spawnPty: SpawnPty,
+    private readonly cwd: string,
     private readonly send: (data: string) => void,
-    onExit: () => void,
-    platform: NodeJS.Platform,
-  ) {
+    private readonly onExit: () => void,
+    private readonly platform: NodeJS.Platform,
+  ) {}
+
+  get history() {
+    return this.#history
+  }
+
+  write(data: string) {
+    this.#pty?.write(data)
+  }
+
+  resize(cols: number, rows: number) {
+    if (this.#pty) return this.#pty.resize(cols, rows)
     const [command, args] =
-      platform === "win32"
+      this.platform === "win32"
         ? [findOnPath("pwsh.exe") ?? "powershell.exe", ["-NoLogo"]]
         : [process.env.SHELL || userInfo().shell || "/bin/sh", ["-l"]]
-    this.#pty = spawnPty(command, args, {
+    this.#pty = this.spawnPty(command, args, {
       name: "xterm-256color",
-      cols: COLS,
-      rows: ROWS,
-      cwd,
+      cols,
+      rows,
+      cwd: this.cwd,
       env: { ...process.env, TERM_PROGRAM: "Otis" },
     })
     this.#pty.onData((data) => {
@@ -54,24 +65,13 @@ export class WorkspaceTerminal {
     })
     this.#pty.onExit(() => {
       this.#deliver()
-      onExit()
+      this.onExit()
     })
   }
 
-  get history() {
-    return this.#history
-  }
-
-  write(data: string) {
-    this.#pty.write(data)
-  }
-
-  resize(cols: number, rows: number) {
-    this.#pty.resize(cols, rows)
-  }
-
   kill() {
-    this.#pty.kill()
+    if (this.#pty) this.#pty.kill()
+    else this.onExit()
   }
 
   #deliver() {

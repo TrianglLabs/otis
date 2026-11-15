@@ -384,14 +384,18 @@ async function runDesktopUiChecks() {
   // Usage has a tab of its own: the activity bars, the capped model list, and the day highlight.
   settingsTabs[4].click()
   await until(
-    () => document.querySelectorAll(".settingsUsage-bar").length === 28,
+    () => document.querySelectorAll(".settingsUsage-bar").length === 30,
     "Usage tab did not show the activity bars",
   )
   assert(
     document.querySelectorAll(".settingsUsage-model").length === 5,
     "Usage does not cap its per-model rows",
   )
-  element<HTMLButtonElement>(".settingsUsage-more").click()
+  const more = [...document.querySelectorAll<HTMLButtonElement>(".settingsUsage button")].find(
+    (button) => button.textContent === "Show more",
+  )
+  assert(more, "Usage does not offer the rest of the models")
+  more.click()
   await until(
     () => document.querySelectorAll(".settingsUsage-model").length === 6,
     "Show more did not reveal the remaining models",
@@ -454,7 +458,8 @@ async function runDesktopUiChecks() {
     "Settings page does not identify the active section",
   )
   assert(
-    document.querySelectorAll(".themeTile").length === 15,
+    // The first grid is the themes; the app icons follow in their own.
+    element(".themeGrid").querySelectorAll(".themeTile").length === 15,
     "Appearance does not offer every theme",
   )
   assert(
@@ -904,12 +909,17 @@ async function runDesktopUiChecks() {
   )
   status({ update: { status: "ready", version: "0.2.0" } })
   await until(
-    () => !!document.querySelector(".updateFab"),
-    "Downloaded update did not show its install button",
+    () => !!document.querySelector(".updateButton"),
+    "Downloaded update did not show its restart button",
   )
+  // Bottom-left, the update shows only where the composer keeps clear of it.
+  const updateClear = () =>
+    getComputedStyle(element(".updateButton")).display !== "none" &&
+    element(".updateButton").getBoundingClientRect().right <
+      element(".composer-box").getBoundingClientRect().left
   assert(
-    getComputedStyle(element(".updateFab")).display === "none",
-    "Narrow layout kept the update button visible",
+    getComputedStyle(element(".updateButton")).display === "none",
+    "A narrow column kept the update button over the composer",
   )
 
   await nativeInput({ size: [1600, 850] })
@@ -919,6 +929,7 @@ async function runDesktopUiChecks() {
       resizer.getAttribute("aria-valuenow") === "560",
     "Canvas width and ARIA did not follow the resized window",
   )
+  assert(updateClear(), "The update button is hidden or covers the composer in a wide column")
   resizer.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" }))
   await until(
     () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 544) < 1,
@@ -1211,6 +1222,10 @@ async function runDesktopUiChecks() {
       },
     ],
   })
+  // Diffs are folded until their card is opened.
+  const wrappedCard = '.toolCard-toggle[title="Edit resume.md"]'
+  await until(() => !!document.querySelector(wrappedCard), "Wrapped diff card did not render")
+  element<HTMLButtonElement>(wrappedCard).click()
   await until(() => !!document.querySelector(".diffLine-add"), "Wrapped diff did not render")
   const wrappedDiff = element(".diffView")
   const wrappedText = element(".diffLine-add .diffLine-text")
@@ -1308,7 +1323,12 @@ async function runDesktopUiChecks() {
   assertEntryGap('[data-entry-id="6"] .reasoning-header', '[data-entry-id="8"] .artifactCard', 14)
   assertEntryGap('[data-entry-id="8"] .artifactCard', '[data-entry-id="9"] .reasoning-header', 14)
   assertEntryGap('[data-entry-id="9"] .reasoning-header', '[data-entry-id="10"] .md', 14)
-  assertEntryGap('[data-entry-id="11"] .diffView', '[data-entry-id="12"] .toolCard-header', 14)
+  // A diff stays folded to its header until opened.
+  assertEntryGap(
+    '[data-entry-id="11"] .toolCard-header',
+    '[data-entry-id="12"] .toolCard-header',
+    14,
+  )
   element<HTMLButtonElement>('[data-run-id="3"] .toolRun-header').click()
   await until(
     () => !!document.querySelector('[data-entry-id="5"]'),
@@ -1354,6 +1374,9 @@ async function runDesktopUiChecks() {
     op: "reset",
     entries: [{ id: 1, kind: "tool", speaker: "Tool", text: "Large edit", diff }],
   })
+  const largeCard = '.toolCard-toggle[title="Large edit"]'
+  await until(() => !!document.querySelector(largeCard), "Large diff card did not render")
+  element<HTMLButtonElement>(largeCard).click()
   await until(
     () => !!document.querySelector(".diffView-windowed .diffLine"),
     "Large diff did not render",
@@ -1565,38 +1588,28 @@ async function runDesktopUiChecks() {
   const panel = element(".thinkingControl-panel").getBoundingClientRect()
   assert(
     panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0,
-    "Thinking slider exceeds the viewport",
+    "Thinking levels exceed the viewport",
   )
-  const thinkingRange = element<HTMLInputElement>('.thinkingControl input[type="range"]')
-  assert(
-    document.activeElement === thinkingRange,
-    "Thinking slider does not receive keyboard focus",
-  )
-  const track = thinkingRange.getBoundingClientRect()
+  const chosen = element<HTMLButtonElement>('.thinkingControl-panel [aria-selected="true"]')
+  assert(document.activeElement === chosen, "The chosen thinking level does not take focus")
+  const medium = [
+    ...document.querySelectorAll<HTMLButtonElement>(".thinkingControl-panel [role=tab]"),
+  ].find((tab) => tab.textContent === "Medium")
+  assert(medium, "Thinking levels do not offer Medium")
+  const box = medium.getBoundingClientRect()
+  const at = { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) }
   await nativeInput({
     events: [
-      {
-        type: "mouseDown",
-        button: "left",
-        clickCount: 1,
-        x: Math.round(track.left + (track.width * 2) / 3),
-        y: Math.round(track.top + track.height / 2),
-      },
-      {
-        type: "mouseUp",
-        button: "left",
-        clickCount: 1,
-        x: Math.round(track.left + (track.width * 2) / 3),
-        y: Math.round(track.top + track.height / 2),
-      },
+      { type: "mouseDown", button: "left", clickCount: 1, ...at },
+      { type: "mouseUp", button: "left", clickCount: 1, ...at },
     ],
   })
   await until(
     () => store.getState()?.localThinking?.selected === "medium",
-    "Thinking slider did not persist Medium",
+    "Thinking levels did not persist Medium",
   )
   await nativeInput({ screenshot: true })
-  thinkingRange.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  medium.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
   await pause()
   assert(
     !document.querySelector(".thinkingControl-panel"),
@@ -1606,7 +1619,11 @@ async function runDesktopUiChecks() {
   // Loading dims the input form, but must not make a reopened model picker translucent.
   status({
     modelState: "starting",
-    modelLoad: { modelId: thinkingModel, status: { kind: "progress", label: "Loading" } },
+    // Loads are keyed like picker rows, by provider and id.
+    modelLoad: {
+      modelId: `local:${thinkingModel}`,
+      status: { kind: "progress", label: "Loading" },
+    },
   })
   await pause()
   assert(
@@ -1616,7 +1633,7 @@ async function runDesktopUiChecks() {
   for (let attempt = 0; attempt < 2; attempt++) {
     element<HTMLButtonElement>(".composer-model").click()
     await until(
-      () => !!document.querySelector(".modelPicker-spinner"),
+      () => !!document.querySelector(".modelPicker-row .progressStop"),
       "Loading model picker did not open",
     )
     const picker = element(".modelPicker")

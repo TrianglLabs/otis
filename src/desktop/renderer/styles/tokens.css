@@ -34,11 +34,18 @@
   --danger: var(--pink);
   --warning: var(--orange);
   --success: var(--green);
-  /* The usage mix: cached input is the accent; a theme whose palette folds these together names
-     its own. */
+  /* The usage mix in the theme's own colors: cached input is the accent, uncached a paler accent,
+     output the dim text, so every theme draws it without naming its own. */
   --usage-cached: var(--accent);
-  --usage-uncached: var(--pink);
-  --usage-output: var(--cyan);
+  --usage-uncached: color-mix(in srgb, var(--accent) 40%, var(--bg-surface));
+  --usage-output: var(--text-dim);
+  /* Chart lines in the theme's colors, a fifth and beyond folded into the dim "other". A theme
+     whose accent sits close to one of these swaps that one. */
+  --chart-1: var(--accent);
+  --chart-2: var(--cyan);
+  --chart-3: var(--green);
+  --chart-4: var(--orange);
+  --chart-other: var(--text-dim);
 
   /* Diffs */
   --diff-add-bg: #1a2e22;

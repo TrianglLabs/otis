@@ -1121,7 +1121,7 @@ button.reasoning-header:hover {
 .composer-context {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -1224,14 +1224,14 @@ button.reasoning-header:hover {
   color: var(--text-dim);
 }
 
-/* The interactive chips are quiet tinted controls, no outline: a wash of the text colour that
-   deepens under the pointer. The wash carries model state instead of a status dot. */
+/* The interactive chips rest as bare text and icons; a wash of the hover color appears under the
+   pointer, and carries model state instead of a status dot. */
 button.composer-model,
 button.composer-workspace {
   margin-left: 0;
   height: 24px;
-  padding: 0 9px;
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+  padding: 0 6px;
+  background: transparent;
   transition:
     color var(--motion),
     background var(--motion);

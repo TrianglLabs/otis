@@ -905,15 +905,16 @@ export class Application {
     const tokens = this.contextTokens(undefined, runtime)
     const to =
       startable.find((model) => tokens < this.models.autoCompactAtTokens(model)) ?? startable[0]
-    // Why nothing took over is told once each time offline; the move is tried at every check.
+    // Why nothing took over is told once each time offline, as soon as the session has a
+    // conversation to tell it in; the move is tried at every check.
     const { transcript } = runtime
     if (!to) {
       const text = candidates.length
         ? "Downloaded models need their llama.cpp runtime, which downloads next time you're online"
         : "No model on this machine can take over. " +
           "Download one from the model picker to keep working offline"
-      if (!this.#stranded.has(runtime)) transcript.addNotice(text, "offline")
-      this.#stranded.add(runtime)
+      if (!this.#stranded.has(runtime) && transcript.addNotice(text, "offline") !== undefined)
+        this.#stranded.add(runtime)
       return false
     }
     // A model can take a while to load, so the move is told as it starts and the notice then says
@@ -925,8 +926,9 @@ export class Application {
     moving?.()
     const result = await this.selectModel(to, { runtime, persist: async () => {}, inTurn })
     if (!result.ok) {
+      if (notice === undefined) return false
       const text = `${to.displayName} could not start: ${result.reason}`
-      if (notice !== undefined) transcript.updateEntry(notice, { text })
+      transcript.updateEntry(notice, { text })
       this.#stranded.add(runtime)
       return false
     }

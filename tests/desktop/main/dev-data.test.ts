@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  importHistory,
   initializeDevProfile,
   resolveDevData,
   shouldInitializeDevProfile,
@@ -69,7 +70,7 @@ describe("development profile import", () => {
     expect(shouldInitializeDevProfile({ otisDevUserData: "/tmp/test" })).toBe(false)
   })
 
-  it("imports setup once without copying sessions or restoring deliberately removed settings", async () => {
+  it("imports setup and history once without restoring deliberately removed settings", async () => {
     const root = await mkdtemp(join(tmpdir(), "otis-dev-import-"))
     directories.push(root)
     const sourceConfigDirectory = join(root, "installed-config")
@@ -78,7 +79,7 @@ describe("development profile import", () => {
     const source = join(sourceConfigDirectory, "config.json")
     const file = join(otisHome, "config.json")
     await saveHostedApiKey("fireworks", "fw_fake_installed_key", undefined, { file: source })
-    await writeFile(join(sourceConfigDirectory, "session.jsonl"), "private conversation")
+    await put(sourceDataDirectory, "sessions/work/session_a.jsonl", "a\n")
     const original = await readFile(source, "utf8")
 
     const options = { sourceConfigDirectory, sourceDataDirectory, otisHome }
@@ -86,13 +87,69 @@ describe("development profile import", () => {
     expect((await loadLocalSettings({ file, env: {} })).fireworksApiKey).toBe(
       "fw_fake_installed_key",
     )
-    await expect(stat(join(otisHome, "session.jsonl"))).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await read(otisHome, "sessions/work/session_a.jsonl")).toBe("a\n")
     await rm(file)
+    await put(sourceDataDirectory, "sessions/work/session_b.jsonl", "b\n")
     await initializeDevProfile(options)
+    await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" })
+    // Later history arrives only on a refresh.
+    await expect(stat(join(otisHome, "sessions/work/session_b.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await initializeDevProfile({ ...options, refresh: true })
+    expect(await read(otisHome, "sessions/work/session_b.jsonl")).toBe("b\n")
     await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" })
     expect(await readFile(source, "utf8")).toBe(original)
   })
 })
+
+describe("importHistory", () => {
+  it("copies history one way, growing untouched copies and keeping development's own", async () => {
+    const root = await mkdtemp(join(tmpdir(), "otis-dev-history-"))
+    directories.push(root)
+    const installed = join(root, "installed")
+    const dev = join(root, "dev")
+    await put(installed, "sessions/work/new.jsonl", "1\n")
+    await put(installed, "sessions/work/grown.jsonl", "1\n2\n")
+    await put(dev, "sessions/work/grown.jsonl", "1\n")
+    await put(installed, "sessions/work/continued.jsonl", "1\n2\n3\n")
+    await put(dev, "sessions/work/continued.jsonl", "1\nmine\n")
+    await put(dev, "sessions/work/deleted-upstream.jsonl", "kept\n")
+    await put(installed, "memory/MEMORY.md", "- likes tea\n")
+    await put(installed, "llama/model.gguf", "not history")
+
+    await importHistory(installed, dev)
+    expect(await read(dev, "sessions/work/new.jsonl")).toBe("1\n")
+    expect(await read(dev, "sessions/work/grown.jsonl")).toBe("1\n2\n")
+    // Development wrote to this one, so the installed copy no longer extends it.
+    expect(await read(dev, "sessions/work/continued.jsonl")).toBe("1\nmine\n")
+    expect(await read(dev, "sessions/work/deleted-upstream.jsonl")).toBe("kept\n")
+    expect(await read(dev, "memory/MEMORY.md")).toBe("- likes tea\n")
+    await expect(stat(join(dev, "llama/model.gguf"))).rejects.toMatchObject({ code: "ENOENT" })
+    // Copies are as private as their originals, and nothing is left half-written.
+    expect((await stat(join(dev, "sessions/work/new.jsonl"))).mode & 0o777).toBe(0o600)
+    expect((await stat(join(dev, "memory"))).mode & 0o777).toBe(0o700)
+    await expect(stat(join(dev, "sessions/work/new.jsonl.importing"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    // The installed profile is only read.
+    expect(await read(installed, "sessions/work/continued.jsonl")).toBe("1\n2\n3\n")
+  })
+
+  it("does nothing without an installed history", async () => {
+    const root = await mkdtemp(join(tmpdir(), "otis-dev-history-"))
+    directories.push(root)
+    await importHistory(join(root, "missing"), join(root, "dev"))
+    await expect(stat(join(root, "dev"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+})
+
+async function put(root: string, path: string, content: string) {
+  await mkdir(dirname(join(root, path)), { recursive: true })
+  await writeFile(join(root, path), content)
+}
+
+const read = (root: string, path: string) => readFile(join(root, path), "utf8")
 
 describe("resolveDevData", () => {
   it("returns undefined when the build is packaged", () => {

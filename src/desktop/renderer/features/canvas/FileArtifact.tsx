@@ -20,7 +20,8 @@ import { ViewControls, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from "./ViewControls.js"
 /**
  * A Word document as docx-preview lays it out: its own page sizes, margins and styles, on the
  * desk the decks sit on. `body` outranks docx-preview's wrapper rules, which follow these in the
- * page.
+ * page. Sections that share a page sit one under the next, as in Word; only the last pushes the
+ * footer down, where docx-preview spreads the page's spare height between them all.
  */
 const WORD_PREVIEW_CSS = `
   :root { color-scheme: light; background: #e9e7e2; }
@@ -29,6 +30,7 @@ const WORD_PREVIEW_CSS = `
     min-height: 100vh; padding: 24px 16px 0; background: none; align-items: safe center;
   }
   body .docx-wrapper > section.docx { margin-bottom: 28px; box-shadow: 0 4px 24px #0002; }
+  body .docx-wrapper > section.docx > article:not(:last-of-type) { margin-bottom: 0; }
 `
 
 /**
@@ -210,6 +212,24 @@ export function FileArtifact({
             run.children = run.children?.filter(
               (child: { break?: string }) => child.break !== "lastRenderedPageBreak",
             )
+          // docx-preview drops Word's column breaks. In a section with columns the block after
+          // one starts a column; in a single-column section it is a page break, as in Word. A
+          // section's last paragraph carries its properties, so the walk runs backwards.
+          let section = body.props
+          for (let index = body.children.length - 1; index >= 0; index--) {
+            const block = body.children[index]
+            section = block.sectionProps ?? section
+            const runs: { children?: { break?: string }[] }[] = block.children ?? []
+            const marks = runs.flatMap((run) => run.children ?? [])
+            const mark = marks.find((candidate) => candidate.break === "column")
+            if (!mark) continue
+            if ((section.columns?.numberOfColumns ?? 1) < 2) {
+              mark.break = "page"
+              continue
+            }
+            const next = mark === marks[0] ? block : body.children[index + 1]
+            if (next) next.cssStyle = { ...next.cssStyle, "break-before": "column" }
+          }
           const ends = paragraphs.filter(
             (paragraph: { sectionProps?: object }) => paragraph.sectionProps,
           )

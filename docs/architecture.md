@@ -129,7 +129,7 @@ streamed text and thinking happened: those are taken off the transcript, and wha
 delivered to the rerun. A turn that already changed something ends with the error instead, as a rerun could repeat
 its work. Once a provider answers, each moved session returns to the hosted model it
 left, unless the user picked another meanwhile. Each move adds a notice entry to that session's transcript (never
-model history), and the status carries `offline` with the model the focused session returns to, which the desktop
+model history; a session with nothing in it yet moves silently and stays empty), and the status carries `offline` with the model the focused session returns to, which the desktop
 model chip and the terminal status line show. The same checks ask Parallel's endpoint (a keyless `HEAD`, and at once when a web
 request cannot connect): while it does not answer, for hosted and local sessions alike, turns start without
 `web_search` and `web_read`, which could only fail; the first turn after it answers has them again. The picker fetches no hosted catalog
@@ -214,10 +214,11 @@ sandboxed frame, which also relays link clicks and shortcuts out. Word previews 
 docx-preview with the document's own styles, numbering, tables, page sizes, headers, and footers, images and fonts
 inlined as data URLs, and the pages' markup is shown in that same frame. docx-preview has no layout engine, so pages
 break only where the document says (page breaks, and section breaks other than continuous ones); Word's saved
-page-break hints are dropped, since they follow Word's fonts. A script in the frame then measures each page as shown
-and moves whatever crosses its bottom margin to a new page with the same size, margins, header and footer, splitting
-tables between rows, and lays the pages out again when the frame or zoom changes, since text wraps differently at
-each zoom.
+page-break hints are dropped, since they follow Word's fonts. Column breaks, which docx-preview drops, start the next
+block in a new column, or a new page in a section without columns, as in Word; sections sharing a page stack without
+the gaps docx-preview spreads between them. A script in the frame then measures each page as shown and moves whatever
+crosses its bottom margin to a new page with the same size, margins, header and footer, splitting tables between rows,
+and lays the pages out again when the frame or zoom changes, since text wraps differently at each zoom.
 PDF previews use a dedicated worker and virtualized pages with bounded bitmap sizes, disposing rendering tasks and
 worker resources when closed; page bitmaps re-render once the panel width settles and scale in CSS meanwhile. Each
 page carries a PDF.js text layer, so text selects and copies, and find reads page text in order to report matches
@@ -673,7 +674,11 @@ cache data, output, and the cache hit rate; the header's context meter opens the
 and the current session.
 
 Home-screen totals are calculated across local workspace session directories. Session counts, durations, and activity
-streaks are also derived from those local event timestamps.
+streaks are also derived from those local event timestamps. The last 30 days come from the same pass, each day with its
+tokens, the messages the user sent by the model that first answered their turn (steering joins the running turn), the
+turn's tool calls by activity kind, and skill loads by name, archived calls included; the Usage tab draws them over 7
+or 30 days, and the terminal home screen draws the last 28 days of tokens. Nothing new is recorded for these: they are
+read from the events already on disk.
 
 The home-screen stats row is absent until at least one provider credential is available. Once visible, every card has
 a stable label and displays zero until enough local session data exists to calculate a non-zero value.

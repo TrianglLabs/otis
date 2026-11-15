@@ -32,6 +32,8 @@
   --bg-rail: #161413;
   --bg-code: #0b0a0a;
   --accent: #ff9a3c;
+  /* The accent is itself an orange, so the fourth chart line takes the pink. */
+  --chart-4: var(--pink);
   --on-accent: #1c1a19;
   --text: #f1e9e1;
   --text-dim: #9b918a;
@@ -54,6 +56,8 @@
   --bg-rail: #212326;
   --bg-code: #222428;
   --accent: #8cb9f2;
+  /* The accent is a blue close to the cyan, so the second chart line takes the pink. */
+  --chart-2: var(--pink);
   --text-dim: #a1a4ab;
   --text: #ecedef;
   --cyan: #89cbd1;
@@ -117,10 +121,8 @@
   --bg-elev: #1b1b1b;
   --bg-rail: #131313;
   --accent: #00ff66;
-  /* One hue by design, so these are told apart by brightness, and a failure is the one red. */
+  /* One hue by design, so a failure is the one red. */
   --danger: #ff5050;
-  --usage-uncached: #1c7a3e;
-  --usage-output: #c9ffd8;
   --on-accent: #052e12;
   --text: #00ff41;
   --text-dim: #4d7a52;
@@ -210,9 +212,8 @@
   --bg-elev: #2a1b4a;
   --bg-rail: #22153e;
   --accent: #ff6ec7;
-  /* The accent is itself a pink: failures and uncached input take the theme's orange. */
+  /* The accent is itself a pink, so failures take a red of their own. */
   --danger: #ff6b6b;
-  --usage-uncached: #ffb86b;
   --text: #ede6f7;
   --text-dim: #8f7fb8;
   --cyan: #4dd8e8;
@@ -233,8 +234,8 @@
   --bg-elev: #0a1e28;
   --bg-rail: #05131c;
   --accent: #1eefff;
-  /* The accent is itself a cyan: output takes the theme's green. */
-  --usage-output: #8fe3b4;
+  /* The accent is itself a cyan, so the second chart line takes the pink. */
+  --chart-2: var(--pink);
   --on-accent: #083032;
   --text: #abffe9;
   --text-dim: #4e7e7c;

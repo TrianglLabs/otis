@@ -44,9 +44,12 @@ const sampleStats = {
   avgSessionSeconds: 420,
 }
 
-const sampleActivity = Array.from({ length: 28 }, (_, index) => ({
+const sampleActivity = Array.from({ length: 30 }, (_, index) => ({
   date: `2026-10-${String(index + 1).padStart(2, "0")}`,
   tokens: index % 5 === 0 ? 0 : index * 1_000,
+  messages: {},
+  tools: {},
+  skills: {},
 }))
 
 /** Each card counts for 900ms, staggered 70ms apart, on a 50ms frame. */

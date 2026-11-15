@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <title>Baseten</title>
+  <rect width="32" height="32" rx="7" fill="#19e76e"/>
+  <g transform="translate(8.344 6.500) scale(0.86364)" fill="#000">
+    <path d="M13.2584 22H8.79247V17.5997H13.2584V22Z"/><path d="M17.7276 17.5999H13.2615V13.1996H17.7276V17.5999Z"/><path d="M13.2584 13.2003H4.32671V8.79974H13.2584V13.2003Z"/><path d="M17.7276 8.79996H13.2615V4.39966H17.7276V8.79996Z"/><path d="M13.2582 4.4003H0V0H13.2582V4.4003Z"/>
+  </g>
+</svg>

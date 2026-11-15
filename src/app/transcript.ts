@@ -276,9 +276,11 @@ export class TranscriptStore {
 
   /**
    * A line about the session itself, not the conversation; never sent to the model. Its id lets
-   * the line say how something it announced turned out.
+   * the line say how something it announced turned out. A session with nothing in it yet gets
+   * none and stays empty; its model chip shows the change.
    */
   addNotice(text: string, network: "offline" | "online") {
+    if (!this.entries.length) return undefined
     const entry = {
       id: this.nextMessageID++,
       kind: "notice" as const,

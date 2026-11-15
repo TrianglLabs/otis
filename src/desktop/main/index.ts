@@ -94,6 +94,8 @@ const installedProfile =
         sourceConfigDirectory: localConfigDirectory(),
         sourceDataDirectory: localDataDirectory(),
         otisHome: devData.otisHome,
+        // `bun run dev:desktop:refresh` brings the installed profile's newer history across.
+        refresh: process.env.OTIS_DEV_REFRESH === "1",
       }
     : undefined
 if (devData) {
@@ -412,7 +414,8 @@ if (!app.requestSingleInstanceLock()) {
       devServerUrl ?? pathToFileURL(join(__dirname, "../renderer/index.html")).href,
     )
     // OTIS_DEMO=1 opens the fixture home screen; "onboarding", "failed", "local", "offline",
-    // "dropout" (the network dropping mid-turn, played live) or a fixture session id opens there.
+    // "dropout" (the network dropping mid-turn, played live), "update" (an update downloading,
+    // then its restart) or a fixture session id opens there.
     const demo =
       process.env.OTIS_DEMO === "1"
         ? "demo"

@@ -1,5 +1,13 @@
-import { type LucideIcon, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react"
-import type { DataRetention } from "../../../inference/types.js"
+import { type LucideIcon, Server, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react"
+import type { DataRetention, HostedProvider, LocalServerTab } from "../../../inference/types.js"
+import baseten from "../assets/baseten.svg"
+import fireworks from "../assets/fireworks.svg"
+import lmStudio from "../assets/lm-studio.svg"
+import ollama from "../assets/ollama.svg"
+import omlx from "../assets/omlx.svg"
+import primeIntellect from "../assets/prime-intellect.svg"
+import river from "../assets/river.svg"
+import together from "../assets/together.svg"
 import { useI18n } from "../i18n/index.js"
 
 /**
@@ -44,4 +52,30 @@ export function RetentionBadge({ retention }: { retention: DataRetention }) {
       {t(`privacy.${retention}`)}
     </span>
   )
+}
+
+const PROVIDER_MARKS: Record<HostedProvider | Exclude<LocalServerTab, "custom">, string> = {
+  fireworks,
+  together,
+  baseten,
+  primeintellect: primeIntellect,
+  river,
+  ollama,
+  lmStudio,
+  omlx,
+}
+
+/**
+ * A provider's logo as a rounded tile, sized by its class; a custom server has none, so the server
+ * icon stands in. Decorative, like the icons.
+ */
+export function ProviderMark({
+  provider,
+  className,
+}: {
+  provider: HostedProvider | LocalServerTab
+  className: string
+}) {
+  if (provider === "custom") return <Icon icon={Server} size={16} className={className} />
+  return <img className={className} src={PROVIDER_MARKS[provider]} alt="" />
 }
