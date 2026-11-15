@@ -55,6 +55,12 @@ export function startAutoUpdates(deps: {
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = false
+  // Progress reaches the window in whole percent, so a fast download sends at most a hundred updates.
+  autoUpdater.on("download-progress", ({ percent }) => {
+    const whole = Math.floor(percent)
+    if (state.status === "downloading" && state.percent !== whole)
+      report({ ...state, percent: whole })
+  })
   autoUpdater.on("update-downloaded", (info) => report({ status: "ready", version: info.version }))
   autoUpdater.on("error", (error) => {
     console.warn("Auto-update failed:", error.message)

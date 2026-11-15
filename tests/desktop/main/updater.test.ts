@@ -117,6 +117,43 @@ describe("startAutoUpdates", () => {
     expect(checkFeed).toHaveBeenCalledTimes(3)
   })
 
+  it("reports download progress in whole percent, once per change", async () => {
+    let finish!: (files: string[]) => void
+    checkFeed.mockResolvedValueOnce(
+      result(
+        true,
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+      ),
+    )
+    const updater = start()
+    const pending = updater.check()
+    await vi.advanceTimersByTimeAsync(0)
+    // What electron-updater reports for a 100-byte download at `percent`.
+    const progress = (percent: number) => ({
+      percent,
+      total: 100,
+      transferred: percent,
+      delta: 1,
+      bytesPerSecond: 1,
+    })
+    for (const percent of [0.4, 12.2, 12.9, 57.5])
+      autoUpdater.emit("download-progress", progress(percent))
+    expect(updater.states.filter((state) => state.status === "downloading")).toEqual([
+      { status: "downloading", version: "9.9.9" },
+      { status: "downloading", version: "9.9.9", percent: 0 },
+      { status: "downloading", version: "9.9.9", percent: 12 },
+      { status: "downloading", version: "9.9.9", percent: 57 },
+    ])
+    autoUpdater.emit("update-downloaded", downloadedEvent)
+    finish(["fake-update.zip"])
+    await pending
+    // Progress after the download landed does not take the restart away.
+    autoUpdater.emit("download-progress", progress(99))
+    expect(updater.states.at(-1)).toEqual({ status: "ready", version: "9.9.9" })
+  })
+
   it("keeps manual and hourly requests from overlapping a background download", async () => {
     let finish!: (files: string[]) => void
     checkFeed.mockResolvedValueOnce(

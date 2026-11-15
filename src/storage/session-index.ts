@@ -6,13 +6,16 @@ import {
 import { isCompactionSummary } from "../core/compaction.js"
 import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, ModelProvider, TokenUsage, UserChatMessage } from "../inference/types.js"
+import type { ToolActivityKind } from "../tools/activity.js"
 import {
   readSessionEvents,
   recordedUsage,
   replaySessionMessages,
   replaySessionTranscript,
   type SessionEvent,
+  type SessionToolActivity,
   type SessionView,
+  type UsagePurpose,
 } from "./session-events.js"
 
 /**
@@ -45,10 +48,17 @@ export type SessionActivity =
       promptId: string
       /** Delegated runs the turn made, counting those archived at a compaction. */
       subagents: number
+      /** The turn's tool calls by kind, counting those archived at a compaction; absent with none. */
+      tools?: Partial<Record<ToolActivityKind, number>>
+      /** Each skill the turn loaded, by name, once per load; absent with none. */
+      skills?: string[]
     }
   | {
       type: "usage_recorded"
       at: string
+      /** Older sessions recorded neither; their usage served the agent's turns. */
+      purpose?: UsagePurpose
+      promptId?: string
       provider?: ModelProvider
       model?: string
       modelName?: string
@@ -105,34 +115,42 @@ function digestEvents(
   const transcript = replaySessionTranscript(events)
   // Activities archived at a compaction checkpoint end with their prompt's turn event.
   const endedAt = new Map<string, string>()
-  const archived = new Map<string, { toolCallIds: string[]; subagents: number }>()
+  const archived = new Map<string, { tools: SessionToolActivity[]; subagents: number }>()
   const activity: SessionActivity[] = []
   const usage = new Set<SessionEvent>(recordedUsage(events))
   for (const event of events) {
     if (event.type === "compacted" && event.promptId && event.turn) {
-      const previous = archived.get(event.promptId) ?? { toolCallIds: [], subagents: 0 }
+      const previous = archived.get(event.promptId) ?? { tools: [], subagents: 0 }
       archived.set(event.promptId, {
-        toolCallIds: [
-          ...previous.toolCallIds,
-          ...(event.turn.toolActivities ?? []).map((activity) => activity.toolCallId),
-        ],
+        tools: [...previous.tools, ...(event.turn.toolActivities ?? [])],
         subagents: previous.subagents + (event.turn.subagents?.length ?? 0),
       })
     } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
-      const earlier = archived.get(event.promptId) ?? { toolCallIds: [], subagents: 0 }
-      const ids = (event.toolActivities ?? []).map((activity) => activity.toolCallId)
-      for (const id of [...earlier.toolCallIds, ...ids]) endedAt.set(id, event.at)
+      const earlier = archived.get(event.promptId) ?? { tools: [], subagents: 0 }
+      const calls = [...earlier.tools, ...(event.toolActivities ?? [])]
+      const tools: Partial<Record<ToolActivityKind, number>> = {}
+      const skills: string[] = []
+      for (const call of calls) {
+        endedAt.set(call.toolCallId, event.at)
+        tools[call.activityKind] = (tools[call.activityKind] ?? 0) + 1
+        if (call.action === "skill" && call.subject) skills.push(call.subject)
+      }
+      // Cached for every session on disk, so a turn without tools carries nothing for them.
       activity.push({
         type: event.type,
         at: event.at,
         promptId: event.promptId,
         subagents: earlier.subagents + (event.subagents?.length ?? 0),
+        ...(calls.length ? { tools } : {}),
+        ...(skills.length ? { skills } : {}),
       })
     }
     if (event.type === "usage_recorded" && usage.has(event))
       activity.push({
         type: event.type,
         at: event.at,
+        ...(event.purpose === undefined ? {} : { purpose: event.purpose }),
+        ...(event.promptId === undefined ? {} : { promptId: event.promptId }),
         ...(event.provider === undefined ? {} : { provider: event.provider }),
         ...(event.model === undefined ? {} : { model: event.model }),
         ...(event.modelName === undefined ? {} : { modelName: event.modelName }),

@@ -157,57 +157,51 @@
   border-top: 1px solid var(--hairline);
 }
 
-/* Local usage */
-
+/*
+ * Local usage: an overview card (the total beside the token mix, the headline counts, the models)
+ * above a card per chart. The accent marks what counts, the dim text the rest, so every theme draws
+ * it in its own palette.
+ */
 .settingsUsage {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.settingsUsage-overview {
   padding: 0;
   overflow: hidden;
 }
 
-.settingsUsage-loading {
-  padding: 20px;
+.settingsUsage-dim {
   color: var(--text-dim);
   font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
 }
 
+/* The total and the token mix share the top. */
 .settingsUsage-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   align-items: center;
-  gap: 20px;
-  padding: 20px;
+  gap: 24px 32px;
+  padding: 24px;
 }
 
 .settingsUsage-total {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
-.settingsUsage-eyebrow,
-.settingsUsage-note,
-.settingsUsage-metric span,
-.settingsUsage-mixTitle,
-.settingsUsage-mixValues,
-.settingsUsage-modelSplit,
-.settingsUsage-activityHeader,
-.settingsUsage-average {
-  color: var(--text-dim);
-  font-size: var(--text-meta);
-}
-
-.settingsUsage-eyebrow {
-  font-weight: 500;
-}
-
 .settingsUsage-total > strong {
-  margin: 8px 0;
-  font-size: 44px;
-  font-weight: 520;
+  margin: 4px 0 2px;
+  font-size: 48px;
+  font-weight: 560;
   line-height: 1;
-  letter-spacing: -0.04em;
-  color: var(--text);
+  letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -215,30 +209,89 @@
   min-width: 0;
 }
 
-.settingsUsage-mixTitle {
+/* The charts' heading carries the range they all share. */
+.settingsUsage-heading {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
-  color: var(--text);
+  padding-bottom: 10px;
+}
+
+.settingsUsage-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settingsUsage-chartCard {
+  padding: 18px 24px;
+}
+
+/* A band's title on the left and a figure about it on the right, in a row of fixed height so a
+   hovered day's caption replacing the total never moves the card. */
+.settingsUsage-caption {
+  display: flex;
+  align-items: baseline;
+  height: 24px;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-ui);
   font-weight: 560;
 }
 
-.settingsUsage-cacheHit {
-  color: var(--text-dim);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+.settingsUsage-chart {
+  position: relative;
+  display: flex;
+  gap: 3px;
+  height: 96px;
+  margin-top: 12px;
 }
 
-/*
- * The mix as a stacked bar: one segment per legend row with a hairline of background between,
- * each kind in its own color so cached and uncached input never read as one line.
- */
+.settingsUsage-barSlot {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.settingsUsage-bar {
+  display: block;
+  width: 100%;
+  height: max(3px, var(--usage-level));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 72%, var(--bg-surface));
+  transition: background var(--motion);
+}
+
+.settingsUsage-barSlot[data-empty="true"] .settingsUsage-bar {
+  background: var(--border);
+}
+
+.settingsUsage-barSlot:hover .settingsUsage-bar,
+.settingsUsage-barSlot:focus-visible .settingsUsage-bar {
+  background: var(--accent);
+}
+
+.settingsUsage-barSlot:focus-visible {
+  outline: none;
+}
+
+.settingsUsage-band {
+  padding: 18px 24px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* The mix as one stacked bar, a hairline of surface between kinds, its legend inline below. */
 .settingsUsage-mixTrack {
   display: flex;
   gap: 2px;
-  width: 100%;
   height: 10px;
+  margin: 12px 0;
   border-radius: var(--radius-pill);
   overflow: hidden;
 }
@@ -274,91 +327,72 @@
   );
 }
 
-/* A legend under the track: one row per segment, the count and its share right-aligned. */
-.settingsUsage-mixValues {
+.settingsUsage-legend {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
+  flex-wrap: wrap;
+  gap: 8px 22px;
 }
 
-.settingsUsage-mixValues > span {
-  display: flex;
-  align-items: center;
+/* Labels and figures of different sizes share a baseline; the swatch centers on the line. */
+.settingsUsage-mixRow {
+  display: inline-flex;
+  align-items: baseline;
   gap: 6px;
   white-space: nowrap;
 }
 
-.settingsUsage-mixValues strong {
-  margin-left: auto;
-  color: var(--text);
+.settingsUsage-mixRow strong,
+.settingsUsage-model strong {
+  font-size: var(--text-ui);
   font-weight: 560;
   font-variant-numeric: tabular-nums;
 }
 
-.settingsUsage-mixValues small {
-  min-width: 34px;
-  color: var(--text-dim);
-  font-size: inherit;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
 .settingsUsage-mixDot {
   display: block;
+  align-self: center;
   width: 8px;
   height: 8px;
   flex-shrink: 0;
   border-radius: 2px;
 }
 
+.settingsUsage-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--hairline);
+}
+
 .settingsUsage-metric {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
+  padding: 16px 24px;
 }
 
 .settingsUsage-metric + .settingsUsage-metric {
-  padding-left: 20px;
   border-left: 1px solid var(--hairline);
 }
 
 .settingsUsage-metric strong {
   overflow: hidden;
   font-size: 20px;
-  font-weight: 520;
-  color: var(--text);
+  font-weight: 560;
+  letter-spacing: -0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
-.settingsUsage-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 0 20px 20px;
-}
-
-.settingsUsage-models {
-  padding: 16px 20px;
-  border-top: 1px solid var(--hairline);
-}
-
+/* Name and where it ran, then the split taking the slack, so every row ends on its total. */
 .settingsUsage-model {
   display: grid;
   grid-template-columns: minmax(0, max-content) auto 1fr auto;
-  align-items: center;
-  column-gap: 12px;
+  align-items: baseline;
+  column-gap: 8px;
   padding-top: 12px;
   font-size: var(--text-ui);
-}
-
-/* The mark trails the name; the split takes the slack so the row still ends on the total. */
-.settingsUsage-modelWhere {
-  display: inline-flex;
-  margin-left: -6px;
-  color: var(--text-dim);
 }
 
 .settingsUsage-modelName {
@@ -367,16 +401,14 @@
   white-space: nowrap;
 }
 
-.settingsUsage-modelSplit {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.settingsUsage-modelWhere {
+  display: inline-flex;
+  align-self: center;
+  color: var(--text-dim);
 }
 
-.settingsUsage-model strong {
-  min-width: 48px;
+.settingsUsage-modelSplit {
   text-align: right;
-  font-weight: 520;
-  font-variant-numeric: tabular-nums;
 }
 
 .settingsUsage-modelBar {
@@ -387,85 +419,114 @@
   background: linear-gradient(to right, var(--accent) var(--usage-share), var(--border) 0);
 }
 
-.settingsUsage-more {
+.settingsUsage-band > .btn {
   margin-top: 12px;
 }
 
-.settingsUsage-activity {
-  padding: 16px 20px;
-  border-top: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--bg-elev) 28%, var(--bg));
+.settingsUsage-count {
+  font-size: 17px;
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
-.settingsUsage-activityHeader,
-.settingsUsage-average {
+/* The first, middle and last day under a chart. */
+.settingsUsage-dates {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.settingsUsage-lines .settingsUsage-dates {
+  margin-left: var(--usage-ticks-width);
+}
+
+.settingsUsage-lines {
+  --usage-ticks-width: 32px;
+  margin-top: 14px;
+}
+
+.settingsUsage-lines .settingsUsage-legend {
+  margin-top: 12px;
+}
+
+.settingsUsage-plot {
+  display: grid;
+  grid-template-columns: var(--usage-ticks-width) minmax(0, 1fr);
+  grid-template-rows: 112px;
+}
+
+/* Tick labels sit on their gridlines: each is a zero-height row centered on its line. */
+.settingsUsage-ticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.settingsUsage-ticks > span {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  height: 0;
 }
 
-.settingsUsage-activityHeader > :first-child {
-  font-weight: 560;
-  color: var(--text);
+.settingsUsage-canvas {
+  position: relative;
+  min-width: 0;
 }
 
-.settingsUsage-chart {
-  display: flex;
-  gap: 4px;
-  height: 88px;
-  margin: 18px 0 12px;
-  border-bottom: 1px solid var(--hairline);
-  background: repeating-linear-gradient(
-    to top,
-    transparent 0 calc(50% - 1px),
-    var(--hairline) calc(50% - 1px) 50%
-  );
-}
-
-.settingsUsage-barSlot {
-  display: flex;
-  align-items: flex-end;
+/* The SVG fills the plot's box rather than sizing it, so its stretched aspect never grows the row. */
+.settingsUsage-canvas > svg {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: default;
 }
 
-.settingsUsage-bar {
-  display: block;
-  width: 100%;
-  min-height: 3px;
-  height: max(3px, var(--usage-level));
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: linear-gradient(var(--accent), color-mix(in srgb, var(--accent) 55%, var(--bg-elev)));
-  transition: background var(--motion);
+.settingsUsage-grid {
+  stroke: var(--hairline);
+  stroke-width: 1;
 }
 
-.settingsUsage-barSlot[data-empty="true"] .settingsUsage-bar {
-  background: var(--border);
+.settingsUsage-crosshair {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
 }
 
-.settingsUsage-barSlot:hover .settingsUsage-bar,
-.settingsUsage-barSlot:focus-visible .settingsUsage-bar {
-  background: var(--accent);
+/* The hovered day's counts, beside the crosshair on whichever side has room. */
+.settingsUsage-tip {
+  position: absolute;
+  top: 0;
+  left: var(--usage-at);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: 0 6px 20px #0003;
+  font-size: var(--text-meta);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(10px);
 }
 
-.settingsUsage-barSlot:focus-visible {
-  outline: none;
+.settingsUsage-tip[data-side="left"] {
+  transform: translateX(calc(-100% - 10px));
 }
 
-.settingsUsage-activeDay {
-  color: var(--text);
+.settingsUsage-tipRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.settingsUsage-tipRow strong {
+  margin-left: auto;
+  padding-left: 12px;
   font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.settingsUsage-average {
-  gap: 8px 16px;
-  flex-wrap: wrap;
 }
 
 .settings-section {
@@ -474,6 +535,11 @@
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--text);
+}
+
+/* Beside a control, the heading row carries the space below instead. */
+.settingsUsage-heading > .settings-section {
+  padding: 0;
 }
 
 /* Theme swatches */
@@ -747,6 +813,21 @@
 
 .settingsProvider-list > .settingsProvider + .settingsProvider {
   border-top: 1px solid var(--hairline);
+}
+
+/* A hosted provider's logo beside its name and connection line. */
+.settingsProvider-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settingsProvider-mark {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
 }
 
 /* A hosted provider row's inline key editor: one field, its key page, and save. */

@@ -43,8 +43,8 @@ const word: ArtifactMetadata = {
   path: "report.docx",
 }
 
-/** The pages docx-preview hands the frame, before the frame measures and splits them. */
-async function pagesOf(body: string) {
+/** The page docx-preview hands the frame, before the frame measures and splits its pages. */
+async function sourceOf(body: string) {
   cleanup()
   const content = await docxWithBody(body)
   const api = fakeApi(snapshotFixture(), {
@@ -69,8 +69,11 @@ async function pagesOf(body: string) {
   const message = postMessage.mock.calls
     .map(([sent]) => sent as { type: string; source?: string })
     .find((sent) => sent.type === "otis-webpage-source")
-  return (message?.source ?? "").split('<section class="docx"').length - 1
+  return message?.source ?? ""
 }
+
+const pagesOf = async (body: string) =>
+  (await sourceOf(body)).split('<section class="docx"').length - 1
 
 const p = (text: string, before = "") => `<w:p>${before}<w:r><w:t>${text}</w:t></w:r></w:p>`
 const sect = (type?: string) =>
@@ -92,4 +95,29 @@ it("keeps a continuous section on the page and starts a page for any other", asy
 it("still breaks the page where the author put a page break", async () => {
   const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
   expect(await pagesOf(p("One") + pageBreak + p("Two") + sect())).toBe(2)
+})
+
+it("starts a column where Word's column breaks do", async () => {
+  const columnBreak = '<w:r><w:br w:type="column"/></w:r>'
+  const columns = '<w:cols w:num="3"/>'
+  const source = await sourceOf(
+    `<w:p><w:r><w:t>One</w:t></w:r>${columnBreak}</w:p>` +
+      p("Two") +
+      `<w:p>${columnBreak}<w:r><w:t>Three</w:t></w:r></w:p>` +
+      `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>${columns}</w:sectPr>`,
+  )
+  const breaking = [...new DOMParser().parseFromString(source, "text/html").querySelectorAll("p")]
+    .filter((paragraph) => paragraph.style.breakBefore === "column")
+    .map((paragraph) => paragraph.textContent)
+  // A break ending a paragraph moves the next one; one before any text moves its own.
+  expect(breaking).toEqual(["Two", "Three"])
+})
+
+it("starts a page at a column break in a section without columns, as Word does", async () => {
+  const broken = '<w:p><w:r><w:t>One</w:t></w:r><w:r><w:br w:type="column"/></w:r></w:p>'
+  expect(await pagesOf(broken + p("Two") + sect())).toBe(2)
+  // Each section's own column count decides: the break in the single-column first section starts
+  // a page though the last section has two columns, which the continuous break then shares.
+  const columns = '<w:sectPr><w:type w:val="continuous"/><w:cols w:num="2"/></w:sectPr>'
+  expect(await pagesOf(broken + p("Two") + sectionEnd + p("Three") + columns)).toBe(2)
 })

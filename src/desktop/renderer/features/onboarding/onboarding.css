@@ -214,17 +214,10 @@
 }
 
 .onboarding-providerMark {
-  box-sizing: border-box;
   display: block;
   width: 20px;
   height: 20px;
-  object-fit: contain;
   border-radius: var(--radius-sm);
-}
-
-.onboarding-providerMarkOllama {
-  padding: 2px 4px;
-  background: #fff;
 }
 
 .onboarding-cardText {

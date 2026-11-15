@@ -276,7 +276,7 @@ Each provider you add gets its own section in `/model`; type to search the list.
 | `/exit` | Exit Otis |
 
 The desktop app has the same under Settings → Inference (a switch per hosted model), and Settings → Usage shows token
-usage by day and model. Settings → General and the ⌘K palette have Send feedback.
+usage by day and model, and messages, tool calls, and skills over the last 7 or 30 days. Settings → General has Send feedback.
 
 | Control | Action |
 | --- | --- |
@@ -344,15 +344,19 @@ vulnerability reporting.
 git clone https://github.com/TrianglLabs/otis.git
 cd otis
 bun install --frozen-lockfile
-bun run dev          # OpenTUI terminal interface
-bun run dev:desktop  # Otis Dev, alongside the installed app
-bun run dev:demo     # the desktop app with simulated sessions, for UI work
+bun run dev                  # OpenTUI terminal interface
+bun run dev:desktop          # Otis Dev, alongside the installed app
+bun run dev:desktop:refresh  # the same, first bringing over newer history from the installed app
+bun run dev:demo             # the desktop app with simulated sessions, for UI work
 ```
 
-Desktop development uses a separate `otis-dev` profile that imports your installed configuration on first launch and
-reuses complete model downloads; later changes are independent. `OTIS_DEV_USER_DATA` overrides the profile location
-and `OTIS_HOME` overrides Otis's data location. Read [CONTRIBUTING.md](CONTRIBUTING.md) for source boundaries,
-testing guidance, and the verification checklist.
+Desktop development uses a separate `otis-dev` profile that imports your installed configuration and history
+(sessions, published documents, and memory) on first launch and reuses complete model downloads; later changes are
+independent. The import only reads the installed profile. A refresh copies history the dev profile lacks and extends
+copies that are still untouched earlier versions of the installed ones, so sessions continued in development are
+kept; it never deletes anything. `OTIS_DEV_USER_DATA` overrides the profile location and `OTIS_HOME` overrides Otis's
+data location; either starts the profile empty, without importing. Read [CONTRIBUTING.md](CONTRIBUTING.md) for source
+boundaries, testing guidance, and the verification checklist.
 
 ## License
 

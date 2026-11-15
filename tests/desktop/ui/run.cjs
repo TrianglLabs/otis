@@ -60,7 +60,13 @@ app.whenReady().then(async () => {
   })
   try {
     await window.loadFile(join(output, "index.html"))
-    const result = await window.webContents.executeJavaScript("window.runDesktopUiChecks()")
+    // The fixture's modules can finish after the load event (the demo runtime awaits at its top
+    // level), so the checks start once the entry point is there.
+    const result = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+      const start = () =>
+        window.runDesktopUiChecks ? resolve(window.runDesktopUiChecks()) : setTimeout(start, 20)
+      start()
+    })`)
     console.log(JSON.stringify(result, null, 2))
     clearTimeout(timeout)
     app.exit(0)

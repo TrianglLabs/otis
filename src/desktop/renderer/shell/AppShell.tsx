@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import alertSoundUrl from "../assets/sounds/task_completed.mp3"
 import { Button } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
+import { ProgressRing } from "../components/Progress.js"
 import { UnlockBanners } from "../features/achievements/Achievements.js"
 import { CanvasOpenContext, type CanvasView } from "../features/canvas/canvas-context.js"
 import { ConversationView } from "../features/conversation/Transcript.js"
@@ -199,10 +200,20 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [api, openTerminal])
 
-  const readyUpdate = state?.update.status === "ready" ? state.update : undefined
+  const update = state?.update
+  const readyUpdate = update?.status === "ready" ? update : undefined
   const platformClass = `platform-${state?.platform ?? "linux"}`
   const settingsClass = settingsOpen ? " settingsOpen" : ""
   const fullscreenClass = windowFullscreen ? " windowFullscreen" : ""
+  const updateLabel = installing
+    ? t("shell.restartingUpdate")
+    : update?.status === "ready"
+      ? `${t("updates.versionReady", { version: update.version })} ${t("updates.restartInstall")}`
+      : update?.status === "downloading"
+        ? `${t("updates.downloadingVersion", { version: update.version })}${
+            update.percent === undefined ? "" : ` ${update.percent}%`
+          }`
+        : undefined
   const installUpdate = () => {
     if (installing || !readyUpdate) return
     setInstalling(true)
@@ -281,22 +292,22 @@ export function AppShell() {
                   />
                 </>
               )}
-              {readyUpdate ? (
+              {/* A background download fills a ring bottom-left; once it lands, the button
+                  restarts into it. While it downloads, it opens the update's row in Settings. */}
+              {update?.status === "downloading" || update?.status === "ready" ? (
                 <button
                   type="button"
-                  className="updateFab noDrag"
+                  className="updateButton noDrag"
+                  data-ready={readyUpdate ? "true" : undefined}
+                  aria-label={updateLabel}
+                  title={updateLabel}
                   disabled={installing}
-                  title={
-                    installing
-                      ? t("shell.restartingUpdate")
-                      : t("shell.updateReadyTitle", { version: readyUpdate.version })
-                  }
-                  onClick={installUpdate}
+                  onClick={readyUpdate ? installUpdate : () => openSettingsTab("general")}
                 >
-                  <Icon icon={Download} size={12} />
-                  <span className="updateFab-label">
-                    {installing ? t("shell.restarting") : t("shell.update")}
-                  </span>
+                  {update.status === "downloading" ? (
+                    <ProgressRing percent={update.percent} />
+                  ) : null}
+                  <Icon icon={Download} size={readyUpdate ? 14 : 11} strokeWidth={2} />
                 </button>
               ) : null}
               <UnlockBanners onOpen={() => openSettingsTab("achievements")} />

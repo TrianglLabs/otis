@@ -45,22 +45,29 @@ export function ProgressStop({
       title={percent === undefined ? label : `${label} · ${percent}%`}
       onClick={onClick}
     >
-      <svg
-        viewBox="0 0 22 22"
-        aria-hidden="true"
-        className={percent === undefined ? "progressStop-ring indeterminate" : "progressStop-ring"}
-      >
-        <circle cx="11" cy="11" r="7" className="progressStop-track" />
-        <circle
-          cx="11"
-          cy="11"
-          r="7"
-          pathLength={1}
-          className="progressStop-arc"
-          style={percent === undefined ? undefined : { strokeDashoffset: 1 - percent / 100 }}
-        />
-      </svg>
+      <ProgressRing percent={percent} />
       <span className="progressStop-square" />
     </button>
+  )
+}
+
+/** A ring that fills clockwise from twelve as `percent` grows; unmeasured, a short arc spins. */
+export function ProgressRing({ percent }: { percent?: number }) {
+  return (
+    <svg
+      viewBox="0 0 22 22"
+      aria-hidden="true"
+      className={percent === undefined ? "progressStop-ring indeterminate" : "progressStop-ring"}
+    >
+      <circle cx="11" cy="11" r="7" className="progressStop-track" />
+      <circle
+        cx="11"
+        cy="11"
+        r="7"
+        pathLength={1}
+        className="progressStop-arc"
+        style={percent === undefined ? undefined : { strokeDashoffset: 1 - percent / 100 }}
+      />
+    </svg>
   )
 }

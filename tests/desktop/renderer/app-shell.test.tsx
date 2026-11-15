@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { GlobalSessionPickerItem } from "../../../src/app/global-sessions.js"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
-import type { AchievementId } from "../../../src/local/stats.js"
+import type { AchievementId, LocalUsageDay } from "../../../src/local/stats.js"
 
 const WS = "/ws"
 
@@ -774,6 +774,22 @@ describe("AppShell settings navigation", () => {
   })
 
   it("shows locally recorded usage on its own Usage tab", async () => {
+    const recentActivity: LocalUsageDay[] = [
+      {
+        date: "2026-09-18",
+        tokens: 12_000,
+        messages: { "GLM-5.3": 3 },
+        tools: { file_read: 4, shell: 2, agent: 1 },
+        skills: {},
+      },
+      {
+        date: "2026-09-19",
+        tokens: 44_000,
+        messages: { "GLM-5.3": 2, "Qwen3.8 27B": 1 },
+        tools: { file_edit: 3, web_search: 1 },
+        skills: { docx: 1 },
+      },
+    ]
     await renderApp(
       fakeApi({
         getSnapshot: vi.fn(async () => ({
@@ -790,10 +806,7 @@ describe("AppShell settings navigation", () => {
             cachedPromptTokens: 700_000,
             cacheReportedPromptTokens: 819_400,
             todayTokens: 44_000,
-            recentActivity: [
-              { date: "2026-09-18", tokens: 12_000 },
-              { date: "2026-09-19", tokens: 44_000 },
-            ],
+            recentActivity,
             modelUsage: {
               "Qwen3.8 27B": {
                 hosted: false,
@@ -824,15 +837,13 @@ describe("AppShell settings navigation", () => {
 
     const usage = screen.getByRole("region", { name: "Usage" })
     expect(within(usage).getByText("1.5M")).toBeTruthy()
-    expect(within(usage).getByText("24")).toBeTruthy()
-    expect(within(usage).getByText("11")).toBeTruthy()
-    expect(within(usage).getByText("44.0k")).toBeTruthy()
+    const metrics = [...usage.querySelectorAll(".settingsUsage-metric")].map((e) => e.textContent)
+    expect(metrics).toEqual(expect.arrayContaining(["24Sessions", "11Active days", "44.0kToday"]))
     // GLM's 819.4k prompt tokens came with a cache count, so the hit rate is 700k of those; Qwen's
     // 300k have no cache data and are neither hit nor miss.
     expect(within(usage).getByText("85% cache hit")).toBeTruthy()
-    const legend = [...usage.querySelectorAll(".settingsUsage-mixValues > span")].map(
-      (e) => e.textContent,
-    )
+    const mix = within(usage).getByText("Token mix").closest(".settingsUsage-mix") as HTMLElement
+    const legend = [...mix.querySelectorAll(".settingsUsage-mixRow")].map((e) => e.textContent)
     expect(legend).toEqual([
       "Uncached input119.4k8%",
       "Cached input700.0k47%",
@@ -868,6 +879,23 @@ describe("AppShell settings navigation", () => {
     expect(within(usage).getByText("September 18, 2026: 12,000 tokens")).toBeTruthy()
     fireEvent.pointerLeave(activityBars[0])
     expect(within(usage).queryByText("September 18, 2026: 12,000 tokens")).toBeNull()
+
+    // Messages, tools and skills over the days shown, each with its total and a legend line apiece.
+    const chart = (title: string) => {
+      const band = within(usage).getByText(title).closest(".settingsUsage-chartCard") as HTMLElement
+      const legend = [...band.querySelectorAll(".settingsUsage-mixRow")].map((e) => e.textContent)
+      return { total: band.querySelector(".settingsUsage-count")?.textContent, legend }
+    }
+    expect(chart("Messages")).toEqual({ total: "6", legend: ["GLM-5.35", "Qwen3.8 27B1"] })
+    // Delegation has no group of its own and counts as other.
+    expect(chart("Tool activity")).toEqual({
+      total: "11",
+      legend: ["Reading files4", "Editing files3", "Commands2", "Web1", "Other1"],
+    })
+    expect(chart("Skills used")).toEqual({ total: "1", legend: ["docx1"] })
+    expect(within(usage).getByText("Last 30 days")).toBeTruthy()
+    fireEvent.click(within(usage).getByRole("tab", { name: "7d" }))
+    expect(within(usage).getByText("Last 7 days")).toBeTruthy()
 
     // Settings mounts on first open and hides afterwards instead of unmounting; reopening lands
     // on the requested tab again.
@@ -1530,28 +1558,62 @@ describe("AppShell settings navigation", () => {
     }
   })
 
-  it("shows an update chip only when an update is downloaded", async () => {
-    const api = fakeApi()
-    await renderApp(api)
-    expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
+  it("fills a header ring while an update downloads, then restarts into it", async () => {
+    await renderApp(fakeApi())
+    expect(document.querySelector(".updateButton")).toBeNull()
     cleanup()
 
-    const updated = fakeApi({
+    let emit!: (event: DesktopEvent) => void
+    const api = fakeApi({
       getSnapshot: vi.fn(async () => ({
         ...SNAPSHOT,
-        update: { status: "ready" as const, version: "9.9.9" },
+        update: { status: "downloading" as const, version: "9.9.9" },
       })),
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
     })
-    await renderApp(updated)
-    fireEvent.click(await screen.findByRole("button", { name: "Update" }))
-    expect(updated.installUpdate).toHaveBeenCalled()
+    await renderApp(api)
+    // Before any progress, the ring spins and no figure is guessed.
+    expect(
+      screen.getByRole("button", { name: "Downloading Otis 9.9.9 in the background…" }),
+    ).toBeTruthy()
+    act(() =>
+      emit({
+        type: "status",
+        revision: 2,
+        status: { ...SNAPSHOT, update: { status: "downloading", version: "9.9.9", percent: 42 } },
+      }),
+    )
+    const downloading = screen.getByRole("button", {
+      name: "Downloading Otis 9.9.9 in the background… 42%",
+    })
+    // While it downloads, the button opens the update's row in Settings.
+    fireEvent.click(downloading)
+    await act(async () => {})
+    expect(screen.getByRole("tab", { name: "General", selected: true })).toBeTruthy()
+    expect(api.installUpdate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
+    act(() =>
+      emit({
+        type: "status",
+        revision: 3,
+        status: { ...SNAPSHOT, update: { status: "ready", version: "9.9.9" } },
+      }),
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "Otis 9.9.9 is ready to install. Restart and install" }),
+    )
+    expect(api.installUpdate).toHaveBeenCalledOnce()
+    const restarting = screen.getByRole("button", { name: "Restarting into the update…" })
+    expect((restarting as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it("sends feedback from Settings and the palette, naming the address after a click", async () => {
+  it("sends feedback from Settings, naming the address after a click", async () => {
     const sendFeedback = vi
       .fn()
       .mockResolvedValueOnce({ opened: true, address: "dev@example.com" })
-      .mockResolvedValueOnce({ opened: false, address: "dev@example.com" })
       .mockResolvedValueOnce({ opened: false, address: "dev@example.com" })
     const api = fakeApi({ sendFeedback })
     await renderApp(api)
@@ -1565,15 +1627,7 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send feedback" }))
     await act(async () => {})
     expect(screen.getByText("No email app opened. Write to dev@example.com.")).toBeTruthy()
-
-    fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
-    fireEvent.keyDown(window, { key: "k", metaKey: true })
-    const palette = within(await screen.findByRole("dialog"))
-    fireEvent.click(palette.getByText("Send feedback"))
-    await act(async () => {})
-    expect(sendFeedback).toHaveBeenCalledTimes(3)
-    // The palette stays open to show where to write instead.
-    expect(palette.getByText("No email app opened. Write to dev@example.com.")).toBeTruthy()
+    expect(sendFeedback).toHaveBeenCalledTimes(2)
   })
 
   it("checks for updates only from Settings and keeps download progress when Settings reopens", async () => {
@@ -1614,7 +1668,6 @@ describe("AppShell settings navigation", () => {
     expect(screen.getByRole("button", { name: "Downloading…" }).title).toContain(
       "Downloading Otis 9.9.9",
     )
-    expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
@@ -1642,7 +1695,8 @@ describe("AppShell settings navigation", () => {
     ).toBe(true)
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     expect(
-      (screen.getByRole("button", { name: "Restarting…" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: "Restarting into the update…" }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true)
     expect(screen.getByPlaceholderText("Restarting into the update…")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
@@ -1672,7 +1726,7 @@ describe("AppShell settings navigation", () => {
     expect(
       (screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled,
     ).toBe(disabled)
-    expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
+    expect(document.querySelector(".updateButton")).toBeNull()
   })
 
   it("shows a failed bridge request and lets the user retry to an up-to-date result", async () => {

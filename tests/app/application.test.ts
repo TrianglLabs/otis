@@ -553,9 +553,13 @@ describe("Application offline fallback", () => {
       .filter((entry) => entry.network)
       .map(({ network, text }) => ({ network, text }))
 
-  /** A watching app whose providers stop answering, with `pick` the models it may move to. */
+  /**
+   * A watching app with a conversation under way whose providers stop answering, with `pick` the
+   * models it may move to.
+   */
   async function offline(pick: unknown[] = [downloaded()]) {
     const app = await ready("otis-app-offline-")
+    app.transcript.addUserMessage("hello")
     preparing(app)
     vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
     vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
@@ -585,6 +589,23 @@ describe("Application offline fallback", () => {
     } finally {
       await app.shutdown()
     }
+  })
+
+  it("moves an empty session without a word, so it stays empty", async () => {
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toMatchObject({ provider: "local", id: savedLocal.id })
+    mocks.reachable.mockResolvedValue(true)
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    expect(app.transcript.entries).toEqual([])
+    await app.shutdown()
   })
 
   it("prefers a model whose window holds the conversation, else the first one", async () => {
@@ -619,6 +640,7 @@ describe("Application offline fallback", () => {
   it("prefers a running server's model, the last one used first", async () => {
     const app = await ready("otis-app-offline-")
     preparing(app)
+    app.transcript.addUserMessage("hello")
     app.settings.lastLocalModel = "omlx:qwen-coder"
     vi.spyOn(app.models, "discoverServers").mockResolvedValue({
       omlx: [omlx("gemma"), omlx("qwen-coder")],
@@ -662,6 +684,7 @@ describe("Application offline fallback", () => {
     const app = await ready("otis-app-offline-")
     preparing(app)
     vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    app.transcript.addUserMessage("hello")
     vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(false)
     mocks.pickerItems.mockResolvedValue([downloaded()])
     mocks.reachable.mockResolvedValue(false)
@@ -680,6 +703,7 @@ describe("Application offline fallback", () => {
 
   it("says once why the model it chose could not start", async () => {
     const app = await ready("otis-app-offline-")
+    app.transcript.addUserMessage("hello")
     vi.spyOn(app.models, "prepare").mockRejectedValue(new Error("The disk is full."))
     vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
     vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
@@ -759,6 +783,31 @@ describe("Application offline fallback", () => {
       text: "Hosted models are reachable again",
     })
     expect(notices(app)).toHaveLength(2)
+    await app.shutdown()
+  })
+
+  it("tells an empty session why nothing took over once it has a conversation", async () => {
+    const app = await ready("otis-app-offline-")
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    mocks.pickerItems.mockResolvedValue([])
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    expect(app.transcript.entries).toEqual([])
+    app.transcript.addUserMessage("hello")
+    await app.checkNetwork()
+    expect(notices(app)).toEqual([
+      {
+        network: "offline",
+        text: "No model on this machine can take over. Download one from the model picker to keep working offline",
+      },
+    ])
+    mocks.reachable.mockResolvedValue(true)
+    await app.checkNetwork()
+    expect(notices(app).at(-1)).toEqual({
+      network: "online",
+      text: "Hosted models are reachable again",
+    })
     await app.shutdown()
   })
 

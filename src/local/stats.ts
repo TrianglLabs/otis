@@ -15,6 +15,7 @@ import {
   type SessionActivity,
   type SessionDigest,
 } from "../storage/session-index.js"
+import type { ToolActivityKind } from "../tools/activity.js"
 
 const ACHIEVEMENT_IDS = [
   "first-session",
@@ -41,6 +42,8 @@ export function isAchievementId(value: unknown): value is AchievementId {
 export type Achievement = { at: string; count: number }
 
 const HOUR_MS = 3_600_000
+/** How far back the daily figures go: the Usage page shows the last 7 or 30 days. */
+const RECENT_DAYS = 30
 
 /** Every recorded request summed, with the home-screen figures derived from the same pass. */
 export type LocalStats = UsageTotals & {
@@ -68,9 +71,16 @@ type LocalUsage = {
   todayTokensByModel: Record<string, number>
 }
 
-type LocalUsageDay = {
+/** One local day's figures. */
+export type LocalUsageDay = {
   date: string
   tokens: number
+  /** Messages the user sent that a model answered, by the model's picker name. */
+  messages: Record<string, number>
+  /** Tool calls by kind, counted on the day their turn ended. */
+  tools: Partial<Record<ToolActivityKind, number>>
+  /** Skill loads by skill name. */
+  skills: Record<string, number>
 }
 
 type LocalStatsOptions = {
@@ -103,7 +113,20 @@ export async function calculateLocalStats(
   let todayTokens = 0
   const today = localDateKey(now)
   const days = new Set<string>()
-  const dailyTokens = new Map<string, number>()
+  // Daily figures cover only the days shown, so a long history allocates nothing for older days.
+  const first = new Date(now.getFullYear(), now.getMonth(), now.getDate() - RECENT_DAYS + 1)
+  const since = first.getTime()
+  const daily = new Map<string, LocalUsageDay>()
+  const dayOf = (at: number) => {
+    if (at < since) return undefined
+    const date = localDateKey(new Date(at))
+    let day = daily.get(date)
+    if (!day) {
+      day = { date, tokens: 0, messages: {}, tools: {}, skills: {} }
+      daily.set(date, day)
+    }
+    return day
+  }
   const modelUsage: LocalStats["modelUsage"] = {}
   const providers = new Set<ModelProvider>()
   const todayTokensByModel: Record<string, number> = {}
@@ -136,6 +159,13 @@ export async function calculateLocalStats(
     // actual starts so queued prompts do not contribute waiting time.
     const started = new Map<string, { start: number; exact: boolean }>()
     const intervals: { start: number; end: number; exact: boolean }[] = []
+    // A message counts for the model that first answered its turn: usage names its prompt, or in
+    // older sessions follows the turn it served. Steering joins the running turn, which starts at
+    // turn_started, or at admission in sessions recorded before starts were.
+    const starts = activity.some((event) => event.type === "turn_started")
+    let running: string | undefined
+    const sent: { promptId: string; at: number }[] = []
+    const answeredBy = new Map<string, string>()
     for (const event of activity) {
       const at = timestamp(event.at)
       if (at !== undefined) days.add(localDateKey(new Date(at)))
@@ -152,16 +182,23 @@ export async function calculateLocalStats(
             hosted: isHostedProvider(event.provider),
             ...addUsage(modelUsage[name] ?? emptyUsage(), usage),
           }
+          const owner = event.promptId ?? running
+          if ((event.purpose ?? "agent") === "agent" && owner && !answeredBy.has(owner))
+            answeredBy.set(owner, name)
         }
         if (at === undefined) continue
-        const key = localDateKey(new Date(at))
-        dailyTokens.set(key, (dailyTokens.get(key) ?? 0) + event.usage.totalTokens)
-        if (key !== today) continue
+        const day = dayOf(at)
+        if (day) day.tokens += event.usage.totalTokens
+        if (day?.date !== today) continue
         todayTokens += event.usage.totalTokens
         if (name)
           todayTokensByModel[name] = (todayTokensByModel[name] ?? 0) + event.usage.totalTokens
+      } else if (event.type === "prompt_steered") {
+        if (at !== undefined && at >= since) sent.push({ promptId: running ?? event.promptId, at })
       } else if (event.type === "prompt_admitted" || event.type === "turn_started") {
+        if (event.type === "turn_started" || !starts) running = event.promptId
         if (event.type === "prompt_admitted") {
+          if (at !== undefined && at >= since) sent.push({ promptId: event.promptId, at })
           promptCount += 1
           if (at !== undefined) {
             const workspace = dirname(path)
@@ -180,11 +217,22 @@ export async function calculateLocalStats(
           started.set(event.promptId, { start: at, exact: event.type === "turn_started" })
       } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
         if (event.subagents > 0) reach("coworker", at)
+        const day = at !== undefined && (event.tools || event.skills) ? dayOf(at) : undefined
+        if (day) {
+          const tools = Object.entries(event.tools ?? {}) as [ToolActivityKind, number][]
+          for (const [kind, count] of tools) day.tools[kind] = (day.tools[kind] ?? 0) + count
+          for (const skill of event.skills ?? []) day.skills[skill] = (day.skills[skill] ?? 0) + 1
+        }
         const turn = started.get(event.promptId)
         started.delete(event.promptId)
         if (turn !== undefined && at !== undefined && at >= turn.start)
           intervals.push({ ...turn, end: at })
       }
+    }
+    for (const { promptId, at } of sent) {
+      const model = answeredBy.get(promptId)
+      const messages = dayOf(at)?.messages
+      if (model && messages) messages[model] = (messages[model] ?? 0) + 1
     }
     if (nightOwlAt) earn("night-owl", nightOwlAt)
     if (earlyBirdAt) earn("early-bird", earlyBirdAt)
@@ -231,11 +279,11 @@ export async function calculateLocalStats(
   for (const [id, at] of earnedAt)
     achievements[id] = { at: new Date(at).toISOString(), count: tallies.get(id) ?? 1 }
 
-  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 27)
-  const recentActivity = Array.from({ length: 28 }, () => {
+  const day = new Date(first)
+  const recentActivity = Array.from({ length: RECENT_DAYS }, (): LocalUsageDay => {
     const date = localDateKey(day)
     day.setDate(day.getDate() + 1)
-    return { date, tokens: dailyTokens.get(date) ?? 0 }
+    return daily.get(date) ?? { date, tokens: 0, messages: {}, tools: {}, skills: {} }
   })
   return {
     ...totals,

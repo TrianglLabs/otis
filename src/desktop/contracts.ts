@@ -166,7 +166,9 @@ export type ServeStatus = {
 /** Update lifecycle shared by automatic checks, Settings, and the restart affordance. */
 export type DesktopUpdateState =
   | { status: "idle" | "checking" | "current" | "unavailable" }
-  | { status: "downloading" | "ready"; version: string }
+  /** `percent`, a whole number, once the download has reported progress. */
+  | { status: "downloading"; version: string; percent?: number }
+  | { status: "ready"; version: string }
   | { status: "error"; message: string }
 
 /** A workspace as the home screen lists it: its folder, the user's name for it, its activity. */
@@ -609,12 +611,13 @@ export type DesktopApi = {
   /** Forgets the daemon and restarts on the runtime in this app. */
   disconnectRemote(): Promise<void>
   /**
-   * Starts a login shell in the working folder unless one runs, and returns what it has printed so
-   * far; what follows arrives through subscribeTerminal.
+   * Opens a login shell in the working folder unless one is open, and returns what it has printed
+   * so far; what follows arrives through subscribeTerminal.
    */
   openTerminal(): Promise<string>
   /** Keystrokes and pastes, as the terminal emulator encodes them. */
   writeTerminal(data: string): Promise<void>
+  /** The view's grid; the first one starts the shell, at that size. */
   resizeTerminal(cols: number, rows: number): Promise<void>
   /** Ends the shell; `terminal` in the status turns false once it has gone. */
   closeTerminal(): Promise<void>

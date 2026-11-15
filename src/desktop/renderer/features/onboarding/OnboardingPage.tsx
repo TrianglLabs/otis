@@ -12,7 +12,6 @@ import {
   Loader2,
   Plug,
   RulerDimensionLine,
-  Server,
   Settings,
   Star,
   X,
@@ -31,13 +30,9 @@ import {
   localServerTabs,
   type ServerProvider,
   serverFormInputs,
-  serverProviders,
 } from "../../../../inference/types.js"
-import lmStudioIcon from "../../assets/lm-studio.svg"
-import ollamaIcon from "../../assets/ollama.svg"
-import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
-import { Icon, RetentionBadge } from "../../components/Icon.js"
+import { Icon, ProviderMark, RetentionBadge } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { ProgressBar, ProgressStop } from "../../components/Progress.js"
 import { TabStrip } from "../../components/TabStrip.js"
@@ -76,7 +71,6 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     "servers",
     "runtimePlatform",
   )
-  const serverKinds = serverProviders(state?.runtimePlatform)
   const servers = localServerNames(state?.runtimePlatform)
   const serverList = new Intl.ListFormat(locale, { type: "disjunction" })
   const [path, setPath] = useState<OnboardingPath>("welcome")
@@ -382,16 +376,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 }}
               >
                 <span className="onboarding-providerMarks" aria-hidden>
-                  <img
-                    className="onboarding-providerMark onboarding-providerMarkOllama"
-                    src={ollamaIcon}
-                    alt=""
-                  />
-                  <img className="onboarding-providerMark" src={lmStudioIcon} alt="" />
-                  {serverKinds.includes("omlx") ? (
-                    <img className="onboarding-providerMark" src={omlxIcon} alt="" />
-                  ) : null}
-                  <Icon icon={Server} size={18} className="onboarding-providerMark" />
+                  {localServerTabs(state?.runtimePlatform).map(([tab]) => (
+                    <ProviderMark key={tab} provider={tab} className="onboarding-providerMark" />
+                  ))}
                 </span>
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("onboarding.server")}</span>

@@ -4,11 +4,13 @@ import { MARK_CELL, MARK_FACES, MARK_GRID, MARK_VIEWBOX } from "../mark.js"
 
 type Vec = [number, number, number]
 
+type Look = { fill?: string; opacity: number | string }
+
 /**
  * A sticker of the 3×3 cube the mark draws: the cubie it sits on (-1, 0 or 1 along each axis from
- * the cube's center), the way it faces, and whether it belongs to the accent face.
+ * the cube's center), the way it faces, and its colour.
  */
-type Sticker = { key: string; at: Vec; facing: Vec; accent: boolean }
+type Sticker = { key: string; at: Vec; facing: Vec; look: Look }
 
 /** A quarter turn of the outer layer on one side (-1 or 1) of an axis, in a direction (-1 or 1). */
 type Move = { axis: number; side: number; direction: number }
@@ -22,9 +24,16 @@ const UNIT: Vec[] = [
 ]
 const PITCH = MARK_GRID[1][0] - MARK_GRID[0][0]
 
+// The mark's three colours: the accent face, the top in the theme's opacity, and the dimmer left.
+const ACCENT: Look = { fill: "var(--accent, currentColor)", opacity: MARK_FACES.front.opacity }
+const TOP: Look = { opacity: `var(--otis-mark-top-opacity, ${MARK_FACES.top.opacity})` }
+const LEFT: Look = { opacity: MARK_FACES.left.opacity }
+
 /**
  * The cube in the mark's pose: +x faces right as the accent face, its center left out for the O;
  * +y is the top face and +z the left one. Turns never move a face's center, so the O stays put.
+ * Stickers keep their colour wherever turns take them, as a real cube's do, so a scramble shows
+ * only the mark's colours: a face out of sight has the one across from it, the O face's the top's.
  */
 const SOLVED = [-1, 1]
   .flatMap((sign) =>
@@ -33,24 +42,19 @@ const SOLVED = [-1, 1]
         [-1, 0, 1].map((j): Sticker => {
           const facing = UNIT[axis].map((unit) => unit * sign) as Vec
           const at = facing.map((c, k) => c || (k === (axis + 1) % 3 ? i : j)) as Vec
-          return { key: `${at}/${facing}`, at, facing, accent: sign === 1 && axis === 0 }
+          const look = (sign === 1 ? [ACCENT, TOP, LEFT] : [TOP, TOP, LEFT])[axis]
+          return { key: `${at}/${facing}`, at, facing, look }
         }),
       ),
     ),
   )
-  .filter(({ accent, at }) => !accent || at[1] !== 0 || at[2] !== 0)
+  .filter(({ look, at }) => look !== ACCENT || at[1] !== 0 || at[2] !== 0)
 
 // The mark's isometric projection, read back from its top face: x and z run along that face's
 // axes, up is straight up the page, and the cube's center is the view box's.
 const [XX, XY, ZX, ZY] = MARK_FACES.top.matrix
 const { width, height } = MARK_VIEWBOX
 const VIEW_BOX = `${-width / 2} ${-height / 2} ${width} ${height}`
-// Lit as the mark's faces are: the right one fully, the top by the theme's opacity, the left
-// dimmest, and a turning sticker in between.
-const LIT = {
-  top: `var(--otis-mark-top-opacity, ${MARK_FACES.top.opacity})`,
-  left: MARK_FACES.left.opacity,
-}
 
 /** `v` turned right-handedly by `angle` about `axis`. */
 function turn(v: Vec, axis: number, angle: number): Vec {
@@ -181,11 +185,11 @@ export function OtisMark({
     >
       {hidden ? null : <title>Otis</title>}
       {painted.map((sticker) => {
-        const { at, facing } = sticker
+        const { at, facing, look } = sticker
         const place = (v: Vec) =>
           turning && moving(sticker) ? turn(v, turning.move.axis, turning.angle) : v
-        const [right, up, left] = place(facing)
-        if (right + up + left <= 0) return null
+        // Facing away from the viewer at (1, 1, 1), it is out of sight.
+        if (place(facing).reduce((sum, c) => sum + c) <= 0) return null
         const axis = facing.findIndex(Boolean)
         const center = at.map((c, k) => c * PITCH + (facing[k] * PITCH) / 2) as Vec
         const [[ux, uy], [vx, vy], [cx, cy]] = [
@@ -205,8 +209,8 @@ export function OtisMark({
             height={MARK_CELL}
             rx={2}
             transform={`matrix(${ux} ${uy} ${vx} ${vy} ${cx} ${cy})`}
-            fill={sticker.accent ? "var(--accent, currentColor)" : undefined}
-            style={{ opacity: `calc(${right} + ${up} * ${LIT.top} + ${left * LIT.left})` }}
+            fill={look.fill}
+            style={{ opacity: look.opacity }}
           />
         )
       })}

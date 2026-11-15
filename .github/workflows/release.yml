@@ -110,7 +110,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
 
   desktop:
-    name: Desktop (${{ matrix.os }} ${{ matrix.label }})
+    name: Desktop (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     needs: release
     # The tag it builds from already exists when only the desktop apps are being redone.
@@ -126,19 +126,19 @@ jobs:
       matrix:
         include:
           - os: macOS
-            label: ""
+            name: macOS
             targets: ""
             runner: macos-latest
           - os: Linux
-            label: x64
+            name: Linux x64
             targets: --linux AppImage:x64 deb:x64
             runner: ubuntu-latest
           - os: Linux
-            label: arm64
+            name: Linux arm64
             targets: --linux AppImage:arm64 deb:arm64
             runner: ubuntu-24.04-arm
           - os: Windows
-            label: x64
+            name: Windows x64
             targets: --win nsis:x64
             runner: windows-latest
 

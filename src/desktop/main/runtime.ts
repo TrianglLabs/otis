@@ -1373,8 +1373,8 @@ export class DesktopRuntime {
   }
 
   /**
-   * Starts the workspace shell unless one runs, and returns what it has printed so far. The shell
-   * outlives the renderer: a reload attaches to it again.
+   * Opens the workspace shell unless one is open, and returns what it has printed so far. It starts
+   * once the view reports its size, and outlives the renderer: a reload attaches to it again.
    */
   openTerminal() {
     if (this.#terminal) return this.#terminal.history

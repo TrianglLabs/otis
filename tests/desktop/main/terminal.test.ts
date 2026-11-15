@@ -8,7 +8,7 @@ import { fakePty } from "../support/pty.js"
 afterEach(() => vi.useRealTimers())
 
 describe("WorkspaceTerminal", () => {
-  it("runs the login shell in the workspace, ships a frame of output as one message, keeps it", () => {
+  it("starts the login shell at the view's first size, ships a frame of output as one message", () => {
     vi.useFakeTimers()
     vi.stubEnv("SHELL", "/bin/zsh")
     const shell = fakePty()
@@ -21,10 +21,14 @@ describe("WorkspaceTerminal", () => {
       onExit,
       "darwin",
     )
+    // Nothing runs until the view has measured its grid, so zsh pads its first line to that width.
+    expect(shell.spawn).not.toHaveBeenCalled()
+    terminal.resize(120, 30)
+    expect(shell.spawn).toHaveBeenCalledOnce()
     expect(shell.spawn).toHaveBeenCalledWith(
       "/bin/zsh",
       ["-l"],
-      expect.objectContaining({ name: "xterm-256color", cols: 80, rows: 24, cwd: "/work" }),
+      expect.objectContaining({ name: "xterm-256color", cols: 120, rows: 30, cwd: "/work" }),
     )
     shell.print("a")
     shell.print("b")
@@ -47,6 +51,16 @@ describe("WorkspaceTerminal", () => {
     expect(shell.pty.kill).toHaveBeenCalledOnce()
   })
 
+  it("closes at once when closed before the view ever sized it", () => {
+    const shell = fakePty()
+    const onExit = vi.fn()
+    const terminal = new WorkspaceTerminal(shell.spawn, "/work", () => {}, onExit, "darwin")
+    terminal.write("ignored")
+    terminal.kill()
+    expect(onExit).toHaveBeenCalledOnce()
+    expect(shell.spawn).not.toHaveBeenCalled()
+  })
+
   it("retains the last million characters, dropping the oldest whole lines first", () => {
     const shell = fakePty()
     const terminal = new WorkspaceTerminal(
@@ -56,6 +70,7 @@ describe("WorkspaceTerminal", () => {
       () => {},
       "linux",
     )
+    terminal.resize(80, 24)
     const line = (index: number) => `line ${index} ${"x".repeat(990)}\n`
     for (let index = 0; index < 1200; index += 1) shell.print(line(index))
     expect(terminal.history.length).toBeLessThanOrEqual(1_000_000)
@@ -79,7 +94,7 @@ describe("Windows terminal shell", () => {
         () => {},
         () => {},
         "win32",
-      )
+      ).resize(80, 24)
       expect(seven.spawn).toHaveBeenCalledWith(
         join(directory, "pwsh.exe"),
         ["-NoLogo"],
@@ -93,7 +108,7 @@ describe("Windows terminal shell", () => {
         () => {},
         () => {},
         "win32",
-      )
+      ).resize(80, 24)
       expect(five.spawn).toHaveBeenCalledWith("powershell.exe", ["-NoLogo"], expect.anything())
     } finally {
       rmSync(directory, { recursive: true, force: true })

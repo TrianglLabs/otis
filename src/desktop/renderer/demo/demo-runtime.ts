@@ -28,6 +28,7 @@ import {
   type HostedProvider,
   isHostedProvider,
 } from "../../../inference/types.js"
+import type { LocalUsageDay } from "../../../local/stats.js"
 import type { ManagedSkillSource } from "../../../skills/catalog.js"
 import { describeToolAction, type ToolAction } from "../../../tools/activity.js"
 import {
@@ -87,8 +88,9 @@ const DEMO_SHELL: Record<string, string> = {
 
 /**
  * `start` is the demo query value: "onboarding", "failed" (a model that could not be prepared),
- * "local" (a managed model mid-session), "offline" (moved on-device while the network is gone), a
- * fixture session id to show, or nothing.
+ * "local" (a managed model mid-session), "offline" (moved on-device while the network is gone),
+ * "update" (an update downloading on its own, then waiting for its restart), a fixture session id
+ * to show, or nothing.
  */
 export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi {
   return new DemoRuntime(hostApi, start)
@@ -1052,9 +1054,49 @@ const DEMO_MODELS: ModelPickerChoice[] = [
 ]
 
 const DEMO_ACTIVITY_TOKENS = [
-  0, 32_400, 0, 58_900, 76_300, 0, 91_200, 44_800, 0, 0, 112_600, 84_100, 63_500, 0, 128_900,
-  147_200, 0, 98_400, 176_800, 132_500, 0, 154_300, 201_600, 188_400, 0, 224_900, 196_700, 251_300,
+  18_200, 0, 0, 32_400, 0, 58_900, 76_300, 0, 91_200, 44_800, 0, 0, 112_600, 84_100, 63_500, 0,
+  128_900, 147_200, 0, 98_400, 176_800, 132_500, 0, 154_300, 201_600, 188_400, 0, 224_900, 196_700,
+  251_300,
 ]
+
+/** A day's total spread by share over names, leaving out any that round to nothing. */
+function demoSpread(total: number, shares: Record<string, number>) {
+  return Object.fromEntries(
+    Object.entries(shares)
+      .map(([name, part]) => [name, Math.round(total * part)] as const)
+      .filter(([, count]) => count > 0),
+  )
+}
+
+/** Each demo day's messages, tool calls and skills, following its tokens. */
+function demoDay(tokens: number, index: number): Omit<LocalUsageDay, "date" | "tokens"> {
+  return {
+    messages: demoSpread(tokens / 9_000, {
+      "GLM-5.3": 0.5,
+      "Qwen3.8 27B": 0.25,
+      "Kimi K3": 0.15,
+      "Gemma 4 31B": 0.06,
+      "Bonsai 2 27B": 0.04,
+    }),
+    tools: demoSpread(tokens / 1_600, {
+      file_read: 0.3,
+      file_search: 0.18,
+      file_inspect: 0.04,
+      file_edit: 0.14,
+      file_write: 0.05,
+      shell: 0.14,
+      git: 0.04,
+      web_search: 0.05,
+      web_read: 0.03,
+      agent: 0.02,
+      memory: 0.01,
+    }),
+    skills: demoSpread(tokens ? 1 : 0, {
+      docx: index % 4 === 1 ? 1 : 0,
+      pdf: index % 5 === 0 ? 2 : 0,
+    }),
+  }
+}
 
 const DEMO_SUBAGENT = {
   toolCallId: "demo_agent_1",
@@ -1268,6 +1310,10 @@ class DemoRuntime implements DesktopApi {
       // a poor network, so the model lists show their loader.
       this.#catalogDelay = 1600
       setTimeout(() => this.#playDropout(), 1200)
+    } else if (start === "update") {
+      // The home screen, as an update starts downloading in the background.
+      void this.startNewSession()
+      setTimeout(() => void this.checkForUpdates(), 1200)
     } else if (start) {
       // A session running in another pane is focused; anything else is opened from the list.
       const running = this.#state.runtimes.find((entry) => entry.session?.id === start)
@@ -1626,6 +1672,7 @@ class DemoRuntime implements DesktopApi {
         return {
           date: `${day.getFullYear()}-${month}-${String(day.getDate()).padStart(2, "0")}`,
           tokens,
+          ...demoDay(tokens, index),
         }
       }),
     },
@@ -2079,7 +2126,10 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
-  async installUpdate(): Promise<void> {}
+  /** Nothing to install: after a moment the demo comes back as the restarted app would. */
+  async installUpdate(): Promise<void> {
+    setTimeout(() => location.replace(`${location.pathname}?demo`), 1500)
+  }
 
   async connectRemote(): Promise<SessionOpResult> {
     return { ok: false, reason: "The demo has no daemon to connect to." }
@@ -2087,11 +2137,18 @@ class DemoRuntime implements DesktopApi {
 
   async disconnectRemote(): Promise<void> {}
 
+  /** Finds a newer version and downloads it over about eight seconds, so its progress can be seen. */
   async checkForUpdates(): Promise<void> {
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
     this.#state = { ...this.#state, update: { status: "checking" } }
     this.#emitStatus()
-    await new Promise((resolve) => setTimeout(resolve, 900))
-    this.#state = { ...this.#state, update: { status: "current" } }
+    await pause(900)
+    for (let percent = 0; percent < 100; percent += 4) {
+      this.#state = { ...this.#state, update: { status: "downloading", version: "0.3.0", percent } }
+      this.#emitStatus()
+      await pause(320)
+    }
+    this.#state = { ...this.#state, update: { status: "ready", version: "0.3.0" } }
     this.#emitStatus()
   }
 

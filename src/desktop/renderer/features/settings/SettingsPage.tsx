@@ -45,7 +45,8 @@ import {
   type ServerProvider,
   serverFormInputs,
 } from "../../../../inference/types.js"
-import type { LocalStats } from "../../../../local/stats.js"
+import type { LocalStats, LocalUsageDay } from "../../../../local/stats.js"
+import type { ToolActivityKind } from "../../../../tools/activity.js"
 import type {
   AppIcon,
   DesktopApi,
@@ -64,12 +65,13 @@ import nightIcon from "../../assets/app-icons/night.png"
 import obsidianIcon from "../../assets/app-icons/obsidian.png"
 import obsidianDarkIcon from "../../assets/app-icons/obsidian-dark.png"
 import { Button, IconButton, Toggle } from "../../components/Button.js"
-import { Icon, RetentionBadge } from "../../components/Icon.js"
+import { Icon, ProviderMark, RetentionBadge } from "../../components/Icon.js"
 import { CubeLoader } from "../../components/OtisMark.js"
 import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
 import { formatTokenCount, usageBreakdown } from "../../format.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
+import type { MessageKey } from "../../i18n/messages/en.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
 import { AchievementsTab } from "../achievements/Achievements.js"
 import { ModelDetail } from "../models/ModelPicker.js"
@@ -130,6 +132,52 @@ const MEMORY_PAGE = 10
 /** Rows of another agent's items shown at once; Show more adds as many. */
 const AGENT_PAGE = 8
 const MODELS_SHOWN = 5
+
+/** The tool kinds the Usage page draws as one line each; delegation, memory and routines share "other". */
+const TOOL_GROUPS = [
+  ["settings.usageToolRead", ["file_read", "file_search", "file_inspect"]],
+  ["settings.usageToolEdit", ["file_write", "file_edit"]],
+  ["settings.usageToolCommand", ["shell", "git"]],
+  ["settings.usageToolWeb", ["web_search", "web_read"]],
+] as const satisfies readonly (readonly [MessageKey, readonly ToolActivityKind[]])[]
+
+/** One line of a usage chart: its legend label, color, and a count per day shown. */
+type UsageLine = { label: string; color: string; values: number[] }
+
+/**
+ * Lines for counts named per day, biggest first over the days shown: up to four in the chart
+ * colors, any more folded into one dim line under `other`.
+ */
+function rankedLines(
+  days: LocalUsageDay[],
+  counts: (day: LocalUsageDay) => Record<string, number>,
+  other: string,
+): UsageLine[] {
+  const totals = new Map<string, number>()
+  for (const day of days)
+    for (const [name, count] of Object.entries(counts(day)))
+      totals.set(name, (totals.get(name) ?? 0) + count)
+  const names = [...totals].sort((a, b) => b[1] - a[1]).map(([name]) => name)
+  const rest = names.slice(4)
+  return [
+    ...names.slice(0, 4).map((name, index) => ({
+      label: name,
+      color: `var(--chart-${index + 1})`,
+      values: days.map((day) => counts(day)[name] ?? 0),
+    })),
+    ...(rest.length
+      ? [
+          {
+            label: other,
+            color: "var(--chart-other)",
+            values: days.map((day) =>
+              rest.reduce((sum, name) => sum + (counts(day)[name] ?? 0), 0),
+            ),
+          },
+        ]
+      : []),
+  ]
+}
 
 const SKILL_ORIGINS = {
   bundled: "settings.skillBundled",
@@ -966,14 +1014,17 @@ function HostedProviderRow({
   return (
     <div className="settingsProvider">
       <div className="settingsRow">
-        <span className="settingsRow-label">
-          {name}
-          <span className="settingsRow-meta settingsRow-detail">
-            <span className={configured ? "settingsProvider-connected" : undefined}>
-              {configured ? t("settings.providerConnected") : t("settings.providerNotConnected")}
+        <span className="settingsProvider-name">
+          <ProviderMark provider={provider} className="settingsProvider-mark" />
+          <span className="settingsRow-label">
+            {name}
+            <span className="settingsRow-meta settingsRow-detail">
+              <span className={configured ? "settingsProvider-connected" : undefined}>
+                {configured ? t("settings.providerConnected") : t("settings.providerNotConnected")}
+              </span>
+              <span aria-hidden>·</span>
+              <RetentionBadge retention={HOSTED_PROVIDER_INFO[provider].dataRetention} />
             </span>
-            <span aria-hidden>·</span>
-            <RetentionBadge retention={HOSTED_PROVIDER_INFO[provider].dataRetention} />
           </span>
         </span>
         <Button size="sm" aria-expanded={open} onClick={onToggle}>
@@ -1402,7 +1453,7 @@ function SoftwareUpdates({
           : checking
             ? t("updates.checking")
             : downloading
-              ? t("updates.downloading")
+              ? `${t("updates.downloading")}${update.percent === undefined ? "" : ` ${update.percent}%`}`
               : ready
                 ? t("updates.restartInstall")
                 : t("updates.check")}
@@ -1463,25 +1514,29 @@ function CommandLine({
   )
 }
 
+/**
+ * Local usage: an overview card with the all-time total beside the token mix, the headline counts
+ * and each model's share, then a card per chart over the last 7 or 30 days: tokens, messages,
+ * tools and skills. Colors come from the theme, so every theme draws it in its own palette.
+ */
 function UsageStats({ stats }: { stats: LocalStats | undefined }) {
   const { locale, t } = useI18n()
   const [activeDate, setActiveDate] = useState<string>()
   const [allModels, setAllModels] = useState(false)
+  const [range, setRange] = useState<"7" | "30">("30")
 
   if (!stats) {
     return (
-      <section className="settingsSurface settingsUsage settingsUsage-loading" aria-busy="true">
-        {t("settings.usageLoading")}
+      <section className="settingsSurface" aria-busy="true">
+        <CubeLoader label={t("settings.usageLoading")} />
       </section>
     )
   }
 
-  const recentActivity = stats.recentActivity
-  const maxDailyTokens = Math.max(1, ...recentActivity.map((day) => day.tokens))
+  const days = stats.recentActivity.slice(-Number(range))
+  const maxDailyTokens = Math.max(1, ...days.map((day) => day.tokens))
   const number = new Intl.NumberFormat(locale)
-  const firstDay = recentActivity[0]
-  const lastDay = recentActivity.at(-1)
-  const activeDay = recentActivity.find((day) => day.date === activeDate)
+  const activeIndex = days.findIndex((day) => day.date === activeDate)
   const countedTokens = stats.promptTokens + stats.completionTokens
   const share = (tokens: number) => (countedTokens === 0 ? 0 : tokens / countedTokens)
   const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 })
@@ -1494,197 +1549,371 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
       total: usage.promptTokens + usage.completionTokens,
     }))
     .sort((a, b) => b.total - a.total)
+  const sessionTime =
+    stats.avgSessionSeconds >= 3_600
+      ? `${(stats.avgSessionSeconds / 3_600).toFixed(1)}h`
+      : stats.avgSessionSeconds >= 60
+        ? `${Math.round(stats.avgSessionSeconds / 60)}m`
+        : `${Math.round(stats.avgSessionSeconds)}s`
+  const metrics = [
+    [t("settings.usageSessions"), number.format(stats.sessionCount)],
+    [t("settings.usageActiveDays"), number.format(stats.activeDays)],
+    [t("settings.usageStreak"), number.format(stats.streak)],
+    [t("settings.usageToday"), formatTokenCount(stats.todayTokens)],
+  ]
+  // Each tool kind's line: its group's, else the last, "other".
+  const groupOf = new Map<string, number>(
+    TOOL_GROUPS.flatMap(([, kinds], index) => kinds.map((kind) => [kind, index] as const)),
+  )
+  const toolLabels = [...TOOL_GROUPS.map(([label]) => t(label)), t("settings.usageOther")]
+  const charts = [
+    {
+      title: t("settings.usageMessages"),
+      lines: rankedLines(days, (day) => day.messages, t("settings.usageOther")),
+    },
+    {
+      title: t("settings.usageToolActivity"),
+      lines: toolLabels.map((label, index) => ({
+        label,
+        color: index < TOOL_GROUPS.length ? `var(--chart-${index + 1})` : "var(--chart-other)",
+        values: days.map((day) =>
+          Object.entries(day.tools).reduce(
+            (sum, [kind, count]) =>
+              sum + ((groupOf.get(kind) ?? TOOL_GROUPS.length) === index ? count : 0),
+            0,
+          ),
+        ),
+      })),
+    },
+    // Skills appear once any was used in the last thirty days, so the range never hides the chart.
+    ...(stats.recentActivity.some((day) => Object.keys(day.skills).length)
+      ? [
+          {
+            title: t("settings.usageSkillsUsed"),
+            lines: rankedLines(days, (day) => day.skills, t("settings.usageOther")),
+          },
+        ]
+      : []),
+  ]
 
   return (
-    <section className="settingsSurface settingsUsage" aria-label={t("settings.usage")}>
-      <div className="settingsUsage-hero">
-        <div className="settingsUsage-total">
-          <span className="settingsUsage-eyebrow">{t("settings.usageTotal")}</span>
-          <strong title={number.format(stats.totalTokens)}>
-            {formatTokenCount(stats.totalTokens)}
-          </strong>
-          <span className="settingsUsage-note">{t("settings.usagePrivate")}</span>
-        </div>
-        <div className="settingsUsage-mix">
-          <span className="settingsUsage-mixTitle">
-            {t("settings.usageTokenMix")}
-            {breakdown.hitRate ? (
-              <span className="settingsUsage-cacheHit">{breakdown.hitRate}</span>
-            ) : null}
-          </span>
-          {/* One segment per legend row, in legend order, each as wide as its share. */}
-          <div
-            className="settingsUsage-mixTrack"
-            data-empty={countedTokens === 0 ? "true" : undefined}
-            aria-hidden="true"
-          >
-            {breakdown.rows
-              .filter((row) => row.tokens > 0)
-              .map((row) => (
-                <i
-                  key={row.id}
-                  className={`settingsUsage-mixSegment settingsUsage-mix-${row.id}`}
-                  style={{ flexGrow: share(row.tokens) }}
-                />
+    <section className="settingsUsage" aria-label={t("settings.usage")}>
+      <div className="settingsSurface settingsUsage-overview">
+        <div className="settingsUsage-hero">
+          <div className="settingsUsage-total">
+            <span className="settingsUsage-dim">{t("settings.usageTotal")}</span>
+            <strong title={number.format(stats.totalTokens)}>
+              {formatTokenCount(stats.totalTokens)}
+            </strong>
+            <span className="settingsUsage-dim">{t("settings.usagePrivate")}</span>
+            <span className="settingsUsage-dim">
+              {t("settings.usageAverageTokens", {
+                tokens: formatTokenCount(Math.round(stats.avgTokensPerSession)),
+              })}
+              {" · "}
+              {t("settings.usageAverageTime", { duration: sessionTime })}
+            </span>
+          </div>
+          <div className="settingsUsage-mix">
+            <div className="settingsUsage-caption">
+              <span>{t("settings.usageTokenMix")}</span>
+              {breakdown.hitRate ? (
+                <span className="settingsUsage-dim">{breakdown.hitRate}</span>
+              ) : null}
+            </div>
+            {/* One segment per legend item, in legend order, each as wide as its share. */}
+            <div
+              className="settingsUsage-mixTrack"
+              data-empty={countedTokens === 0 ? "true" : undefined}
+              aria-hidden="true"
+            >
+              {breakdown.rows
+                .filter((row) => row.tokens > 0)
+                .map((row) => (
+                  <i
+                    key={row.id}
+                    className={`settingsUsage-mixSegment settingsUsage-mix-${row.id}`}
+                    style={{ flexGrow: share(row.tokens) }}
+                  />
+                ))}
+            </div>
+            <div className="settingsUsage-legend">
+              {breakdown.rows.map((row) => (
+                <span key={row.id} className="settingsUsage-mixRow">
+                  <i className={`settingsUsage-mixDot settingsUsage-mix-${row.id}`} />
+                  <span className="settingsUsage-dim">{row.label}</span>
+                  <strong>{formatTokenCount(row.tokens)}</strong>
+                  <span className="settingsUsage-dim">{percent.format(share(row.tokens))}</span>
+                </span>
               ))}
-          </div>
-          <div className="settingsUsage-mixValues">
-            {breakdown.rows.map((row) => (
-              <span key={row.id}>
-                <i className={`settingsUsage-mixDot settingsUsage-mix-${row.id}`} />
-                {row.label}
-                <strong>{formatTokenCount(row.tokens)}</strong>
-                <small>{percent.format(share(row.tokens))}</small>
-              </span>
-            ))}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="settingsUsage-metrics">
-        <UsageMetric
-          label={t("settings.usageSessions")}
-          value={number.format(stats.sessionCount)}
-        />
-        <UsageMetric
-          label={t("settings.usageActiveDays")}
-          value={number.format(stats.activeDays)}
-        />
-        <UsageMetric label={t("settings.usageStreak")} value={number.format(stats.streak)} />
-        <UsageMetric label={t("settings.usageToday")} value={formatTokenCount(stats.todayTokens)} />
-      </div>
+        <div className="settingsUsage-metrics">
+          {metrics.map(([label, value]) => (
+            <div key={label} className="settingsUsage-metric">
+              <strong>{value}</strong>
+              <span className="settingsUsage-dim">{label}</span>
+            </div>
+          ))}
+        </div>
 
-      {models.length ? (
-        <div className="settingsUsage-models">
-          <div className="settingsUsage-activityHeader">
-            <span>{t("settings.usageByModel")}</span>
+        {models.length ? (
+          <div className="settingsUsage-band">
+            <div className="settingsUsage-caption">
+              <span>{t("settings.usageByModel")}</span>
+            </div>
+            {models
+              .slice(0, allModels ? undefined : MODELS_SHOWN)
+              .map(
+                ({
+                  name,
+                  hosted,
+                  promptTokens,
+                  completionTokens,
+                  cachedPromptTokens,
+                  total,
+                  cacheReportedPromptTokens,
+                }) => (
+                  <div
+                    key={name}
+                    className="settingsUsage-model"
+                    style={
+                      { "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties
+                    }
+                  >
+                    <span className="settingsUsage-modelName" title={name}>
+                      {name}
+                    </span>
+                    <span
+                      className="settingsUsage-modelWhere"
+                      title={t(hosted ? "common.hosted" : "common.local")}
+                    >
+                      <Icon icon={hosted ? Cloud : Laptop} size={13} />
+                    </span>
+                    <span className="settingsUsage-dim settingsUsage-modelSplit">
+                      {cacheReportedPromptTokens > 0
+                        ? t("settings.usageModelSplitCached", {
+                            input: formatTokenCount(promptTokens),
+                            cached: formatTokenCount(cachedPromptTokens),
+                            output: formatTokenCount(completionTokens),
+                          })
+                        : t("settings.usageModelSplit", {
+                            input: formatTokenCount(promptTokens),
+                            output: formatTokenCount(completionTokens),
+                          })}
+                    </span>
+                    <strong title={number.format(total)}>{formatTokenCount(total)}</strong>
+                    <i className="settingsUsage-modelBar" aria-hidden="true" />
+                  </div>
+                ),
+              )}
+            {models.length > MODELS_SHOWN && !allModels ? (
+              <Button variant="ghost" size="sm" onClick={() => setAllModels(true)}>
+                {t("settings.skillsMore")}
+              </Button>
+            ) : null}
           </div>
-          {models
-            .slice(0, allModels ? undefined : MODELS_SHOWN)
-            .map(
-              ({
-                name,
-                hosted,
-                promptTokens,
-                completionTokens,
-                cachedPromptTokens,
-                total,
-                cacheReportedPromptTokens,
-              }) => (
+        ) : null}
+      </div>
+
+      <div className="settingsGroup">
+        <div className="settingsUsage-heading">
+          <h2 className="settings-section">{t("settings.usageRecent", { count: range })}</h2>
+          <TabStrip
+            tabs={(["7", "30"] as const).map((days) => [
+              days,
+              t("settings.usageDays", { count: days }),
+            ])}
+            selected={range}
+            onSelect={setRange}
+          />
+        </div>
+        <div className="settingsUsage-charts">
+          <div className="settingsSurface settingsUsage-chartCard">
+            <div className="settingsUsage-caption">
+              <span>{t("settings.usageTokens")}</span>
+              <strong className="settingsUsage-count">
+                {formatTokenCount(sumOf(days.map((day) => day.tokens)))}
+              </strong>
+            </div>
+            <div className="settingsUsage-chart">
+              {activeIndex === -1 ? null : (
                 <div
-                  key={name}
-                  className="settingsUsage-model"
+                  className="settingsUsage-tip"
+                  data-side={activeIndex >= days.length / 2 ? "left" : "right"}
                   style={
-                    { "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties
+                    {
+                      "--usage-at": `${((activeIndex + 0.5) / days.length) * 100}%`,
+                    } as CSSProperties
                   }
                 >
-                  <span className="settingsUsage-modelName" title={name}>
-                    {name}
-                  </span>
-                  <span
-                    className="settingsUsage-modelWhere"
-                    title={t(hosted ? "common.hosted" : "common.local")}
-                  >
-                    <Icon icon={hosted ? Cloud : Laptop} size={13} />
-                  </span>
-                  <span className="settingsUsage-modelSplit">
-                    {cacheReportedPromptTokens > 0
-                      ? t("settings.usageModelSplitCached", {
-                          input: formatTokenCount(promptTokens),
-                          cached: formatTokenCount(cachedPromptTokens),
-                          output: formatTokenCount(completionTokens),
-                        })
-                      : t("settings.usageModelSplit", {
-                          input: formatTokenCount(promptTokens),
-                          output: formatTokenCount(completionTokens),
-                        })}
-                  </span>
-                  <strong title={number.format(total)}>{formatTokenCount(total)}</strong>
-                  <i className="settingsUsage-modelBar" aria-hidden="true" />
+                  {t("settings.usageDay", {
+                    date: formatLongDate(days[activeIndex].date, locale),
+                    tokens: number.format(days[activeIndex].tokens),
+                  })}
                 </div>
-              ),
-            )}
-          {models.length > MODELS_SHOWN && !allModels ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="settingsUsage-more"
-              onClick={() => setAllModels(true)}
-            >
-              {t("settings.skillsMore")}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="settingsUsage-activity">
-        <div className="settingsUsage-activityHeader">
-          <span>{t("settings.usageRecent")}</span>
-          {activeDay ? (
-            <span className="settingsUsage-activeDay">
-              {t("settings.usageDay", {
-                date: formatLongDate(activeDay.date, locale),
-                tokens: number.format(activeDay.tokens),
+              )}
+              {days.map((day) => {
+                const level = Math.round((day.tokens / maxDailyTokens) * 100)
+                const label = t("settings.usageDay", {
+                  date: formatLongDate(day.date, locale),
+                  tokens: number.format(day.tokens),
+                })
+                return (
+                  <button
+                    type="button"
+                    key={day.date}
+                    className="settingsUsage-barSlot"
+                    data-empty={day.tokens === 0 ? "true" : undefined}
+                    style={{ "--usage-level": `${level}%` } as CSSProperties}
+                    aria-label={label}
+                    onPointerEnter={() => setActiveDate(day.date)}
+                    onPointerLeave={() => setActiveDate(undefined)}
+                    onFocus={() => setActiveDate(day.date)}
+                    onBlur={() => setActiveDate(undefined)}
+                  >
+                    <span className="settingsUsage-bar" />
+                  </button>
+                )
               })}
-            </span>
-          ) : firstDay && lastDay ? (
-            <span>
-              {formatShortDate(firstDay.date, locale)}–{formatShortDate(lastDay.date, locale)}
-            </span>
-          ) : null}
-        </div>
-        <div className="settingsUsage-chart">
-          {recentActivity.map((day) => {
-            const percent = Math.round((day.tokens / maxDailyTokens) * 100)
-            const label = t("settings.usageDay", {
-              date: formatLongDate(day.date, locale),
-              tokens: number.format(day.tokens),
-            })
-            return (
-              <button
-                type="button"
-                key={day.date}
-                className="settingsUsage-barSlot"
-                data-empty={day.tokens === 0 ? "true" : undefined}
-                style={{ "--usage-level": `${percent}%` } as CSSProperties}
-                aria-label={label}
-                onPointerEnter={() => setActiveDate(day.date)}
-                onPointerLeave={() => setActiveDate(undefined)}
-                onFocus={() => setActiveDate(day.date)}
-                onBlur={() => setActiveDate(undefined)}
-              >
-                <span className="settingsUsage-bar" />
-              </button>
-            )
-          })}
-        </div>
-        <div className="settingsUsage-average">
-          <span>
-            {t("settings.usageAverageTokens", {
-              tokens: formatTokenCount(Math.round(stats.avgTokensPerSession)),
-            })}
-          </span>
-          <span>
-            {t("settings.usageAverageTime", {
-              duration:
-                stats.avgSessionSeconds >= 3_600
-                  ? `${(stats.avgSessionSeconds / 3_600).toFixed(1)}h`
-                  : stats.avgSessionSeconds >= 60
-                    ? `${Math.round(stats.avgSessionSeconds / 60)}m`
-                    : `${Math.round(stats.avgSessionSeconds)}s`,
-            })}
-          </span>
+            </div>
+            <UsageDates days={days} />
+          </div>
+          {charts.map(({ title, lines }) => (
+            <div key={title} className="settingsSurface settingsUsage-chartCard">
+              <div className="settingsUsage-caption">
+                <span>{title}</span>
+                <strong className="settingsUsage-count">
+                  {number.format(lines.reduce((sum, line) => sum + sumOf(line.values), 0))}
+                </strong>
+              </div>
+              <UsageLines days={days} lines={lines} />
+            </div>
+          ))}
         </div>
       </div>
     </section>
   )
 }
 
-function UsageMetric({ label, value }: { label: string; value: string }) {
+const sumOf = (values: number[]) => values.reduce((sum, value) => sum + value, 0)
+
+/** The first, middle and last of the days shown, under a chart. */
+function UsageDates({ days }: { days: LocalUsageDay[] }) {
+  const { locale } = useI18n()
   return (
-    <div className="settingsUsage-metric">
-      <strong>{value}</strong>
-      <span>{label}</span>
+    <div className="settingsUsage-dates settingsUsage-dim" aria-hidden="true">
+      {[days[0], days[Math.floor((days.length - 1) / 2)], days.at(-1)].map((day, index) => (
+        <span key={index}>{day ? formatShortDate(day.date, locale) : null}</span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Lines over the days shown, one SVG stretched to the card's width: a gridline per tick, the
+ * dates below, and a legend with each line's total. Hovering a day draws a crosshair and lists
+ * that day's counts.
+ */
+function UsageLines({ days, lines }: { days: LocalUsageDay[]; lines: UsageLine[] }) {
+  const { locale } = useI18n()
+  const [hovered, setHovered] = useState<number>()
+  const number = new Intl.NumberFormat(locale)
+  const peak = Math.max(1, ...lines.flatMap((line) => line.values))
+  // Whole-number ticks at 1, 2 or 5 times a power of ten, no more than four of them above zero.
+  const magnitude = 10 ** Math.max(0, Math.floor(Math.log10(peak / 4)))
+  const step = magnitude * ([1, 2, 5].find((factor) => peak / (factor * magnitude) <= 4) ?? 10)
+  const top = Math.ceil(peak / step) * step
+  const ticks = Array.from({ length: top / step + 1 }, (_, index) => index * step)
+  const last = days.length - 1
+  const day = hovered === undefined ? undefined : days[hovered]
+  return (
+    <div className="settingsUsage-lines">
+      <div className="settingsUsage-plot">
+        <div className="settingsUsage-ticks settingsUsage-dim" aria-hidden="true">
+          {ticks.toReversed().map((tick) => (
+            <span key={tick}>{number.format(tick)}</span>
+          ))}
+        </div>
+        <div
+          className="settingsUsage-canvas"
+          onPointerMove={(event) => {
+            const box = event.currentTarget.getBoundingClientRect()
+            setHovered(Math.round(((event.clientX - box.left) / box.width) * last))
+          }}
+          onPointerLeave={() => setHovered(undefined)}
+        >
+          <svg
+            viewBox={`0 0 ${last} ${top}`}
+            preserveAspectRatio="none"
+            overflow="visible"
+            aria-hidden="true"
+          >
+            {ticks.map((tick) => (
+              <line
+                key={tick}
+                className="settingsUsage-grid"
+                x1={0}
+                x2={last}
+                y1={top - tick}
+                y2={top - tick}
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+            {hovered === undefined ? null : (
+              <line
+                className="settingsUsage-crosshair"
+                x1={hovered}
+                x2={hovered}
+                y1={0}
+                y2={top}
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            {/* The biggest line is drawn last, on top. */}
+            {lines.toReversed().map((line) => (
+              <polyline
+                key={line.label}
+                points={line.values.map((value, x) => `${x},${top - value}`).join(" ")}
+                fill="none"
+                stroke={line.color}
+                strokeWidth={1.75}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </svg>
+          {day && hovered !== undefined ? (
+            <div
+              className="settingsUsage-tip"
+              data-side={hovered > last / 2 ? "left" : "right"}
+              style={{ "--usage-at": `${(hovered / last) * 100}%` } as CSSProperties}
+            >
+              <span>{formatLongDate(day.date, locale)}</span>
+              {lines.map((line) => (
+                <span key={line.label} className="settingsUsage-tipRow">
+                  <i className="settingsUsage-mixDot" style={{ background: line.color }} />
+                  <span className="settingsUsage-dim">{line.label}</span>
+                  <strong>{number.format(line.values[hovered])}</strong>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <UsageDates days={days} />
+      <div className="settingsUsage-legend">
+        {lines.map((line) => (
+          <span key={line.label} className="settingsUsage-mixRow">
+            <i className="settingsUsage-mixDot" style={{ background: line.color }} />
+            <span className="settingsUsage-dim">{line.label}</span>
+            <strong>{number.format(sumOf(line.values))}</strong>
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

@@ -319,30 +319,76 @@
   -webkit-app-region: no-drag;
 }
 
-/* Update-ready chip floating bottom-left: panel-quiet until hovered. */
-.updateFab {
+/* An update, round in the bottom-left corner: a ring filling around the download arrow while it
+   downloads, then a solid accent disc that restarts into it, pulsing once as it lands. */
+.updateButton {
   position: absolute;
   left: 12px;
   bottom: 12px;
   z-index: 30;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 50%;
   background: var(--bg-elev);
-  color: var(--text-dim);
-  font: inherit;
-  font-size: var(--text-meta);
-  font-weight: 550;
-  padding: 5px 11px;
+  color: var(--accent);
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
   transition:
-    border-color var(--motion) ease,
-    color var(--motion) ease,
-    background var(--motion) ease;
+    background var(--motion),
+    color var(--motion);
   animation: rise-in var(--motion);
+}
+
+/* The ring fills the button, its stroke thinned to stay the rail's weight at this size, so the
+   arrow has room inside it. */
+.updateButton .progressStop-ring {
+  inset: -2px;
+  width: auto;
+  height: auto;
+  stroke-width: 1.2;
+}
+
+.updateButton:hover {
+  background: var(--bg-hover);
+}
+
+.updateButton[data-ready="true"] {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  animation: update-landed 900ms var(--ease);
+}
+
+.updateButton[data-ready="true"]:hover {
+  background: var(--accent-ink);
+}
+
+.updateButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+@keyframes update-landed {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+
+  to {
+    box-shadow: 0 0 0 12px transparent;
+  }
+}
+
+/* The button ends 46px in; from an 840px column the composer (at most --content-max, centered,
+   28px inset) starts past it. A narrower column, as Canvas can make one while the window stays
+   wide, hides the button, and Settings keeps the same progress and restart. */
+@container main-column (max-width: 839px) {
+  .updateButton {
+    display: none;
+  }
 }
 
 /* A dot on the gear: an earned achievement waits on the Achievements tab. */
@@ -360,19 +406,6 @@
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 2px var(--bg);
-}
-
-.updateFab:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-/* Canvas can squeeze the conversation while the window itself stays wide, so availability follows the column. */
-@container main-column (max-width: 920px) {
-  .updateFab {
-    display: none;
-  }
 }
 
 .workspaceBanner {

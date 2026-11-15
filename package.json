@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "bun run src/cli/index.ts",
     "dev:desktop": "electron-vite dev",
+    "dev:desktop:refresh": "OTIS_DEV_REFRESH=1 electron-vite dev",
     "dev:demo": "OTIS_DEMO=1 electron-vite dev",
     "build": "bun run scripts/build.ts",
     "build:desktop": "electron-vite build",

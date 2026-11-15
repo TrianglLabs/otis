@@ -34,7 +34,14 @@ function corners([a, b, c, d, e, f]: Matrix, x: number, y: number) {
 /** Where the view box starts, which maps a user coordinate to the mark's own (user - start). */
 const origin = (svg: Element) => (svg.getAttribute("viewBox") ?? "").split(" ").map(Number)
 
-/** Every drawn square as its corners with its fill and its opacity at the default top value. */
+/** A square's fill and its opacity, the top's theme variable read at its default. */
+const look = (rect: SVGRectElement) => {
+  const { opacity } = rect.style
+  const value = /var\(--otis-mark-top-opacity, (\S+)\)/.exec(opacity)?.[1] ?? opacity
+  return `${rect.getAttribute("fill") ?? "currentColor"} ${Number(value).toFixed(2)}`
+}
+
+/** Every drawn square as its corners with its look. */
 function squares(svg: Element) {
   const [originX, originY] = origin(svg)
   return [...svg.querySelectorAll("rect")]
@@ -43,17 +50,20 @@ function squares(svg: Element) {
         rect.getAttribute("transform")?.match(/-?[\d.]+(?:e-?\d+)?/g) ?? []
       ).map(Number)
       const matrix = [a, b, c, d, e - originX, f - originY]
-      // calc(right + up * var(--otis-mark-top-opacity, default) + left), at the default.
-      const [, right, up, , left] =
-        /calc\((\S+) \+ (\S+) \* var\(--otis-mark-top-opacity, (\S+)\) \+ (\S+)\)/
-          .exec(rect.style.opacity)
-          ?.map(Number) ?? []
-      const opacity = right + up * MARK_FACES.top.opacity + left
       const at = corners(matrix, Number(rect.getAttribute("x")), Number(rect.getAttribute("y")))
-      return `${at} ${rect.getAttribute("fill") ?? "currentColor"} ${opacity.toFixed(2)}`
+      return `${at} ${look(rect)}`
     })
     .sort()
 }
+
+/** The mark's own colours: its three faces as drawn. */
+const COLOURS = new Set(
+  Object.entries(MARK_FACES).map(
+    ([face, { opacity }]) =>
+      `${face === "front" ? "var(--accent, currentColor)" : "currentColor"} ${opacity.toFixed(2)}`,
+  ),
+)
+const colours = (svg: Element) => [...new Set([...svg.querySelectorAll("rect")].map(look))]
 
 it("draws exactly the original artwork's squares, fills and shading at rest", () => {
   const { container } = render(<OtisMark />)
@@ -78,10 +88,17 @@ it("scrambles on a click, keeps the O, and solves back to exactly where it began
   const rest = svg.innerHTML
 
   fireEvent.click(button)
+  // Mid-turn, every sticker shows one of the mark's own colours, whichever way it faces.
+  for (const ms of [40, 40, 40]) {
+    await act(async () => vi.advanceTimersByTime(ms))
+    expect(colours(svg).every((colour) => COLOURS.has(colour))).toBe(true)
+  }
   // Into the scrambled beat. Nine quarter turns permute the corners oddly and only one corner is
   // out of sight, so any scramble shows.
-  await act(async () => vi.advanceTimersByTime(9 * 95 + 100))
+  await act(async () => vi.advanceTimersByTime(9 * 95 + 100 - 120))
   expect(svg.innerHTML).not.toBe(rest)
+  // Scrambled, stickers keep their colours: the O face shows the others' greys at their shades.
+  expect(colours(svg).toSorted()).toEqual([...COLOURS].toSorted())
   // Nothing sits where the O's center is: face centers never move.
   const [originX, originY] = origin(svg)
   const [x, y] = [
