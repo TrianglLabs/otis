@@ -64,6 +64,11 @@ irm https://github.com/triangllabs/otis/releases/latest/download/install.ps1 | i
 otis
 ```
 
+The command goes to `~/.local/bin` (`%LOCALAPPDATA%\Programs\otis` on Windows). When that folder is not on your
+PATH, the installer adds it for new terminals: a marked block in your shell's startup file (`~/.zshrc`, `~/.bashrc`
+or on macOS `~/.bash_profile`, or fish's `conf.d/otis.fish`), or your user Path on Windows. Pass `--no-modify-path`
+(`-NoModifyPath` in PowerShell) or set `OTIS_NO_MODIFY_PATH=1` to have it print the line instead.
+
 Update an existing CLI installation with `otis update`. On Windows the agent runs its shell commands through
 [Git for Windows](https://git-scm.com/download/win), so install that as well; the desktop app's Terminal tab opens
 PowerShell.

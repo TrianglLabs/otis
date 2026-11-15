@@ -4,6 +4,8 @@ set -euo pipefail
 base_url="${OTIS_INSTALL_BASE_URL:-https://github.com/triangllabs/otis/releases}"
 install_dir="${OTIS_INSTALL_DIR:-$HOME/.local/bin}"
 version=""
+modify_path=true
+if [ "${OTIS_NO_MODIFY_PATH:-}" = 1 ]; then modify_path=false; fi
 
 usage() {
   cat <<'USAGE'
@@ -17,6 +19,8 @@ Options:
   --install-dir DIR   Install otis into DIR. Defaults to ~/.local/bin.
   --version VERSION   Install a specific version, for example 0.1.16.
   --base-url URL      GitHub Releases base URL. Defaults to the Otis repository.
+  --no-modify-path    Leave shell startup files alone and print how to put otis on PATH.
+                      OTIS_NO_MODIFY_PATH=1 does the same.
   -h, --help          Show this help.
 USAGE
 }
@@ -34,6 +38,10 @@ while [ "$#" -gt 0 ]; do
     --base-url)
       base_url="${2:?missing value for --base-url}"
       shift 2
+      ;;
+    --no-modify-path)
+      modify_path=false
+      shift
       ;;
     -h|--help)
       usage
@@ -154,13 +162,51 @@ fi
 
 printf 'Otis installed to %s/otis\n' "$install_dir"
 
-case ":$PATH:" in
-  *:"$install_dir":*) ;;
-  *)
-    printf '\nAdd Otis to your PATH:\n'
-    printf '  export PATH="%s:$PATH"\n' "$install_dir"
+on_path=false
+case ":$PATH:" in *:"$install_dir":*) on_path=true ;; esac
+
+# The startup file a new terminal of the user's shell reads, and the line there that puts the
+# folder on PATH, naming it through $HOME when under it. None for a shell this script does not know.
+dir="$install_dir"
+case "$dir" in "$HOME"/*) dir="\$HOME${dir#"$HOME"}" ;; esac
+line="export PATH=\"$dir:\$PATH\""
+profile=""
+case "$(basename "${SHELL:-}")" in
+  zsh) profile="${ZDOTDIR:-$HOME}/.zshrc" ;;
+  bash)
+    profile="$HOME/.bashrc"
+    # macOS terminals start login shells, which read only the first of these that exists, so
+    # creating .bash_profile beside a .profile would stop .profile being read.
+    if [ "$os" = darwin ]; then
+      profile="$HOME/.bash_profile"
+      for name in .bash_profile .bash_login .profile; do
+        if [ -f "$HOME/$name" ]; then
+          profile="$HOME/$name"
+          break
+        fi
+      done
+    fi
+    ;;
+  fish)
+    # Its own file in conf.d, which fish reads at startup, leaves config.fish untouched.
+    profile="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/otis.fish"
+    line="contains -- \"$dir\" \$PATH; or set -gx PATH \"$dir\" \$PATH"
     ;;
 esac
+
+if [ "$on_path" = false ] && [ "$modify_path" = true ] && [ -n "$profile" ]; then
+  # Once only: a file already naming the folder, the installer's line or the user's, is kept.
+  if ! grep -qsF -e "$dir" -e "$install_dir" "$profile"; then
+    mkdir -p "$(dirname "$profile")"
+    # Marked at both ends, so the block is easy to find and remove.
+    printf '\n# >>> Otis installer >>>\n%s\n# <<< Otis installer <<<\n' "$line" >>"$profile"
+    printf '\nAdded Otis to your PATH in %s.\n' "$profile"
+  fi
+  printf 'Open a new terminal to use otis, or run this in the current one:\n  %s\n' "$line"
+elif [ "$on_path" = false ]; then
+  printf '\nAdd Otis to your PATH:\n'
+  printf '  export PATH="%s:$PATH"\n' "$install_dir"
+fi
 
 existing="$(command -v otis 2>/dev/null || true)"
 if [ -n "$existing" ] && [ "$existing" != "$install_dir/otis" ]; then
