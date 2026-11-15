@@ -8,12 +8,15 @@
 #   -InstallDir DIR   Install otis.exe into DIR. Defaults to %LOCALAPPDATA%\Programs\otis.
 #   -Version VERSION  Install a specific version, for example 0.2.31.
 #   -BaseUrl URL      GitHub Releases base URL. Defaults to the Otis repository.
+#   -NoModifyPath     Leave the user PATH alone and print how to add otis to it.
 #
-# OTIS_INSTALL_DIR and OTIS_INSTALL_BASE_URL set the same defaults as for install.sh.
+# OTIS_INSTALL_DIR, OTIS_INSTALL_BASE_URL, and OTIS_NO_MODIFY_PATH=1 set the same defaults as for
+# install.sh.
 param(
   [string]$InstallDir = $(if ($env:OTIS_INSTALL_DIR) { $env:OTIS_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\otis" }),
   [string]$Version = "",
-  [string]$BaseUrl = $(if ($env:OTIS_INSTALL_BASE_URL) { $env:OTIS_INSTALL_BASE_URL } else { "https://github.com/triangllabs/otis/releases" })
+  [string]$BaseUrl = $(if ($env:OTIS_INSTALL_BASE_URL) { $env:OTIS_INSTALL_BASE_URL } else { "https://github.com/triangllabs/otis/releases" }),
+  [switch]$NoModifyPath = ($env:OTIS_NO_MODIFY_PATH -eq "1")
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,12 +85,40 @@ try {
   Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Like install.sh, the PATH is the user's: say what to run rather than editing the registry.
 $onPath = ($env:Path -split ";" | Where-Object { $_ } | ForEach-Object { $_.TrimEnd("\") }) -contains $InstallDir.TrimEnd("\")
-if (-not $onPath) {
+if (-not $onPath -and $NoModifyPath) {
   Write-Host ""
   Write-Host "Add Otis to your PATH, then open a new terminal:"
   Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"$InstallDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+} elseif (-not $onPath) {
+  # The user Path is read and written as stored, so entries like %USERPROFILE% stay unexpanded,
+  # which [Environment]::SetEnvironmentVariable does not keep in Windows PowerShell. The folder
+  # goes first, ahead of any older install.
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+  try {
+    $stored = [string]$key.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $entries = @($stored -split ";" | Where-Object { $_ })
+    $expanded = $entries | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd("\") }
+    if ($expanded -notcontains $InstallDir.TrimEnd("\")) {
+      $key.SetValue("Path", ((@($InstallDir) + $entries) -join ";"), [Microsoft.Win32.RegistryValueKind]::ExpandString)
+      # Programs started from Explorer reread the environment when it announces the change.
+      if (-not ("OtisInstall.Native" -as [type])) {
+        Add-Type -Namespace OtisInstall -Name Native -MemberDefinition @"
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+"@
+      }
+      $result = [UIntPtr]::Zero
+      # HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG.
+      [void][OtisInstall.Native]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, "Environment", 2, 5000, [ref]$result)
+      Write-Host ""
+      Write-Host "Added $InstallDir to your PATH."
+    }
+  } finally {
+    $key.Close()
+  }
+  $env:Path = "$InstallDir;$env:Path"
+  Write-Host "Open a new terminal to use otis."
 }
 
 $existing = Get-Command otis -ErrorAction SilentlyContinue | Where-Object { $_.Source -and $_.Source -ne (Join-Path $InstallDir "otis.exe") } | Select-Object -First 1
