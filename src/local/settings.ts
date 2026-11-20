@@ -104,6 +104,8 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   serve?: { enabled: boolean; host: string }
   /** Hosted models hidden from the picker, as `modelKey` strings. */
   hiddenModels?: string[]
+  /** Picker rows the user favorited, as `pickerItemKey` strings. */
+  favoriteModels?: string[]
   /** Skills by name that stay loaded but are not offered to the model. */
   hiddenSkills?: string[]
   permissions?: PermissionConfig
@@ -418,9 +420,16 @@ export async function saveServe(serve: LocalSettings["serve"], options: Settings
   await updateSettings(options, (saved) => defined({ ...saved, serve }))
 }
 
-export async function saveHiddenModels(hiddenModels: string[], options: SettingsFileOptions = {}) {
+export type SettingsList = "hiddenModels" | "favoriteModels" | "hiddenSkills"
+
+/** Saves one of the settings' string lists; an empty list clears the field. */
+export async function saveSettingsList(
+  field: SettingsList,
+  values: string[],
+  options: SettingsFileOptions = {},
+) {
   await updateSettings(options, (saved) =>
-    defined({ ...saved, hiddenModels: hiddenModels.length ? hiddenModels : undefined }),
+    defined({ ...saved, [field]: values.length ? values : undefined }),
   )
 }
 
@@ -459,12 +468,6 @@ export async function saveSessionPin(
     return defined({ ...saved, pinnedSessions: next.length ? next : undefined })
   })
   return saved.pinnedSessions
-}
-
-export async function saveHiddenSkills(hiddenSkills: string[], options: SettingsFileOptions = {}) {
-  await updateSettings(options, (saved) =>
-    defined({ ...saved, hiddenSkills: hiddenSkills.length ? hiddenSkills : undefined }),
-  )
 }
 
 async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsFile | undefined> {
@@ -582,6 +585,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   }
   const achievementsSeen = value.achievementsSeen?.filter(isAchievementId)
   const hiddenModels = optionalStringList(value.hiddenModels, "hiddenModels")
+  const favoriteModels = optionalStringList(value.favoriteModels, "favoriteModels")
   const hiddenSkills = optionalStringList(value.hiddenSkills, "hiddenSkills")
   const projects = parseProjects(value.projects)
   const pinnedSessions = optionalStringList(value.pinnedSessions, "pinnedSessions")
@@ -645,6 +649,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     workspacePanelWidths,
     achievementsSeen,
     hiddenModels,
+    favoriteModels,
     hiddenSkills,
     projects,
     pinnedSessions,

@@ -99,6 +99,7 @@ const SNAPSHOT: DesktopSnapshot = {
     river: false,
   },
   hiddenModels: [],
+  favoriteModels: [],
   primeTeamId: null,
   pairConfigured: false,
   pairEndpoints: {},

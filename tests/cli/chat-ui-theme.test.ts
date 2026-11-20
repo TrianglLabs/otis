@@ -145,13 +145,16 @@ describe("chat UI theme switching", () => {
   it("recolors scrollbar track and thumb when the theme changes", async () => {
     const harness = await setup()
     harness.ui.showChatLayout()
-    harness.ui.showModelPicker([
-      hostedChoice("fireworks", {
-        id: "accounts/fireworks/models/alpha",
-        displayName: "Alpha",
-        supportsImageInput: false,
-      }),
-    ])
+    harness.ui.showModelPicker(
+      [
+        hostedChoice("fireworks", {
+          id: "accounts/fireworks/models/alpha",
+          displayName: "Alpha",
+          supportsImageInput: false,
+        }),
+      ],
+      [],
+    )
 
     const messages = harness.get<ScrollBoxRenderable>("messages")
     const modelRows = harness.get<ScrollBoxRenderable>("model-rows")

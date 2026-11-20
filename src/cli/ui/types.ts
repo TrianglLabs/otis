@@ -81,6 +81,8 @@ export type ChatUIOptions = {
   onPairSetupSubmit?: (endpoints: LocalServerInputs) => void
   onCloseModelPicker?: () => void
   onSelectModel?: (model: ModelPickerItem) => void
+  /** Favorites a model picker row, keyed by `pickerItemKey`, or unfavorites it. */
+  onToggleModelFavorite?: (key: string, favorite: boolean) => void
   onNewSession?: () => void
   onDeleteSession?: (sessionId: string) => void
   onSelectSession?: (sessionId: string) => void
@@ -120,7 +122,7 @@ export type ChatUI = {
   showTransientHint(content: string): void
   showCommandSubmenu(items: CommandSuggestion[], options?: { onBack?: () => void }): void
   showSlashCommandMenu(): void
-  showModelPicker(items: ModelPickerItem[]): void
+  showModelPicker(items: ModelPickerItem[], favorites: readonly string[]): void
   showSetupError(
     message: string,
     cancelTarget: SetupInputCancelTarget,

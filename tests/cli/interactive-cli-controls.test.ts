@@ -195,13 +195,13 @@ describe("CLI settings", () => {
 
     // A row flips the model and that provider's list stays open with the new state.
     await submit(`/settings toggle-model ${key}`)
-    expect(mocks.saveHiddenModels).toHaveBeenLastCalledWith([key])
+    expect(mocks.saveSettingsList).toHaveBeenLastCalledWith("hiddenModels", [key])
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [expect.objectContaining({ name: "Kimi K3", description: "Hidden" })],
       expect.anything(),
     )
     await submit(`/settings toggle-model ${key}`)
-    expect(mocks.saveHiddenModels).toHaveBeenLastCalledWith([])
+    expect(mocks.saveSettingsList).toHaveBeenLastCalledWith("hiddenModels", [])
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [expect.objectContaining({ description: "Shown" })],
       expect.anything(),
@@ -216,6 +216,22 @@ describe("CLI settings", () => {
     await settle()
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "Hosted models" })]),
+    )
+  })
+
+  it("saves a picker favorite and reports a failed save instead of crashing", async () => {
+    await loadCli()
+    const key = "local:openai/gpt-oss-20b"
+    mocks.uiOptions?.onToggleModelFavorite?.(key, true)
+    await settle()
+    expect(mocks.saveSettingsList).toHaveBeenLastCalledWith("favoriteModels", [key])
+
+    mocks.saveSettingsList.mockRejectedValueOnce(new Error("disk full"))
+    mocks.uiOptions?.onToggleModelFavorite?.(key, false)
+    await settle()
+    expect(mocks.saveSettingsList).toHaveBeenLastCalledWith("favoriteModels", [])
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(
+      " Could not save the favorite: disk full ",
     )
   })
 

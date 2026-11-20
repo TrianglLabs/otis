@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest"
 import {
   mergeModelLoad,
   pickerDetailLabel,
+  pickerDetailParts,
 } from "../../../src/desktop/renderer/features/models/model-list.js"
 import type {
   HostedPickerChoice,
   LocalPickerChoice,
   ModelPickerItem,
   PairPickerChoice,
+  ServerPickerChoice,
 } from "../../../src/inference/picker-catalog.js"
 import { pickerItemKey } from "../../../src/inference/picker-filter.js"
 
@@ -118,6 +120,34 @@ describe("pickerDetailLabel", () => {
     expect(pickerDetailLabel(hosted)).toBe("256K · Text")
     expect(pickerDetailLabel({ ...hosted, supportsImageInput: true })).toBe("256K · Vision")
     expect(pickerDetailLabel({ ...hosted, contextLength: undefined })).toBe("Text")
+  })
+})
+
+describe("pickerDetailParts under Favorites", () => {
+  it("leads every row but PAIR with its provider, once", () => {
+    const labels = (item: Parameters<typeof pickerDetailParts>[0]) =>
+      pickerDetailParts(item, undefined, true).map((part) => part.label)
+    expect(labels(localItem as LocalPickerChoice)).toEqual(["Local", "Est. 32K · Q4_K_M", "Text"])
+    expect(labels(fireworksItem as HostedPickerChoice)[0]).toBe("Fireworks AI")
+    expect(labels(pairItem as PairPickerChoice)[0]).toBe("Ollama")
+    const server: ServerPickerChoice = {
+      kind: "model",
+      provider: "omlx",
+      id: "mlx-community/gemma-4",
+      displayName: "Gemma 4",
+      baseURL: "http://127.0.0.1:8000",
+      supportsImageInput: false,
+      contextLength: 131_072,
+      available: true,
+      active: false,
+      selectionKey: "omlx:mlx-community/gemma-4",
+    }
+    expect(labels(server)).toEqual(["oMLX", "128K", "Text"])
+    expect(pickerDetailLabel(server)).toBe("oMLX · 128K · Text")
+    // A server row that cannot serve says why, and under Favorites still names its server.
+    const short = { ...server, available: false, availabilityLabel: "Requires 64K context." }
+    expect(labels(short)).toEqual(["oMLX", "Requires 64K context.", "Text"])
+    expect(pickerDetailLabel(short)).toBe("Requires 64K context. · Text")
   })
 })
 

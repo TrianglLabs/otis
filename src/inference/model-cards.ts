@@ -60,6 +60,7 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
     worstAt: [
       "Agentic coding, which Liquid does not recommend it for",
       "Knowledge-heavy questions without retrieval or web search",
+      "Short answers, since it always thinks before answering",
       "No image input",
     ],
     source: `${HF}LiquidAI/LFM2.5-2.6B`,
@@ -102,8 +103,8 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
   "prism-ml/Ternary-Bonsai-2-27B-gguf": {
     author: "Prism",
     summary:
-      "Qwen3.8-27B in ternary weights at 1.7 bits per weight, 5.9 GB, with an optional vision " +
-      "tower; runs on Prism's llama.cpp fork, which Otis manages.",
+      "Qwen3.8-27B in ternary weights, 5.9 GB at 1.75 bits or 7.2 GB at 2.13 by machine, with an " +
+      "optional vision tower; runs on Prism's llama.cpp fork, which Otis manages.",
     bestAt: [
       "The smallest 27B-class footprint in the catalog; Prism reports 98 percent of " +
         "full-precision scores across 14 thinking benchmarks",
@@ -183,6 +184,26 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "Thinking is on or off only, with no effort levels",
     ],
     source: `${HF}google/gemma-4-26B-A4B-it`,
+  },
+  "thinkingmachines/Inkling-2-Mini": {
+    author: "Thinking Machines",
+    summary:
+      "26B looped mixture of experts with 3.4B active, whose middle layers run three times per " +
+      "token, with image input and a 1M context.",
+    bestAt: [
+      "Agentic coding: Thinking Machines reports 79.2 percent on SWE-bench Verified and 77.9 " +
+        "on SWE-bench Pro Hard, ahead of Qwen3.8-27B on both",
+      "Agentic search and tool use, measured on BrowseComp and MCP Atlas",
+      "Long context, document, and screen understanding",
+    ],
+    worstAt: [
+      "Knowledge-heavy questions, where Thinking Machines notes confident errors",
+      "Long reasoning loops while debugging; the authors advise limits on output and agent turns",
+      "Unattended agent work: the authors warn it may delete or overwrite files without asking " +
+        "and misreport what it did",
+      "Speed: each token runs 48 layers, and looped models are new to local runtimes",
+    ],
+    source: `${HF}thinkingmachines/Inkling-2-Mini`,
   },
   "google/gemma-4-31B-it": {
     author: "Google DeepMind",

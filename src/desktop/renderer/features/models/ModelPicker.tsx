@@ -6,6 +6,7 @@ import {
   Cpu,
   Download,
   Eye,
+  Heart,
   Info,
   Loader2,
   Search,
@@ -21,7 +22,11 @@ import type {
   ModelPickerChoice,
   ModelPickerItem,
 } from "../../../../inference/picker-catalog.js"
-import { filterModelPickerItems, pickerItemKey } from "../../../../inference/picker-filter.js"
+import {
+  arrangeFavorites,
+  filterModelPickerItems,
+  pickerItemKey,
+} from "../../../../inference/picker-filter.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { CubeLoader } from "../../components/OtisMark.js"
@@ -45,12 +50,13 @@ import {
  * confirm, and the main process removes the cached GGUFs — stopping the server and clearing the
  * selection first when that model is the active one. A managed-local row carries an info
  * affordance that pushes the model's card over the list: what it is, where it is strongest and
- * weakest by its author's account, its figures on this machine, and a button to select it.
+ * weakest by its author's account, its figures on this machine, and a button to select it. A
+ * heart favorites any row, listing it under Favorites on top with its provider named.
  */
 export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const state = useDesktopState("modelLoad")
+  const state = useDesktopState("modelLoad", "favoriteModels")
   const [items, setItems] = useState<ModelPickerItem[]>()
   const [query, setQuery] = useState("")
   const [listError, setListError] = useState<string>()
@@ -62,6 +68,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
   // The managed-local model whose card is pushed over the list.
   const [detailKey, setDetailKey] = useState<string>()
   const modelLoad = state?.modelLoad ?? null
+  const favorites = new Set(state?.favoriteModels)
   const scrollbar = useScrollbarFlash()
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -126,7 +133,10 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [open, onClose, detailKey, confirmingDeleteKey, query])
 
-  const rows = filterModelPickerItems(mergeModelLoad(items ?? [], modelLoad), query)
+  const rows = filterModelPickerItems(
+    arrangeFavorites(mergeModelLoad(items ?? [], modelLoad), favorites),
+    query,
+  )
   const noMatches =
     items !== undefined && query.trim() !== "" && !rows.some((r) => r.kind === "model")
   const detail = rows.find(
@@ -206,15 +216,18 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                 return (
                   <div key={item.id} className="popover-section">
                     {/* Hosted sections carry the provider's brand name, which is not translated. */}
-                    {item.id === "header-pair"
-                      ? t("models.serverHeading")
-                      : item.id === "header-local"
-                        ? t("models.local")
-                        : item.displayName}
+                    {item.id === "header-favorites"
+                      ? t("models.favorites")
+                      : item.id === "header-pair"
+                        ? t("models.serverHeading")
+                        : item.id === "header-local"
+                          ? t("models.local")
+                          : item.displayName}
                   </div>
                 )
               }
               const key = pickerItemKey(item)
+              const favorite = favorites.has(key)
               const selectable = isPickerRowSelectable(item)
               const status = "status" in item ? item.status : undefined
               const loading = status?.kind === "progress"
@@ -298,7 +311,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                             ) : null}
                           </span>
                           <span className={detailClass}>
-                            {status?.label ?? <ModelDetail item={item} />}
+                            {status?.label ?? <ModelDetail item={item} favorite={favorite} />}
                           </span>
                         </span>
                       </button>
@@ -336,6 +349,25 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                           onClick={() => void api.cancelModelSelection()}
                         />
                       ) : null}
+                      {/* The heart sits beside download and takes no room until hovered or filled. */}
+                      <IconButton
+                        icon={Heart}
+                        label={t(favorite ? "models.unfavoriteName" : "models.favoriteName", {
+                          name: item.displayName,
+                        })}
+                        size={22}
+                        className={`modelPicker-favorite${favorite ? " on" : ""}`}
+                        aria-pressed={favorite}
+                        onClick={() =>
+                          api
+                            .setModelFavorite(key, !favorite)
+                            .catch((error) =>
+                              setActionError(
+                                error instanceof Error ? error.message : String(error),
+                              ),
+                            )
+                        }
+                      />
                       {"downloaded" in item &&
                       !item.downloaded &&
                       selectable &&
@@ -365,9 +397,9 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 /** A row's detail line — context, modality with its icon — shared with Settings. */
-export function ModelDetail({ item }: { item: ModelPickerChoice }) {
+export function ModelDetail({ item, favorite }: { item: ModelPickerChoice; favorite?: boolean }) {
   const { t } = useI18n()
-  return pickerDetailParts(item, t).map((part, index) => (
+  return pickerDetailParts(item, t, favorite).map((part, index) => (
     <Fragment key={`${part.label}-${index}`}>
       {index > 0 ? <span aria-hidden>·</span> : null}
       <span

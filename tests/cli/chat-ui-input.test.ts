@@ -573,13 +573,16 @@ describe("chat UI input", () => {
     harness.ui.showSetupStatus()
     expect(harness.text("setup-status")).toBe("Loading models...")
 
-    harness.ui.showModelPicker([
-      hostedChoice("fireworks", {
-        id: "accounts/fireworks/models/tool-model",
-        displayName: "Tool Model",
-        supportsImageInput: false,
-      }),
-    ])
+    harness.ui.showModelPicker(
+      [
+        hostedChoice("fireworks", {
+          id: "accounts/fireworks/models/tool-model",
+          displayName: "Tool Model",
+          supportsImageInput: false,
+        }),
+      ],
+      [],
+    )
     expect(harness.find("setup-status-box")).toBeUndefined()
     expect(harness.childIds("input-area")).toEqual([])
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])

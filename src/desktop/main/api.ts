@@ -236,6 +236,11 @@ export function desktopCall(runtime: DesktopRuntime) {
       if (typeof hidden !== "boolean") throw new Error("Invalid visibility flag.")
       return runtime.setModelHidden(provider, id, hidden)
     },
+    setModelFavorite: (key: unknown, favorite: unknown) => {
+      if (typeof key !== "string" || !key || typeof favorite !== "boolean")
+        throw new Error("Invalid model favorite.")
+      return runtime.setModelFavorite(key, favorite)
+    },
     setSkillHidden: (name: unknown, hidden: unknown) => {
       if (typeof name !== "string" || typeof hidden !== "boolean")
         throw new Error("Invalid skill flag.")

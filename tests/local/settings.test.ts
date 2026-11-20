@@ -10,8 +10,6 @@ import {
   saveAchievementsSeen,
   saveAlertSound,
   saveAppIcon,
-  saveHiddenModels,
-  saveHiddenSkills,
   saveHostedApiKey,
   saveKeepAwake,
   saveLocalServers,
@@ -25,6 +23,7 @@ import {
   saveSelectedTheme,
   saveServe,
   saveSessionPin,
+  saveSettingsList,
   saveSubagentPanelVisible,
   saveTextSize,
   saveThinkingVisible,
@@ -95,17 +94,32 @@ describe("local settings", () => {
   })
   it("saves hidden picker models without duplicates and clears the field when none remain", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveHiddenModels(["together:a/b", "together:a/b", "baseten:c"], { file })
+    await saveSettingsList("hiddenModels", ["together:a/b", "together:a/b", "baseten:c"], { file })
     await saveSelectedModel(model("org/first", "First", 65_536), { file })
     expect((await loadLocalSettings({ file, env: {} })).hiddenModels).toEqual([
       "together:a/b",
       "baseten:c",
     ])
-    await saveHiddenModels([], { file })
+    await saveSettingsList("hiddenModels", [], { file })
     expect(JSON.parse(await readFile(file, "utf8")).hiddenModels).toBeUndefined()
     await writeFile(file, JSON.stringify({ version: 1, hiddenModels: "x" }), "utf8")
     await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
       "hiddenModels must be an array of strings",
+    )
+  })
+  it("saves favorited picker rows without duplicates and clears the field when none remain", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveSettingsList("favoriteModels", ["local:a/b", "local:a/b", "pair:ollama:c"], { file })
+    await saveSelectedModel(model("org/first", "First", 65_536), { file })
+    expect((await loadLocalSettings({ file, env: {} })).favoriteModels).toEqual([
+      "local:a/b",
+      "pair:ollama:c",
+    ])
+    await saveSettingsList("favoriteModels", [], { file })
+    expect(JSON.parse(await readFile(file, "utf8")).favoriteModels).toBeUndefined()
+    await writeFile(file, JSON.stringify({ version: 1, favoriteModels: "x" }), "utf8")
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
+      "favoriteModels must be an array of strings",
     )
   })
   it("keeps viewed achievements and preferences through model saves and clears", async () => {
@@ -545,9 +559,9 @@ describe("local settings", () => {
   it("stores switched-off skills by name and rejects a list that is not strings", async () => {
     const file = join(await tempDirectory(), "config.json")
     await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
-    await saveHiddenSkills(["review", "docs"], { file })
+    await saveSettingsList("hiddenSkills", ["review", "docs"], { file })
     expect((await loadLocalSettings({ file, env: {} })).hiddenSkills).toEqual(["review", "docs"])
-    await saveHiddenSkills([], { file })
+    await saveSettingsList("hiddenSkills", [], { file })
     expect(JSON.parse(await readFile(file, "utf8")).hiddenSkills).toBeUndefined()
     await writeFile(file, JSON.stringify({ version: 1, hiddenSkills: "review" }))
     await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(

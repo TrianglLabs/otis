@@ -24,6 +24,7 @@ export type ChatUIHarness = TestRendererSetup & {
   submitSetup(): void
   press(name: string): void
   pressCtrlC(): void
+  pressCtrl(name: string): void
   typeText(value: string): Promise<void>
   destroy(): void
 }
@@ -109,6 +110,7 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
     },
     press: (name) => press(testRenderer, name),
     pressCtrlC: () => testRenderer.mockInput.pressCtrlC(),
+    pressCtrl: (name) => testRenderer.mockInput.pressKey(name, { ctrl: true }),
     typeText: (value) => testRenderer.mockInput.typeText(value),
     destroy: () => {
       ui.stopBusyIndicator()

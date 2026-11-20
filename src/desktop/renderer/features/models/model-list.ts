@@ -3,8 +3,8 @@ import type {
   ModelPickerChoice,
   ModelPickerItem,
 } from "../../../../inference/picker-catalog.js"
-import { pickerItemKey } from "../../../../inference/picker-filter.js"
-import { isServerProvider, SERVER_INFO } from "../../../../inference/types.js"
+import { pickerItemKey, providerLabel } from "../../../../inference/picker-filter.js"
+import { isServerProvider } from "../../../../inference/types.js"
 import type { DesktopStatus } from "../../../contracts.js"
 import { formatContextWindow, formatMemory } from "../../format.js"
 import { englishT } from "../../i18n/index.js"
@@ -42,21 +42,27 @@ type PickerDetailPart = { label: string; modality?: "text" | "vision" }
 
 /**
  * Structured row metadata lets the GUI decorate capabilities without parsing the TUI-compatible
- * label.
+ * label. A row leads with its provider when a server names it, or under Favorites, away from its
+ * section header; a PAIR row's engine stands in.
  */
 export function pickerDetailParts(
   item: ModelPickerChoice,
   t: Translate = englishT,
+  favorite = false,
 ): PickerDetailPart[] {
   const modality: PickerDetailPart = item.supportsImageInput
     ? { label: t("models.vision"), modality: "vision" }
     : { label: t("models.text"), modality: "text" }
+  const provider: PickerDetailPart[] =
+    favorite && item.provider !== "pair"
+      ? [{ label: item.provider === "local" ? t("models.local") : providerLabel(item.provider) }]
+      : []
   if (item.provider === "local") {
-    return [{ label: item.availabilityLabel }, modality]
+    return [...provider, { label: item.availabilityLabel }, modality]
   }
   // `in`, not isServerPickerChoice: the picker catalog's module graph is Node-only.
   if ("availabilityLabel" in item && item.availabilityLabel)
-    return [{ label: item.availabilityLabel }, modality]
+    return [...provider, { label: item.availabilityLabel }, modality]
   if (item.provider === "pair") {
     return [
       { label: item.engine === "ollama" ? "Ollama" : "LM Studio" },
@@ -70,8 +76,8 @@ export function pickerDetailParts(
     ]
   }
   const parts: PickerDetailPart[] = isServerProvider(item.provider)
-    ? [{ label: SERVER_INFO[item.provider].name }]
-    : []
+    ? [{ label: providerLabel(item.provider) }]
+    : provider
   if (item.contextLength) parts.push({ label: formatContextWindow(item.contextLength) })
   parts.push(modality)
   return parts

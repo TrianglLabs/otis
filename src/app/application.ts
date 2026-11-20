@@ -68,8 +68,7 @@ import {
   type LocalSettings,
   loadLocalSettings,
   type ProjectSettings,
-  saveHiddenModels,
-  saveHiddenSkills,
+  type SettingsList,
   saveHostedApiKey,
   saveKeepAwake,
   saveLocalServers,
@@ -80,6 +79,7 @@ import {
   saveProject,
   saveSelectedModel,
   saveSessionPin,
+  saveSettingsList,
   sessionPinKey,
 } from "../local/settings.js"
 import { publishOmarchyUsage } from "../local/stats.js"
@@ -206,6 +206,8 @@ export type AppStatus = {
   hostedConfigured: Record<HostedProvider, boolean>
   /** Hosted models hidden from the picker, as `modelKey` strings. */
   hiddenModels: string[]
+  /** Picker rows the user favorited, as `pickerItemKey` strings. */
+  favoriteModels: string[]
   /** The Prime Intellect team billed for inference, or null for the personal wallet. */
   primeTeamId: string | null
   pairEndpoints: PairEndpoints
@@ -956,13 +958,8 @@ export class Application {
   }
 
   /** Keeps a skill loaded but out of the model's offer, from the next turn on, or back in. */
-  async setSkillHidden(name: string, hidden: boolean) {
-    const hiddenSkills = new Set(this.settings.hiddenSkills ?? [])
-    if (hidden) hiddenSkills.add(name)
-    else hiddenSkills.delete(name)
-    const next = [...hiddenSkills]
-    this.settings.hiddenSkills = next.length ? next : undefined
-    await saveHiddenSkills(next)
+  setSkillHidden(name: string, hidden: boolean) {
+    return this.#setListed("hiddenSkills", name, hidden)
   }
 
   /** The skills reread from disk as the pickers list them, each with where it comes from. */
@@ -1257,6 +1254,7 @@ export class Application {
       permissionMode: this.permissionMode,
       hostedConfigured: this.hostedConfigured(),
       hiddenModels: [...(this.settings.hiddenModels ?? [])],
+      favoriteModels: [...(this.settings.favoriteModels ?? [])],
       primeTeamId: models.primeTeamId ?? null,
       pairEndpoints: { ...this.pairEndpoints },
       servers: Object.fromEntries(
@@ -1750,14 +1748,24 @@ export class Application {
 
   /** Hides a hosted model from the picker, or shows it again; the active model stays listed. */
   async setModelHidden(provider: HostedProvider, id: string, hidden: boolean) {
-    const key = modelKey(provider, id)
-    const hiddenModels = new Set(this.settings.hiddenModels ?? [])
-    if (hidden) hiddenModels.add(key)
-    else hiddenModels.delete(key)
-    const next = [...hiddenModels]
-    this.settings.hiddenModels = next.length ? next : undefined
-    await saveHiddenModels(next)
+    await this.#setListed("hiddenModels", modelKey(provider, id), hidden)
     this.#notify({ type: "status" })
+  }
+
+  /** Favorites a picker row, keyed by `pickerItemKey`, so it lists on top, or unfavorites it. */
+  async setModelFavorite(key: string, favorite: boolean) {
+    await this.#setListed("favoriteModels", key, favorite)
+    this.#notify({ type: "status" })
+  }
+
+  /** Adds an entry to one of the saved settings lists or removes it; an emptied list clears. */
+  async #setListed(field: SettingsList, entry: string, listed: boolean) {
+    const values = new Set(this.settings[field] ?? [])
+    if (listed) values.add(entry)
+    else values.delete(entry)
+    const next = [...values]
+    this.settings[field] = next.length ? next : undefined
+    await saveSettingsList(field, next)
   }
 
   /** The user's name for the workspace, else its folder's. */

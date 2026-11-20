@@ -27,6 +27,26 @@ export function providerLabel(provider: ModelProvider) {
   return HOSTED_PROVIDER_INFO[provider].name
 }
 
+/**
+ * Moves the rows the user favorited, keyed by `pickerItemKey`, out of their provider sections
+ * into a Favorites section on top, in catalog order; a provider section left empty is dropped.
+ */
+export function arrangeFavorites(
+  items: readonly ModelPickerItem[],
+  favorites: ReadonlySet<string>,
+): readonly ModelPickerItem[] {
+  const isFavorite = (item: ModelPickerItem) =>
+    item.kind === "model" && favorites.has(pickerItemKey(item))
+  const favored = items.filter(isFavorite)
+  if (favored.length === 0) return items
+  const rest = items.filter((item) => !isFavorite(item))
+  return [
+    { kind: "header", id: "header-favorites", displayName: "Favorites" },
+    ...favored,
+    ...rest.filter((item, index) => item.kind === "model" || rest[index + 1]?.kind === "model"),
+  ]
+}
+
 const words = (text: string) =>
   text
     .toLowerCase()

@@ -1136,6 +1136,10 @@ export class DesktopRuntime {
     this.#lastPickerItems = undefined
   }
 
+  setModelFavorite(key: string, favorite: boolean) {
+    return this.app.setModelFavorite(key, favorite)
+  }
+
   setPrimeTeamId(teamId: string) {
     return this.app.setPrimeTeamId(teamId)
   }

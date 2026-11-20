@@ -86,6 +86,7 @@ export const DESKTOP_CHANNELS = {
   listModels: "desktop:list-models",
   listHostedCatalogs: "desktop:list-hosted-catalogs",
   setModelHidden: "desktop:set-model-hidden",
+  setModelFavorite: "desktop:set-model-favorite",
   setSkillHidden: "desktop:set-skill-hidden",
   setPrimeTeamId: "desktop:set-prime-team-id",
   selectModel: "desktop:select-model",
@@ -290,6 +291,8 @@ export type DesktopStatus = {
   hostedConfigured: Record<HostedProvider, boolean>
   /** Hosted models hidden from the picker, as `modelKey` strings; persisted in settings. */
   hiddenModels: string[]
+  /** Picker rows the user favorited, as `pickerItemKey` strings; persisted in settings. */
+  favoriteModels: string[]
   /** The Prime Intellect team billed for inference, or null for the personal wallet. */
   primeTeamId: string | null
   /** At least one NVIDIA PAIR endpoint is configured. */
@@ -513,6 +516,8 @@ export type DesktopApi = {
   listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>>
   /** Hides a hosted model from the picker, or shows it again; the selected model always shows. */
   setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void>
+  /** Lists a picker row, by `pickerItemKey`, under Favorites on top, or returns it to its section. */
+  setModelFavorite(key: string, favorite: boolean): Promise<void>
   /** Keeps a skill loaded but out of the model's offer; listSkills reports it as hidden. */
   setSkillHidden(name: string, hidden: boolean): Promise<void>
   /** Bills Prime Intellect requests to this team's wallet; blank returns to the personal one. */

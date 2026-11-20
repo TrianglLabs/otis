@@ -23,6 +23,12 @@ describe("local thinking capabilities", () => {
       validateLocalThinkingSelection("prism-ml/Ternary-Bonsai-2-27B-gguf", "low"),
     ).toThrow()
     expect(() => validateLocalThinkingSelection("Qwen/Qwen3.8-27B", "high")).toThrow()
+    // Inkling's template renders max as xhigh and cannot turn reasoning off.
+    expect(localThinkingCapability("thinkingmachines/Inkling-2-Mini")).toEqual({
+      levels: ["low", "medium", "high", "xhigh"],
+      defaultLevel: "high",
+    })
+    expect(() => validateLocalThinkingSelection("thinkingmachines/Inkling-2-Mini", "max")).toThrow()
     expect(localThinkingCapability("LiquidAI/LFM2.5-2.6B")).toBeUndefined()
     expect(localThinkingCapability("toString")).toBeUndefined()
   })
@@ -48,6 +54,7 @@ describe("local thinking capabilities", () => {
     expect(minimalLocalThinkingLevel("google/gemma-4-12B-it")).toBe("off")
     expect(minimalLocalThinkingLevel("openai/gpt-oss-20b")).toBe("low")
     expect(minimalLocalThinkingLevel("zai-org/GLM-5.3")).toBe("low")
+    expect(minimalLocalThinkingLevel("thinkingmachines/Inkling-2-Mini")).toBe("low")
     expect(minimalLocalThinkingLevel("LiquidAI/LFM2.5-2.6B")).toBeUndefined()
   })
 })
