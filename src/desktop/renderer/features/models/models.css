@@ -182,6 +182,29 @@
   color: var(--danger);
 }
 
+/* The heart takes no room until the row is hovered or focused, and stays once filled, so an
+   unfavorited row leaves no gap beside its download button. */
+.modelPicker-favorite {
+  display: none;
+  align-self: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.modelPicker-row:hover .modelPicker-favorite,
+.modelPicker-row:focus-within .modelPicker-favorite {
+  display: inline-flex;
+}
+
+.modelPicker-favorite.on {
+  display: inline-flex;
+  color: var(--pink);
+}
+
+.modelPicker-favorite.on svg {
+  fill: currentColor;
+}
+
 /* The row's info affordance sits beside the trash and shows on hover or keyboard focus. */
 .modelPicker-info {
   align-self: center;

@@ -60,6 +60,7 @@ const api: DesktopApi = {
   listHostedCatalogs: () => invoke(DESKTOP_CHANNELS.listHostedCatalogs),
   setModelHidden: (provider, id, hidden) =>
     invoke(DESKTOP_CHANNELS.setModelHidden, provider, id, hidden),
+  setModelFavorite: (key, favorite) => invoke(DESKTOP_CHANNELS.setModelFavorite, key, favorite),
   setSkillHidden: (name, hidden) => invoke(DESKTOP_CHANNELS.setSkillHidden, name, hidden),
   setPrimeTeamId: (teamId) => invoke(DESKTOP_CHANNELS.setPrimeTeamId, teamId),
   selectModel: (id) => invoke(DESKTOP_CHANNELS.selectModel, id),

@@ -28,6 +28,11 @@ const CAPABILITIES: Record<string, ThinkingCapability> = {
   },
   "openai/gpt-oss-20b": { levels: ["low", "medium", "high"], defaultLevel: "medium" },
   "zai-org/GLM-5.3": { levels: ["low", "high", "max"], defaultLevel: "max" },
+  // Inkling's template maps max to the same 0.99 as xhigh, and none still reasons.
+  "thinkingmachines/Inkling-2-Mini": {
+    levels: ["low", "medium", "high", "xhigh"],
+    defaultLevel: "high",
+  },
   "ornith-ai/Ornith-1.5-9B": { levels: ["off", "on"], defaultLevel: "on" },
   "google/gemma-4-12B-it": { levels: ["off", "on"], defaultLevel: "on" },
   "google/gemma-4-26B-A4B-it": { levels: ["off", "on"], defaultLevel: "on" },

@@ -1269,6 +1269,30 @@ describe("Application model transactions", () => {
     await app.shutdown()
   })
 
+  it("favorites picker rows of any provider, persists them, and reports them in status", async () => {
+    const app = await ready("otis-app-favorite-")
+    const events: string[] = []
+    app.subscribe((event) => events.push(event.type))
+    expect(app.status().favoriteModels).toEqual([])
+    await app.setModelFavorite("local:openai/gpt-oss-20b", true)
+    await app.setModelFavorite("pair:ollama:qwen3:8b", true)
+    await app.setModelFavorite("local:openai/gpt-oss-20b", true)
+    expect(app.status().favoriteModels).toEqual([
+      "local:openai/gpt-oss-20b",
+      "pair:ollama:qwen3:8b",
+    ])
+    expect((await loadLocalSettings()).favoriteModels).toEqual([
+      "local:openai/gpt-oss-20b",
+      "pair:ollama:qwen3:8b",
+    ])
+    expect(events).toContain("status")
+    await app.setModelFavorite("local:openai/gpt-oss-20b", false)
+    await app.setModelFavorite("pair:ollama:qwen3:8b", false)
+    expect(app.status().favoriteModels).toEqual([])
+    expect((await loadLocalSettings()).favoriteModels).toBeUndefined()
+    await app.shutdown()
+  })
+
   it("keeps a switched-off skill loaded but out of the model's offer, and remembers it", async () => {
     const app = await ready("otis-app-hidden-skill-")
     const directory = join(app.cwd, ".agents", "skills", "review")

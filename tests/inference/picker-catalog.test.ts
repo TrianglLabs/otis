@@ -30,8 +30,10 @@ import {
   type PairPickerChoice,
 } from "../../src/inference/picker-catalog.js"
 import {
+  arrangeFavorites,
   filterModelPickerItems,
   modelKey,
+  pickerItemKey,
   providerLabel,
 } from "../../src/inference/picker-filter.js"
 import {
@@ -70,6 +72,7 @@ const GEMMA = "google/gemma-4-12B-it"
 const GPT_OSS = "openai/gpt-oss-20b"
 const GEMMA_A4B = "google/gemma-4-26B-A4B-it"
 const GEMMA_31B = "google/gemma-4-31B-it"
+const INKLING = "thinkingmachines/Inkling-2-Mini"
 
 const tempDirectories: string[] = []
 
@@ -270,6 +273,7 @@ describe("model picker catalog", () => {
       LFM,
       GPT_OSS,
       GEMMA_A4B,
+      INKLING,
       GEMMA_31B,
     ])
     for (const id of [QWEN, GEMMA_31B]) {
@@ -563,6 +567,7 @@ describe("model picker catalog", () => {
       LFM,
       GPT_OSS,
       GEMMA_A4B,
+      INKLING,
       GEMMA_31B,
     ])
     expect(items[1]).toMatchObject({ recommended: true })
@@ -1086,6 +1091,67 @@ describe("model picker catalog", () => {
     )
   })
 
+  it("moves favorited rows of any provider into Favorites on top and drops emptied sections", async () => {
+    const items = await listModelPickerItems({
+      hardware: { ...tight, totalMemoryBytes: 4 * 1024 ** 3, gpuMemoryBytes: 4 * 1024 ** 3 },
+      dataDirectory: await tempDir(),
+      hostedApiKeys: { fireworks: "fw", together: "tg" },
+      listHosted: async (provider) =>
+        provider === "fireworks"
+          ? [
+              hostedModel(provider, "accounts/fireworks/models/kimi-k3", "Kimi K3"),
+              hostedModel(provider, "accounts/fireworks/models/glm-5p3", "GLM 5.3"),
+            ]
+          : [hostedModel(provider, "moonshotai/Kimi-K3", "Kimi K3")],
+      pairModels: [
+        {
+          provider: "pair",
+          id: "qwen3:32b",
+          displayName: "Qwen 3 32B",
+          baseURL: "http://127.0.0.1:11434",
+          engine: "ollama",
+          supportsImageInput: false,
+        },
+      ],
+    })
+    const keys = (rows: readonly ModelPickerItem[]) =>
+      rows.map((row) => (row.kind === "header" ? row.id : pickerItemKey(row)))
+
+    expect(arrangeFavorites(items, new Set(["fireworks:gone", "local:nope"]))).toBe(items)
+
+    // Favorites keep catalog order, not the order they were favorited in, and the PAIR section
+    // left without rows loses its header.
+    const arranged = arrangeFavorites(
+      items,
+      new Set(["together:moonshotai/Kimi-K3", "pair:ollama:qwen3:32b"]),
+    )
+    expect(arranged[0]).toEqual({
+      kind: "header",
+      id: "header-favorites",
+      displayName: "Favorites",
+    })
+    expect(keys(arranged)).toEqual([
+      "header-favorites",
+      "pair:ollama:qwen3:32b",
+      "together:moonshotai/Kimi-K3",
+      "header-fireworks",
+      "fireworks:accounts/fireworks/models/kimi-k3",
+      "fireworks:accounts/fireworks/models/glm-5p3",
+    ])
+
+    // Search runs over the arrangement: a favorite matches under Favorites, by its provider too.
+    expect(keys(filterModelPickerItems(arranged, "kimi"))).toEqual([
+      "header-favorites",
+      "together:moonshotai/Kimi-K3",
+      "header-fireworks",
+      "fireworks:accounts/fireworks/models/kimi-k3",
+    ])
+    expect(keys(filterModelPickerItems(arranged, "together"))).toEqual([
+      "header-favorites",
+      "together:moonshotai/Kimi-K3",
+    ])
+  })
+
   it("labels context windows in binary K, exact thousands, or a marked rounding", async () => {
     expect(formatContextWindow(32_768)).toBe("32K")
     expect(formatContextWindow(16_384)).toBe("16K")
@@ -1116,6 +1182,7 @@ describe("model picker catalog", () => {
       [LFM_24B]: "Est. 128K",
       [GPT_OSS]: "Est. 128K",
       [GEMMA_A4B]: "Est. 256K",
+      [INKLING]: "Est. 1M",
       [GEMMA_31B]: "Est. 256K",
     })
   })
@@ -1138,6 +1205,7 @@ describe("model picker catalog", () => {
       QWEN,
       BONSAI,
       SALUKI,
+      INKLING,
       GEMMA_31B,
     ])
     expect(local[0]).toMatchObject({ recommended: true, available: true })

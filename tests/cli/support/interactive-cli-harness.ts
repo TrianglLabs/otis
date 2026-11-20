@@ -169,7 +169,7 @@ const mocks = vi.hoisted(() => {
     openSession: vi.fn(),
     openURL: vi.fn(async (_url: string) => true),
     saveHostedApiKey: vi.fn(async () => undefined),
-    saveHiddenModels: vi.fn(async () => undefined),
+    saveSettingsList: vi.fn(async () => undefined),
     saveLocalServers: vi.fn(async () => undefined),
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
@@ -241,6 +241,7 @@ const mocks = vi.hoisted(() => {
             model: import("../../../src/inference/picker-catalog.js").ModelPickerItem,
           ): void
           onSelectSession?(sessionId: string): void
+          onToggleModelFavorite?(key: string, favorite: boolean): void
           onSetup?(): void
           onSetupInferenceChoice?(choice: "local" | "hosted"): void
           onSetupLocalInferenceChoice?(choice: "managed" | "pair"): void
@@ -306,7 +307,7 @@ vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   clearSelectedModel: mocks.clearSelectedModel,
   loadLocalSettings: mocks.loadLocalSettings,
   saveHostedApiKey: mocks.saveHostedApiKey,
-  saveHiddenModels: mocks.saveHiddenModels,
+  saveSettingsList: mocks.saveSettingsList,
   saveLocalServers: mocks.saveLocalServers,
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,

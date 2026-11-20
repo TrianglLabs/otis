@@ -401,6 +401,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
           options.onCloseModelPicker?.()
         },
         select: (model) => options.onSelectModel?.(model),
+        favorite: (modelKey, favorite) => options.onToggleModelFavorite?.(modelKey, favorite),
       })
     ) {
       return true
@@ -501,11 +502,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     renderer.requestRender()
   }
 
-  function showModelPicker(items: ModelPickerItem[]) {
+  function showModelPicker(items: ModelPickerItem[], favorites: readonly string[]) {
     inputController.hideSetupStatus()
     showChatLayout()
     dismissSessionPicker()
-    models.setItems(items)
+    models.setItems(items, favorites)
     if (!modelPickerVisible) {
       chatBody.add(modelPanel, 0)
       modelPickerVisible = true

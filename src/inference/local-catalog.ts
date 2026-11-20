@@ -448,6 +448,40 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     hiddenSize: 2_816,
   },
   {
+    id: "thinkingmachines/Inkling-2-Mini",
+    displayName: "Inkling 2 Mini",
+    sourceModel: "thinkingmachines/Inkling-2-Mini",
+    runtime: "upstream",
+    ggufRepo: "ggml-org/Inkling-2-Mini-GGUF",
+    ggufRevision: "db61c5b492a6a034d986328d28274af0a439aa6c",
+    // 4-bit imatrix experts in layers 0-19, Q8_0 elsewhere: the packing ggml-org leads with.
+    ggufFiles: [
+      {
+        name: "Inkling-2-Mini-IQ4_NL.gguf",
+        sha256: "cbdf3fa9dc50a4124977980f37da4f1fa764b0cfe800d275cd43d26ce2a81af4",
+        size: 17_627_940_768,
+      },
+    ],
+    mmproj: {
+      name: "mmproj-Inkling-2-Mini-Q8_0.gguf",
+      sha256: "233287272ec5ac39b4168677aba54a4c024f202410f5629fac1830e1059f8abb",
+      size: 345_910_944,
+    },
+    quant: "IQ4_NL",
+    nativeContextLength: 1_048_576,
+    supportsImageInput: true,
+    // Layers 6-17 run three times and each pass keeps its own cache, so 48 layer applications
+    // hold KV: global layers 5 and 23 once, 11 and 17 three times; the rest are local.
+    attention: {
+      groups: [
+        { layers: 8, kvHeads: 8, headDim: 128 },
+        { layers: 40, kvHeads: 8, headDim: 128, window: 1024 },
+      ],
+    },
+    vocabSize: 201_024,
+    hiddenSize: 2_304,
+  },
+  {
     id: "google/gemma-4-31B-it",
     displayName: "Gemma 4 31B",
     sourceModel: "google/gemma-4-31B-it",

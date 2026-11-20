@@ -36,7 +36,8 @@ Selecting a model downloads:
 - for a vision model, its pinned multimodal projector (`mmproj`), from the weights' repository or the model author's,
   which llama-server loads beside the weights so image attachments work.
 
-Ornith 1.5 9B, Gemma 4 12B, 26B A4B and 31B, Qwen3.8 27B, Qwen3.8 Flash Next, and Bonsai 2 27B accept images. The
+Ornith 1.5 9B, Gemma 4 12B, 26B A4B and 31B, Qwen3.8 27B, Qwen3.8 Flash Next, Bonsai 2 27B, and Inkling 2 Mini accept
+images. The
 projector counts toward a model's memory footprint; LFM2.5 2.6B, gpt-oss 20B, and GLM-5.3 are text only.
 
 Most models use Otis' pinned upstream llama.cpp build. Bonsai 2 uses a separately pinned Prism llama.cpp build because
@@ -113,6 +114,9 @@ The picker displays the packing preferred for the detected hardware; runtime fal
 Underdog Saluki 27B is Underdog's 2-bit mixed quantization of Qwen3.8-27B, a 7.9 GB GGUF with Qwen's chat template
 and a Q8 vision projector that runs on the upstream runtime. LFM2.5 24B A2B uses Liquid AI's quantization-aware
 distillation `Q4_0` GGUF, a 13.6 GB mixture of experts with 2B active parameters that always thinks before answering.
+Inkling 2 Mini uses ggml-org's 17.6 GB `IQ4_NL` GGUF of Thinking Machines' looped mixture of experts: layers 6–17 run
+three times per token, each pass with its own KV cache, so its 24 layers of weights cache like 48. It is listed but
+not recommended for any hardware.
 
 Managed local models with documented thinking controls show a **Thinking** slider beside the desktop model picker.
 The terminal uses `/effort` to list supported values and `/effort medium` (for example) to select one.
@@ -122,7 +126,8 @@ This changes model behavior independently of the thinking-trace visibility setti
 conversation summaries always use the model's lowest documented thinking setting, whatever the slider says.
 
 Qwen3.8 and Underdog Saluki offer off/low/medium/xhigh, Bonsai 2 off/medium/xhigh, gpt-oss low/medium/high, and
-GLM-5.3 low/high/max. Ornith and Gemma expose on/off only. LFM2.5 has no documented thinking control and does not
+GLM-5.3 low/high/max. Inkling 2 Mini offers low/medium/high/xhigh: its template renders max like xhigh, and its lowest
+setting still reasons. Ornith and Gemma expose on/off only. LFM2.5 has no documented thinking control and does not
 show the slider.
 The capability policy lives in `src/inference/local-thinking.ts`; it uses native template controls, not invented token
 budgets. Hosted and user-managed servers keep their existing behavior. Token counting uses the same thinking

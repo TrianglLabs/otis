@@ -163,6 +163,17 @@ it("validates and forwards the workspace panel width", async () => {
   }
 })
 
+it("validates the model favorite call", async () => {
+  const setModelFavorite = vi.fn(async () => {})
+  const handler = handlerFor(DESKTOP_CHANNELS.setModelFavorite, { setModelFavorite })
+  await handler("local:openai/gpt-oss-20b", true)
+  expect(setModelFavorite).toHaveBeenCalledWith("local:openai/gpt-oss-20b", true)
+  await expect(handler("", true)).rejects.toThrow("Invalid model favorite")
+  await expect(handler(42, true)).rejects.toThrow("Invalid model favorite")
+  await expect(handler("local:x", "yes")).rejects.toThrow("Invalid model favorite")
+  expect(setModelFavorite).toHaveBeenCalledOnce()
+})
+
 it("validates the model visibility call and forwards the catalog listing", async () => {
   const setModelHidden = vi.fn(async () => {})
   const handler = handlerFor(DESKTOP_CHANNELS.setModelHidden, { setModelHidden })

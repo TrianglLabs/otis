@@ -221,7 +221,7 @@ export class SetupFlow {
         if (this.#closed) return
         const items = await this.listPickerItems(this.#hostedApiKeys, this.#pairModels, signal)
         signal.throwIfAborted()
-        this.options.ui.showModelPicker(items)
+        this.options.ui.showModelPicker(items, this.#app.settings.favoriteModels ?? [])
       } catch (error) {
         if (signal.aborted || this.#closed || isAbortError(error)) return
         this.options.ui.showPairSetupError(
@@ -262,7 +262,8 @@ export class SetupFlow {
           signal,
         )
         signal.throwIfAborted()
-        if (!this.#closed) this.options.ui.showModelPicker(items)
+        if (!this.#closed)
+          this.options.ui.showModelPicker(items, this.#app.settings.favoriteModels ?? [])
       } catch (error) {
         if (signal.aborted || this.#closed || isAbortError(error)) return
         if (!wasConfigured) {

@@ -427,18 +427,21 @@ describe("chat UI status and prompts", () => {
     harness.pressCtrlC()
     expect(onQuit).toHaveBeenCalledTimes(2)
 
-    harness.ui.showModelPicker([
-      {
-        kind: "model",
-        provider: "fireworks",
-        id: "accounts/fireworks/models/tool-model",
-        displayName: "Tool Model",
-        contextLength: 131_072,
-        supportsImageInput: false,
-        available: true,
-        active: false,
-      },
-    ])
+    harness.ui.showModelPicker(
+      [
+        {
+          kind: "model",
+          provider: "fireworks",
+          id: "accounts/fireworks/models/tool-model",
+          displayName: "Tool Model",
+          contextLength: 131_072,
+          supportsImageInput: false,
+          available: true,
+          active: false,
+        },
+      ],
+      [],
+    )
     harness.pressCtrlC()
     expect(onQuit).toHaveBeenCalledTimes(3)
   })

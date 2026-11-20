@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { DesktopApi } from "../../../src/desktop/contracts.js"
+import type { DesktopApi, DesktopEvent } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
@@ -219,6 +219,59 @@ describe("ModelPicker download progress", () => {
     expect(stop.getAttribute("title")).toBe("Cancel model load")
     expect(stop.querySelector(".progressStop-ring.indeterminate")).toBeTruthy()
     expect(within(row).getByText("Downloading llama.cpp")).toBeTruthy()
+  })
+})
+
+describe("ModelPicker favorites", () => {
+  it("hearts a row through the API and lists favorites on top as the status reports them", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const { api, dialog, list } = await openPicker({
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    const heart = within(dialog).getByRole("button", { name: "Add Kimi K2.5 to favorites" })
+    expect(heart.getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(heart)
+    expect(api.setModelFavorite).toHaveBeenCalledWith("together:moonshotai/Kimi-K2.5", true)
+    // The list follows the status stream, not the click.
+    let headers = [...dialog.querySelectorAll(".popover-section")].map((e) => e.textContent)
+    expect(headers).toEqual(["Local", "Fireworks AI", "Together AI"])
+
+    act(() =>
+      emit({
+        type: "status",
+        revision: 2,
+        status: {
+          ...SNAPSHOT,
+          favoriteModels: ["together:moonshotai/Kimi-K2.5", "local:Qwen/Qwen3.8-27B"],
+        },
+      }),
+    )
+    headers = [...dialog.querySelectorAll(".popover-section")].map((e) => e.textContent)
+    // Favorites keep catalog order; sections left empty drop their headers.
+    expect(headers).toEqual(["Favorites", "Fireworks AI"])
+    const rows = [...list.querySelectorAll(".modelPicker-row")]
+    expect(rows.map((row) => row.querySelector(".modelPicker-name")?.textContent)).toEqual([
+      "Qwen3.8 27B",
+      "Kimi K2.5",
+      "Kimi K2.6",
+    ])
+    // Away from their section header, favorites name their provider.
+    expect(rows[0]?.querySelector(".modelPicker-detail")?.textContent).toMatch(/^Local·Est\. 64K/)
+    expect(rows[1]?.querySelector(".modelPicker-detail")?.textContent).toMatch(/^Together AI·/)
+    expect(rows[2]?.querySelector(".modelPicker-detail")?.textContent).not.toContain("Fireworks")
+    const filled = within(dialog).getByRole("button", { name: "Remove Kimi K2.5 from favorites" })
+    expect(filled.getAttribute("aria-pressed")).toBe("true")
+    expect(filled.classList.contains("on")).toBe(true)
+    fireEvent.click(filled)
+    expect(api.setModelFavorite).toHaveBeenLastCalledWith("together:moonshotai/Kimi-K2.5", false)
+
+    // A failed save says why in the picker instead of vanishing.
+    vi.mocked(api.setModelFavorite).mockRejectedValueOnce(new Error("disk full"))
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Kimi K2.6 to favorites" }))
+    expect(await within(dialog).findByText("disk full")).toBeTruthy()
   })
 })
 

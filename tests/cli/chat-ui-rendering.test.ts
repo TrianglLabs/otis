@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { MODEL_PICKER_HINT } from "../../src/cli/ui/model-picker.js"
+import type { ModelPickerItem } from "../../src/inference/picker-catalog.js"
 import type { HostedModel } from "../../src/inference/types.js"
 import { hostedChoice, useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -406,13 +407,16 @@ describe("chat UI rendering", () => {
     const sessionPanel = harness.get<BoxRenderable>("session-panel")
     expect(sessionRows.x + sessionRows.width).toBe(sessionPanel.x + sessionPanel.width)
 
-    harness.ui.showModelPicker([
-      fireworksRow({
-        id: "accounts/fireworks/models/alpha",
-        displayName: "Alpha",
-        supportsImageInput: false,
-      }),
-    ])
+    harness.ui.showModelPicker(
+      [
+        fireworksRow({
+          id: "accounts/fireworks/models/alpha",
+          displayName: "Alpha",
+          supportsImageInput: false,
+        }),
+      ],
+      [],
+    )
     const modelRows = harness.get<ScrollBoxRenderable>("model-rows")
     expect(
       modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border)),
@@ -549,6 +553,61 @@ describe("chat UI rendering", () => {
     expect(harness.get<TextRenderable>("session-panel-footer").height).toBe(1)
   })
 
+  it("favorites the selected row with ctrl+F, listing it under Favorites with its provider", async () => {
+    const onToggleModelFavorite = vi.fn()
+    const harness = await setup({ onToggleModelFavorite })
+    const alpha = fireworksRow(
+      {
+        id: "accounts/fireworks/models/alpha",
+        displayName: "Alpha",
+        contextLength: 128_000,
+        supportsImageInput: true,
+      },
+      true,
+    )
+    const beta = fireworksRow({
+      id: "accounts/fireworks/models/beta",
+      displayName: "Beta",
+      supportsImageInput: false,
+    })
+    const items: ModelPickerItem[] = [
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
+      alpha,
+      beta,
+    ]
+    harness.ui.showModelPicker(items, ["fireworks:accounts/fireworks/models/beta"])
+    expect(harness.text("model-row-0")).toBe("FAVORITES")
+    expect(harness.text("model-row-1")).toBe("  Beta ♥")
+    expect(harness.text("model-row-1-meta")).toBe("  Fireworks AI · Text")
+    expect(harness.text("model-row-2")).toBe("FIREWORKS AI")
+    expect(harness.text("model-row-3")).toBe("› Alpha")
+    expect(harness.text("model-row-3-meta")).toBe("  128K · Vision")
+
+    // The selection follows the row into Favorites, and the last favorite out empties it.
+    harness.pressCtrl("f")
+    expect(onToggleModelFavorite).toHaveBeenLastCalledWith(
+      "fireworks:accounts/fireworks/models/alpha",
+      true,
+    )
+    expect(harness.text("model-row-1")).toBe("› Alpha ♥")
+    expect(harness.text("model-row-2")).toBe("  Beta ♥")
+    expect(harness.find("model-row-3")).toBeUndefined()
+    harness.press("down")
+    harness.pressCtrl("f")
+    harness.press("up")
+    harness.pressCtrl("f")
+    expect(onToggleModelFavorite.mock.calls.slice(1)).toEqual([
+      ["fireworks:accounts/fireworks/models/beta", false],
+      ["fireworks:accounts/fireworks/models/alpha", false],
+    ])
+    expect(harness.text("model-row-0")).toBe("FIREWORKS AI")
+    expect(harness.text("model-row-1")).toBe("› Alpha")
+    // Ctrl+F is a command, never a search letter, and the hint keeps to two lines.
+    expect(harness.text("model-panel-footer")).not.toContain("Search")
+    await harness.renderOnce()
+    expect(harness.get<TextRenderable>("model-panel-footer").height).toBe(2)
+  })
+
   it("selects only models supplied by the verified model catalog", async () => {
     const onCloseModelPicker = vi.fn()
     const onSelectModel = vi.fn()
@@ -572,7 +631,7 @@ describe("chat UI rendering", () => {
 
     harness.ui.showSessionPicker([{ id: "session", title: "Session", detail: "now" }])
     const sessionPanelWidth = harness.get<BoxRenderable>("session-panel").width
-    harness.ui.showModelPicker(models)
+    harness.ui.showModelPicker(models, [])
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
     expect(harness.childIds("input-area")).toContain("input-box")
     expect(harness.get<BoxRenderable>("model-panel").width).toBe(sessionPanelWidth)
@@ -582,7 +641,7 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-1")).toBe("  Beta")
     expect(harness.text("model-row-1-meta")).toBe("  Text")
     expect(harness.text("model-panel-footer")).toBe(
-      "[↑↓] move · type to search · * recommended · ◐ partly on CPU",
+      "[↑↓] move · type to search · [^F] ♥\n* recommended · ◐ partly on CPU",
     )
     expect(harness.text("model-panel-header")).toBe("Models")
 
@@ -597,21 +656,24 @@ describe("chat UI rendering", () => {
 
   it("lists a Fast router as a model of its own", async () => {
     const harness = await setup()
-    harness.ui.showModelPicker([
-      fireworksRow(
-        {
-          id: "accounts/fireworks/models/kimi-k3",
-          displayName: "Kimi K3",
+    harness.ui.showModelPicker(
+      [
+        fireworksRow(
+          {
+            id: "accounts/fireworks/models/kimi-k3",
+            displayName: "Kimi K3",
+            supportsImageInput: true,
+          },
+          true,
+        ),
+        fireworksRow({
+          id: "accounts/fireworks/routers/kimi-k3-fast",
+          displayName: "Kimi K3 Fast",
           supportsImageInput: true,
-        },
-        true,
-      ),
-      fireworksRow({
-        id: "accounts/fireworks/routers/kimi-k3-fast",
-        displayName: "Kimi K3 Fast",
-        supportsImageInput: true,
-      }),
-    ])
+        }),
+      ],
+      [],
+    )
 
     expect(harness.text("model-row-0")).toBe("› Kimi K3")
     expect(harness.text("model-row-0-meta")).toBe("  Vision")
@@ -622,23 +684,26 @@ describe("chat UI rendering", () => {
 
   it("labels NVIDIA PAIR models with their model maximum and route", async () => {
     const harness = await setup()
-    harness.ui.showModelPicker([
-      { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
-      {
-        kind: "model",
-        provider: "pair",
-        id: "qwen3.5:35b",
-        displayName: "Qwen 3.5 35B",
-        baseURL: "http://127.0.0.1:11434",
-        engine: "ollama",
-        nativeContextLength: 262_144,
-        quantization: "Q4_K_M",
-        supportsImageInput: false,
-        available: true,
-        active: true,
-        selectionKey: "pair:http://127.0.0.1:11434:qwen3.5:35b",
-      },
-    ])
+    harness.ui.showModelPicker(
+      [
+        { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
+        {
+          kind: "model",
+          provider: "pair",
+          id: "qwen3.5:35b",
+          displayName: "Qwen 3.5 35B",
+          baseURL: "http://127.0.0.1:11434",
+          engine: "ollama",
+          nativeContextLength: 262_144,
+          quantization: "Q4_K_M",
+          supportsImageInput: false,
+          available: true,
+          active: true,
+          selectionKey: "pair:http://127.0.0.1:11434:qwen3.5:35b",
+        },
+      ],
+      [],
+    )
 
     expect(harness.text("model-row-0")).toBe("NVIDIA PAIR")
     expect(harness.text("model-row-1")).toBe("› Qwen 3.5 35B  Ollama")
@@ -651,20 +716,23 @@ describe("chat UI rendering", () => {
 
   it("does not invent missing NVIDIA PAIR context or quantization", async () => {
     const harness = await setup()
-    harness.ui.showModelPicker([
-      {
-        kind: "model",
-        provider: "pair",
-        id: "remote/model",
-        displayName: "Remote model",
-        baseURL: "http://127.0.0.1:1234",
-        engine: "lmstudio",
-        supportsImageInput: true,
-        available: true,
-        active: false,
-        selectionKey: "pair:http://127.0.0.1:1234:remote/model",
-      },
-    ])
+    harness.ui.showModelPicker(
+      [
+        {
+          kind: "model",
+          provider: "pair",
+          id: "remote/model",
+          displayName: "Remote model",
+          baseURL: "http://127.0.0.1:1234",
+          engine: "lmstudio",
+          supportsImageInput: true,
+          available: true,
+          active: false,
+          selectionKey: "pair:http://127.0.0.1:1234:remote/model",
+        },
+      ],
+      [],
+    )
 
     expect(harness.text("model-row-0")).toBe("› Remote model  LM Studio")
     expect(harness.text("model-row-0-meta")).toBe(
@@ -695,22 +763,25 @@ describe("chat UI rendering", () => {
     expect(sessionOther.borderColor.equals(RGBA.fromHex(colors.surface))).toBe(true)
     expect(harness.get<BoxRenderable>("session-panel").border).toBe(false)
 
-    harness.ui.showModelPicker([
-      fireworksRow(
-        {
-          id: "accounts/fireworks/models/alpha",
-          displayName: "Alpha",
-          contextLength: 128_000,
-          supportsImageInput: true,
-        },
-        true,
-      ),
-      fireworksRow({
-        id: "accounts/fireworks/models/beta",
-        displayName: "Beta",
-        supportsImageInput: false,
-      }),
-    ])
+    harness.ui.showModelPicker(
+      [
+        fireworksRow(
+          {
+            id: "accounts/fireworks/models/alpha",
+            displayName: "Alpha",
+            contextLength: 128_000,
+            supportsImageInput: true,
+          },
+          true,
+        ),
+        fireworksRow({
+          id: "accounts/fireworks/models/beta",
+          displayName: "Beta",
+          supportsImageInput: false,
+        }),
+      ],
+      [],
+    )
     expect(harness.text("model-row-0")).toBe("› Alpha")
     expect(harness.text("model-row-1")).toBe("  Beta")
     const modelSelected = harness.get<BoxRenderable>("model-row-0-box")
@@ -752,12 +823,15 @@ describe("chat UI rendering", () => {
       true,
     )
 
-    harness.ui.showModelPicker([
-      { kind: "header", id: "header-local", displayName: "Local" },
-      unavailable,
-      { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
-      fireworks,
-    ])
+    harness.ui.showModelPicker(
+      [
+        { kind: "header", id: "header-local", displayName: "Local" },
+        unavailable,
+        { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
+        fireworks,
+      ],
+      [],
+    )
 
     expect(harness.text("model-row-0")).toBe("LOCAL")
     expect(harness.text("model-row-1")).toBe("  Qwen3.8 27B  Downloaded")
@@ -815,7 +889,7 @@ describe("chat UI rendering", () => {
       kimi,
     ]
 
-    harness.ui.showModelPicker(items)
+    harness.ui.showModelPicker(items, [])
     expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
     expect(harness.text("model-row-3")).toBe("› Alpha")
     expect(harness.find("model-row-5")).toBeDefined()
@@ -865,13 +939,13 @@ describe("chat UI rendering", () => {
     expect(harness.find("model-panel")).toBeUndefined()
 
     // Enter selects the filtered row, and a picker closed mid-search reopens unfiltered.
-    harness.ui.showModelPicker(items)
+    harness.ui.showModelPicker(items, [])
     expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
     await harness.typeText("kimi")
     harness.press("return")
     expect(onSelectModel).toHaveBeenCalledExactlyOnceWith(kimi)
     harness.ui.hideModelPicker()
-    harness.ui.showModelPicker(items)
+    harness.ui.showModelPicker(items, [])
     expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
     expect(harness.text("model-row-5")).toBe("› Kimi K3")
   })
@@ -895,10 +969,10 @@ describe("chat UI rendering", () => {
       active: true,
     }
 
-    harness.ui.showModelPicker([
-      { kind: "header", id: "header-local", displayName: "Local" },
-      local,
-    ])
+    harness.ui.showModelPicker(
+      [{ kind: "header", id: "header-local", displayName: "Local" }, local],
+      [],
+    )
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Downloaded")
     const downloaded = harness
       .get<TextRenderable>("model-row-1")
@@ -937,10 +1011,10 @@ describe("chat UI rendering", () => {
       active: true,
     }
 
-    harness.ui.showModelPicker([
-      { kind: "header", id: "header-local", displayName: "Local" },
-      local,
-    ])
+    harness.ui.showModelPicker(
+      [{ kind: "header", id: "header-local", displayName: "Local" }, local],
+      [],
+    )
     harness.ui.setModelPickerStatus(`local:${local.id}`, { label, kind: "progress" })
 
     const first = statusLetterColors(harness.get<TextRenderable>("model-row-1"), label)
@@ -977,12 +1051,15 @@ describe("chat UI rendering", () => {
       }),
     )
 
-    harness.ui.showModelPicker([
-      { kind: "header", id: "header-local", displayName: "Local" },
-      local,
-      { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
-      ...fireworks,
-    ])
+    harness.ui.showModelPicker(
+      [
+        { kind: "header", id: "header-local", displayName: "Local" },
+        local,
+        { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
+        ...fireworks,
+      ],
+      [],
+    )
     await harness.renderOnce()
 
     for (let step = 0; step < 12; step += 1) harness.press("down")

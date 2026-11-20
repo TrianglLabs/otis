@@ -71,6 +71,7 @@ describe("local model catalog", () => {
       "ConwayResearch/Underdog-Saluki-27B-1.0",
       "Qwen/Qwen3.8-Flash-Next",
       "google/gemma-4-26B-A4B-it",
+      "thinkingmachines/Inkling-2-Mini",
       "google/gemma-4-31B-it",
     ])
   })
@@ -137,6 +138,37 @@ describe("local model catalog", () => {
       supportsImageInput: true,
       // Saluki keeps the Qwen3.8 27B KV-cache geometry.
       attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
+    })
+  })
+
+  it("pins ggml-org's IQ4_NL Inkling 2 Mini with a cache for every loop pass", () => {
+    expect(findLocalModel("thinkingmachines/Inkling-2-Mini")).toMatchObject({
+      sourceModel: "thinkingmachines/Inkling-2-Mini",
+      runtime: "upstream",
+      ggufRepo: "ggml-org/Inkling-2-Mini-GGUF",
+      ggufRevision: "db61c5b492a6a034d986328d28274af0a439aa6c",
+      ggufFiles: [
+        {
+          name: "Inkling-2-Mini-IQ4_NL.gguf",
+          sha256: "cbdf3fa9dc50a4124977980f37da4f1fa764b0cfe800d275cd43d26ce2a81af4",
+          size: 17_627_940_768,
+        },
+      ],
+      mmproj: {
+        name: "mmproj-Inkling-2-Mini-Q8_0.gguf",
+        sha256: "233287272ec5ac39b4168677aba54a4c024f202410f5629fac1830e1059f8abb",
+        size: 345_910_944,
+      },
+      quant: "IQ4_NL",
+      nativeContextLength: 1_048_576,
+      supportsImageInput: true,
+      // 24 layers with 6-17 run three times: 48 cached applications, 8 of them global.
+      attention: {
+        groups: [
+          { layers: 8, kvHeads: 8, headDim: 128 },
+          { layers: 40, kvHeads: 8, headDim: 128, window: 1024 },
+        ],
+      },
     })
   })
 

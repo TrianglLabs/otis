@@ -936,6 +936,23 @@ const DEMO_MODELS: ModelPickerChoice[] = [
   {
     kind: "model",
     provider: "local",
+    id: "thinkingmachines/Inkling-2-Mini",
+    displayName: "Inkling 2 Mini",
+    contextLength: 262_144,
+    supportsImageInput: true,
+    available: true,
+    recommended: false,
+    availabilityLabel: "Est. 256K · IQ4_NL · 26 GB",
+    quant: "IQ4_NL",
+    memoryBytes: 28_300_000_000,
+    hasDownloadedPacking: false,
+    cpuOffload: false,
+    downloaded: false,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "local",
     id: "Qwen/Qwen3.8-Flash-Next",
     displayName: "Qwen3.8 Flash Next",
     contextLength: 65_536,
@@ -1697,6 +1714,7 @@ class DemoRuntime implements DesktopApi {
     permissionMode: "auto",
     hostedConfigured: { ...NO_HOSTED_KEYS, fireworks: true, together: true, baseten: true },
     hiddenModels: [],
+    favoriteModels: [],
     primeTeamId: null,
     pairConfigured: false,
     pairEndpoints: {},
@@ -3085,6 +3103,13 @@ class DemoRuntime implements DesktopApi {
     const hiddenModels = this.#state.hiddenModels.filter((entry) => entry !== key)
     if (hidden) hiddenModels.push(key)
     this.#state = { ...this.#state, hiddenModels }
+    this.#emitStatus()
+  }
+
+  async setModelFavorite(key: string, favorite: boolean): Promise<void> {
+    const favoriteModels = this.#state.favoriteModels.filter((entry) => entry !== key)
+    if (favorite) favoriteModels.push(key)
+    this.#state = { ...this.#state, favoriteModels }
     this.#emitStatus()
   }
 

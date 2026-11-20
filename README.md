@@ -259,7 +259,8 @@ export PRIME_TEAM_ID=team_id           # optional: bill Prime Intellect to a tea
 otis
 ```
 
-Each provider you add gets its own section in `/model`; type to search the list.
+Each provider you add gets its own section in `/model`; type to search the list. Favorite a model with
+ctrl+F in the terminal or its heart on desktop to list it under Favorites on top.
 
 `/model` in the terminal, or the model chip in the desktop composer, switches between all of them.
 

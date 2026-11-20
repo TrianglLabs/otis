@@ -157,6 +157,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
       river: false,
     },
     hiddenModels: [],
+    favoriteModels: [],
     primeTeamId: null,
     pairConfigured: false,
     pairEndpoints: {},

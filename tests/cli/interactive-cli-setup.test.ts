@@ -1040,6 +1040,7 @@ describe("interactive CLI setup", () => {
         expect.objectContaining({ ...kimi, provider: "fireworks", active: true }),
         expect.objectContaining({ ...fast, provider: "fireworks", active: false }),
       ]),
+      [],
     )
     mocks.uiOptions?.onSelectModel?.(hostedChoice("fireworks", fast))
     await settle()

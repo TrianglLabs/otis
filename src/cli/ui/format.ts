@@ -9,6 +9,8 @@ export const CHAT_KEY_HINT_DURATION_MS = 3000
 export const RECOMMENDED_MODEL_MARK = "*"
 /** Some layers run on the CPU; shown after a local model name. */
 export const CPU_OFFLOAD_MODEL_MARK = "◐"
+/** The user favorited the model; shown after its name. */
+export const FAVORITE_MODEL_MARK = "♥"
 
 export type AgentPhase = TurnPhase
 

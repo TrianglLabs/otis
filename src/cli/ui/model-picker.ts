@@ -7,11 +7,16 @@ import {
   type ModelPickerItem,
   type ModelPickerStatus,
 } from "../../inference/picker-catalog.js"
-import { filterModelPickerItems, pickerItemKey } from "../../inference/picker-filter.js"
+import {
+  arrangeFavorites,
+  filterModelPickerItems,
+  pickerItemKey,
+  providerLabel,
+} from "../../inference/picker-filter.js"
 import { isHostedProvider, isServerProvider } from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
-import { CPU_OFFLOAD_MODEL_MARK, RECOMMENDED_MODEL_MARK } from "./format.js"
+import { CPU_OFFLOAD_MODEL_MARK, FAVORITE_MODEL_MARK, RECOMMENDED_MODEL_MARK } from "./format.js"
 import {
   type PickerRow,
   type PickerRowSpec,
@@ -23,12 +28,18 @@ import {
 } from "./picker-row.js"
 import { type Renderer, stopKey, type UIKey } from "./types.js"
 
-export const MODEL_PICKER_HINT = "[↑↓] move · type to search · * recommended · ◐ partly on CPU"
+// Keys, then the row marks: split by hand, since wrapping strands a mark from its meaning.
+export const MODEL_PICKER_HINT =
+  "[↑↓] move · type to search · [^F] ♥\n* recommended · ◐ partly on CPU"
 
-/** The catalog list with a type-to-search filter; the panel footer shows the query. */
+/**
+ * The catalog list with a type-to-search filter; the panel footer shows the query. Favorited rows
+ * list under Favorites on top, and ctrl+F favorites or unfavorites the selected row.
+ */
 export class ModelPicker {
   readonly #rows: PickerRow[] = []
   #items: ModelPickerItem[] = []
+  #favorites = new Set<string>()
   /** The rows the query leaves, which the selection indexes. */
   #visible: ModelPickerItem[] = []
   #query = ""
@@ -43,8 +54,9 @@ export class ModelPicker {
     this.#pulse = new SelectionPulse(renderer, (elapsed) => this.paintPulse(elapsed))
   }
 
-  setItems(items: ModelPickerItem[]) {
+  setItems(items: ModelPickerItem[], favorites: readonly string[]) {
     this.#items = items
+    this.#favorites = new Set(favorites)
     this.#applyQuery()
     this.#pulse.start()
   }
@@ -65,7 +77,14 @@ export class ModelPicker {
     this.#query = ""
   }
 
-  handleKey(key: UIKey, actions: { close: () => void; select: (item: ModelPickerItem) => void }) {
+  handleKey(
+    key: UIKey,
+    actions: {
+      close: () => void
+      select: (item: ModelPickerItem) => void
+      favorite: (key: string, favorite: boolean) => void
+    },
+  ) {
     if (key.name === "escape") {
       stopKey(key)
       // A search in progress is dismissed first; the next Escape closes the picker.
@@ -95,6 +114,19 @@ export class ModelPicker {
       if (isSelectablePickerItem(selected)) actions.select(selected)
       return true
     }
+    if (key.ctrl && !key.meta && key.name === "f") {
+      stopKey(key)
+      const selected = this.#visible[this.#selectedIndex]
+      if (selected?.kind !== "model") return true
+      const selectedKey = pickerItemKey(selected)
+      const favorite = !this.#favorites.has(selectedKey)
+      if (favorite) this.#favorites.add(selectedKey)
+      else this.#favorites.delete(selectedKey)
+      actions.favorite(selectedKey, favorite)
+      this.#applyQuery()
+      this.renderer.requestRender()
+      return true
+    }
     if (key.name === "backspace" || key.name === "delete") {
       stopKey(key)
       this.#setQuery(this.#query.slice(0, -1))
@@ -121,7 +153,7 @@ export class ModelPicker {
   #applyQuery() {
     const selected = this.#visible[this.#selectedIndex]
     const keepKey = selected && selected.kind !== "header" ? pickerItemKey(selected) : undefined
-    const rows = filterModelPickerItems(this.#items, this.#query)
+    const rows = filterModelPickerItems(arrangeFavorites(this.#items, this.#favorites), this.#query)
     this.#visible = rows
     const keptIndex = keepKey
       ? rows.findIndex((item) => item.kind !== "header" && pickerItemKey(item) === keepKey)
@@ -163,15 +195,24 @@ export class ModelPicker {
       }
       const disabled = item.available === false
       const suffixes = modelNameSuffixes(item)
-      const marker =
-        item.provider === "local"
-          ? `${item.recommended ? ` ${RECOMMENDED_MODEL_MARK}` : ""}${item.cpuOffload ? ` ${CPU_OFFLOAD_MODEL_MARK}` : ""}`
-          : ""
+      const favorite = this.#favorites.has(pickerItemKey(item))
+      const marker = [
+        favorite && FAVORITE_MODEL_MARK,
+        item.provider === "local" && item.recommended && RECOMMENDED_MODEL_MARK,
+        item.provider === "local" && item.cpuOffload && CPU_OFFLOAD_MODEL_MARK,
+      ]
+        .filter(Boolean)
+        .map((mark) => ` ${mark}`)
+        .join("")
       const maximum = suffixes.length > 0 ? 20 : 30
+      // Under Favorites, away from its section header, a row names its provider; PAIR rows
+      // already carry their engine.
+      const meta = modelMeta(item)
       return {
         title: `${truncatePickerLabel(item.displayName, maximum - marker.length)}${marker}`,
         ...(suffixes.length > 0 ? { suffixes } : {}),
-        meta: modelMeta(item),
+        meta:
+          favorite && item.provider !== "pair" ? `${providerLabel(item.provider)} · ${meta}` : meta,
         fg: disabled ? colors.muted : item.active ? colors.accent : colors.text,
         selected: index === this.#selectedIndex,
         disabled,

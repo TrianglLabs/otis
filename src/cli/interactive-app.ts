@@ -184,6 +184,11 @@ export class InteractiveApp {
       onSelectModel: (model) => {
         void this.#runOrDefer({ type: "model-selection", model }, () => this.#ui.hideModelPicker())
       },
+      onToggleModelFavorite: (key, favorite) => {
+        this.#app.setModelFavorite(key, favorite).catch((error: unknown) => {
+          this.#ui.showTransientHint(` Could not save the favorite: ${describeError(error)} `)
+        })
+      },
       onNewSession: () => {
         this.#attachments.clear()
         void this.#runOrDefer({ type: "new-session" }, () => this.#ui.hideSessionPicker())
