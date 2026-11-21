@@ -323,14 +323,14 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                                 <Icon icon={Cpu} size={11} />
                               </span>
                             ) : null}
+                            {item.active ? (
+                              <Icon icon={Check} size={13} className="modelPicker-check" />
+                            ) : null}
                           </span>
                           <span className={detailClass}>
                             {status?.label ?? <ModelDetail item={item} favorite={favorite} />}
                           </span>
                         </span>
-                        {item.active ? (
-                          <Icon icon={Check} size={14} className="modelPicker-check" />
-                        ) : null}
                       </button>
                       {/* The active row is the highlighted one; its rail holds the info and trash
                         affordances, shown on hover. Cancel and download have their own

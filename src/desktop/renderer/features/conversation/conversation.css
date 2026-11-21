@@ -1623,10 +1623,11 @@ button.composer-model-offline {
   color: var(--text-faint);
 }
 
+/* Projects, routines, and a project's sessions as rows in the steps' manner: a small glyph, the
+   title, and its details at the end, which the row's pin or pencil replaces while hovered. */
 .home-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
 }
 
 .home-card {
@@ -1634,42 +1635,30 @@ button.composer-model-offline {
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--bg-elev) 55%, transparent);
-  color: var(--text);
+  height: 46px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
   font: inherit;
+  font-size: var(--text-body);
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--motion),
-    border-color var(--motion),
-    box-shadow var(--motion),
-    transform var(--motion);
+  transition: color var(--motion);
 }
 
-/* The lift also marks the sessions that come back with the hovered one. */
+/* Hover also marks the sessions that come back with the hovered one. */
 .home-card:hover,
 .home-card-grouped {
-  border-color: var(--border);
-  background-color: var(--bg-elev);
-  box-shadow: var(--shadow-raised);
+  color: var(--text);
 }
 
-.home-card:active {
-  transform: scale(0.985);
-}
-
-/* A card with two targets: the body opens it, and a small button at its edge acts on it (a
-   routine's pencil, a session's or project's pin), shown while the card is hovered. */
+/* A row with two targets: the body opens it, and a small button at its end acts on it (a
+   routine's pencil, a session's or project's pin). */
 .home-card-split {
+  position: relative;
   padding: 0;
   cursor: default;
-}
-
-.home-card-split:active {
-  transform: none;
 }
 
 .home-cardOpen {
@@ -1678,7 +1667,8 @@ button.composer-model-offline {
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 12px 0 12px 14px;
+  height: 100%;
+  padding: 0 4px;
   border: 0;
   background: none;
   color: inherit;
@@ -1688,8 +1678,10 @@ button.composer-model-offline {
 }
 
 .home-cardEdit {
-  flex-shrink: 0;
-  margin: 0 10px;
+  position: absolute;
+  top: 50%;
+  right: 0;
+  translate: 0 -50%;
   opacity: 0;
   transition: opacity var(--motion);
 }
@@ -1701,48 +1693,66 @@ button.composer-model-offline {
 
 .home-cardTile {
   position: relative;
-  display: grid;
+  display: inline-grid;
   place-items: center;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  color: var(--text-dim);
+  width: 18px;
+  height: 18px;
+  color: var(--text-faint);
+  transition: color var(--motion);
+}
+
+.home-card:hover .home-cardTile {
+  color: var(--text);
 }
 
 /* A session that ended mid-turn, is working, or finished while another was on screen. */
 .home-cardDot {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: -1px;
+  right: -3px;
   width: 5px;
   height: 5px;
 }
 
 .home-cardText {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
   min-width: 0;
 }
 
+/* The title leans in a step toward the pointer, as a step's line does. */
 .home-cardTitle {
+  min-width: 0;
   overflow: hidden;
-  font-size: var(--text-ui);
-  font-weight: 550;
-  letter-spacing: -0.008em;
+  color: var(--text);
   white-space: nowrap;
   text-overflow: ellipsis;
+  transition: translate var(--motion);
 }
 
+.home-card:hover .home-cardTitle {
+  translate: 3px 0;
+}
+
+/* Details give way before a title does, and never take more than about half the row. */
 .home-cardMeta {
+  min-width: 0;
+  max-width: 55%;
   overflow: hidden;
+  font-size: var(--text-meta);
+  color: var(--text-faint);
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: var(--text-meta);
-  color: var(--text-dim);
+  transition: opacity var(--motion);
+}
+
+.home-card-split:hover .home-cardMeta,
+.home-card-split:has(.home-cardEdit:focus-visible) .home-cardMeta {
+  opacity: 0;
 }
 
 /* The home screen: the headline, the composer, and what sits below them as one column. The mark,
@@ -1810,11 +1820,6 @@ button.composer-model-offline {
 .homeNext-row:hover .homeNext-icon,
 .homeNext-row-grouped .homeNext-icon {
   color: var(--text);
-}
-
-.homeNext-icon .lucide {
-  width: 16px;
-  height: 16px;
 }
 
 /* The line leans in a step toward the pointer, as a link in a list does. */

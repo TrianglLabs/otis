@@ -17,6 +17,7 @@ import { formatAge } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import type { Translate } from "../../i18n/messages/en.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
+import { HomeRow } from "../projects/ProjectsHome.js"
 
 /** What a run's line says beyond its time; the mark and the dot already tell the rest. */
 function describeRun(run: RoutineRun, locale: string, t: Translate) {
@@ -53,8 +54,8 @@ function scheduleLabel(schedule: RoutineSchedule, locale: string, t: Translate) 
 
 const HOURS_24 = Array.from({ length: 24 }, (_, hour) => hour)
 const MINUTES = ["00", "15", "30", "45"]
-/** Cards per page on the home screen, the New routine card among them. */
-const ROUTINES_PAGE = 5
+/** Routines per page on the home screen, under the New routine row. */
+const ROUTINES_PAGE = 4
 /** Interval presets in minutes; a saved value outside them is listed with them. */
 const INTERVALS = [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440]
 
@@ -129,19 +130,12 @@ export function RoutinesHome() {
         <Pager {...pager} />
       </span>
       <div className="home-grid">
-        <button
-          type="button"
-          className="home-card home-card-add"
+        <HomeRow
+          icon={Plus}
+          title={t("home.newRoutine")}
+          hint={t("home.newRoutineHint")}
           onClick={() => setEditing(blank(state.workspace.path))}
-        >
-          <span className="home-cardTile">
-            <Icon icon={Plus} size={15} />
-          </span>
-          <span className="home-cardText">
-            <span className="home-cardTitle">{t("home.newRoutine")}</span>
-            <span className="home-cardMeta">{t("home.newRoutineHint")}</span>
-          </span>
-        </button>
+        />
         {shown.map((routine) => {
           const running = routine.runtime !== undefined
           const last = routine.lastRun
@@ -184,7 +178,7 @@ export function RoutinesHome() {
                 onClick={openRun}
               >
                 <span className="home-cardTile">
-                  {running ? <MatrixLoader /> : <Icon icon={CalendarClock} size={15} />}
+                  {running ? <MatrixLoader /> : <Icon icon={CalendarClock} size={16} />}
                   {!running && dot !== undefined ? (
                     <span className={`stateDot home-cardDot ${dot}`} />
                   ) : null}

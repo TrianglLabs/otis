@@ -50,6 +50,7 @@
   background: var(--bg-hover);
 }
 
+/* The active model's check follows its name, as the palette marks the session on screen. */
 .modelPicker-check {
   flex-shrink: 0;
   color: var(--accent-ink);
