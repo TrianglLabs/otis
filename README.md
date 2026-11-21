@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screens/hero.png" alt="Two Otis sessions working side by side, each showing its edits as diffs, with a Word document open in Canvas and more sessions waiting as chips" width="960">
+  <img src="docs/screens/hero.png" alt="Two Otis sessions side by side, one still working through its edits, with a Word document open in Canvas and more sessions waiting as chips" width="960">
 </p>
 
 Otis is an AI agent for research, writing, documents, and code. It sets up a local model for your hardware, or
@@ -89,11 +89,12 @@ PowerShell.
   <tr>
     <td valign="middle">
       <b>2. Pick up where you left off</b><br><br>
-      Home lists recent sessions and the documents they produced, across every folder. Open one, or just start
+      Home greets you with the composer and what to do next: sessions still working, ones that finished out of
+      view, pinned and recent work, and the documents they produced, across every folder. Open one, or just start
       typing. <code>⌘K</code> searches every session by title and content. The switcher at the top flips to your
-      routines.
+      projects and routines.
     </td>
-    <td><img src="docs/screens/home.png" alt="Home: recent sessions and documents above the composer" width="100%"></td>
+    <td><img src="docs/screens/home.png" alt="Home: a greeting, the composer, and next steps below it" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">
@@ -112,7 +113,7 @@ PowerShell.
       your machine to render.
       A Terminal tab (<code>⌃`</code>) opens your shell in the working folder beside them.
     </td>
-    <td><img src="docs/screens/canvas.png" alt="Canvas with document tabs and a PDF preview" width="100%"></td>
+    <td><img src="docs/screens/canvas.png" alt="Canvas previewing a PDF beside a conversation that produced several kinds of documents" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">
@@ -136,7 +137,7 @@ PowerShell.
       saves it, after asking you first. They run while the app is open, or around the clock under
       <code>otis serve</code>.
     </td>
-    <td><img src="docs/screens/routines.png" alt="Routines: cards for each scheduled prompt, with New routine first and a pager" width="100%"></td>
+    <td><img src="docs/screens/routines.png" alt="Routines: a list of scheduled prompts with their folder and schedule, New routine first and a pager" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">
@@ -144,7 +145,7 @@ PowerShell.
       One picker holds every model Otis can reach: managed local models with their memory needs, models on your own
       servers, and hosted ones. The star marks the local model that fits this computer best.
     </td>
-    <td><img src="docs/screens/picker.png" alt="The model picker with local, oMLX, and hosted sections" width="100%"></td>
+    <td><img src="docs/screens/picker.png" alt="The model picker opened on its local section, with the recommended model starred" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">
@@ -191,12 +192,12 @@ you first. The model cannot grant a routine tools without asking; that switch is
 ## Projects
 
 Every folder you open is a project. The home screen's Projects tab lists them, pinned ones first, with their
-sessions and last activity. Each card carries its pin. A project page lets you name it, start a session in it, and write
-instructions that Otis reads at the start of every session in that folder, after the folder's own AGENTS.md. The
-instructions live in Otis' data folder beside the project's sessions, so a folder that is not a repository, or one you
-do not want to add files to, still gets them. The name shows wherever the folder is named: the palette, the home
-cards, and the header. A session can be pinned too, from its card on Home or from its ⌘K menu; pinned sessions
-keep a row of their own above the recents.
+sessions and last activity, four to a page under New project; hover a row for its pin. A project page lets you name
+it, start a session in it, and write instructions that Otis reads at the start of every session in that folder, after
+the folder's own AGENTS.md. The instructions live in Otis' data folder beside the project's sessions, so a folder that
+is not a repository, or one you do not want to add files to, still gets them. The name shows wherever the folder is
+named: the palette, Home, and the header. A session can be pinned too, from its ⌘K menu; Home lists pinned sessions
+right after the ones that need you.
 
 A conversation can branch. In the desktop app, hover a message you sent and choose "New session from here", or
 right-click a session in the ⌘K palette and choose "Duplicate session"; in the terminal, `/fork` branches the current
