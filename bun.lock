@@ -28,6 +28,7 @@
         "remark-gfm": "^4.0.1",
         "remark-math-extended": "^6.1.1",
         "thinking-orbs": "^0.3.2",
+        "undici": "^8.12.4",
         "use-sync-external-store": "^1.7.0",
         "ws": "^8.22.0",
         "yaml": "^2.9.0",

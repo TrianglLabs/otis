@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { app, BrowserWindow, dialog, Notification, shell } from "electron"
 import electronUpdater from "electron-updater"
+import { fetch as undiciFetch } from "undici"
 import { describeError } from "../../inference/errors.js"
 import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
 import { DEFAULT_APP_ICON, loadLocalSettings, saveRemote } from "../../local/settings.js"
@@ -23,6 +24,12 @@ import { keepCliCurrent, startAutoUpdates } from "./updater.js"
 import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "./workspace.js"
 
 const { autoUpdater } = electronUpdater
+
+// Electron's Node bundles an undici whose HTTP/1 parser asserts when a server closes the
+// connection while a slow reader has the body paused, which a multi-gigabyte model download
+// meets; the assertion fires in a socket event, out of any caller's reach, and quits the app.
+// The current undici finishes the body instead, behind the same fetch.
+globalThis.fetch = undiciFetch as unknown as typeof fetch
 
 handleClosedOutput(process.stdout)
 handleClosedOutput(process.stderr)
@@ -63,7 +70,11 @@ const crash = (error: unknown) => {
       // The profile directory may be the problem.
     }
     try {
-      dialog.showErrorBox("Otis has to quit", describeError(error))
+      dialog.showErrorBox(
+        "Otis needs to restart",
+        "Something went wrong and Otis has to close. Your sessions are saved, so open Otis " +
+          `again to pick up where you left off.\n\nDetails: ${describeError(error).split("\n")[0]}`,
+      )
     } catch {
       // Not available before the app is ready.
     }
