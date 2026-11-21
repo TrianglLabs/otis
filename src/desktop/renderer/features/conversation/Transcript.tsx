@@ -1,7 +1,19 @@
-import { Maximize2, MessagesSquare, Shield, X } from "lucide-react"
+import {
+  FolderSearch,
+  Globe,
+  Maximize2,
+  MessagesSquare,
+  PenLine,
+  Pin,
+  RotateCcw,
+  Shield,
+  X,
+} from "lucide-react"
 import {
   type DragEvent,
   memo,
+  type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -9,9 +21,10 @@ import {
   useRef,
   useState,
 } from "react"
+import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { PaneDrop, PaneSide, PendingPermission, SessionOpResult } from "../../../contracts.js"
-import { Button, Pager, usePage } from "../../components/Button.js"
+import { Button } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { MatrixLoader } from "../../components/MatrixLoader.js"
@@ -22,7 +35,7 @@ import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.j
 import type { HomeView } from "../../shell/WorkspaceHeader.js"
 import { PaneRuntimeContext, useOpenCanvas } from "../canvas/canvas-context.js"
 import { FindBar, useFind } from "../canvas/find.js"
-import { ProjectsHome, SessionCard } from "../projects/ProjectsHome.js"
+import { ProjectsHome } from "../projects/ProjectsHome.js"
 import { RoutinesHome } from "../routines/RoutinesHome.js"
 import { Composer } from "./Composer.js"
 import { TranscriptList } from "./TranscriptList.js"
@@ -119,6 +132,8 @@ export const ConversationView = memo(function ConversationView({
     return { replace: Number(card.dataset.runtime) }
   }
   const { home, panes } = state
+  // Home's starters put their prompt in the composer through this.
+  const compose = useRef<(text: string) => void>(undefined)
   const layout =
     panes.length === 1
       ? ""
@@ -128,7 +143,7 @@ export const ConversationView = memo(function ConversationView({
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the drop target is the panes' shared surface; the chips are the keyboard path.
     <div
-      className="conversationArea"
+      className={`conversationArea${home ? " conversationArea-hero" : ""}`}
       onDragOver={(event) => {
         const { types } = event.dataTransfer
         if (!types.includes(RUNTIME_DRAG_TYPE) && !types.includes(SESSION_DRAG_TYPE)) return
@@ -163,8 +178,6 @@ export const ConversationView = memo(function ConversationView({
             active={runtime === state.focused}
             split={panes.length > 1}
             dropTarget={drop !== undefined && "replace" in drop && drop.replace === runtime}
-            homeView={homeView}
-            onHomeView={onHomeView}
             findFocus={findFocus}
             onBranch={branch}
           />
@@ -182,8 +195,21 @@ export const ConversationView = memo(function ConversationView({
           </div>
         ) : null}
         {home ? null : <SessionStrip />}
-        <Composer installing={installing} />
+        <Composer installing={installing} composeRef={compose} />
       </div>
+      {/* The home screen keeps its headline and composer in place across its views; only what
+          sits below them changes. */}
+      {home ? (
+        <div className="homeBelow">
+          {homeView === "routines" ? (
+            <RoutinesHome />
+          ) : homeView === "projects" ? (
+            <ProjectsHome onHome={() => onHomeView("home")} />
+          ) : (
+            <HomeNext composeRef={compose} />
+          )}
+        </div>
+      ) : null}
     </div>
   )
 })
@@ -199,8 +225,6 @@ const ConversationPane = memo(function ConversationPane({
   active,
   split,
   dropTarget,
-  homeView,
-  onHomeView,
   findFocus,
   onBranch,
 }: {
@@ -209,8 +233,6 @@ const ConversationPane = memo(function ConversationPane({
   split: boolean
   /** A dragged session hovering over this card would take its place. */
   dropTarget: boolean
-  homeView: HomeView
-  onHomeView: (view: HomeView) => void
   findFocus: number | undefined
   onBranch: (runtime: number, turnSeq: number) => void
 }) {
@@ -393,7 +415,7 @@ const ConversationPane = memo(function ConversationPane({
         />
       ) : null}
       {!split && state.entries.length === 0 && !state.permission ? (
-        <EmptyState view={homeView} onView={onHomeView} />
+        <EmptyState />
       ) : (
         <PaneRuntimeContext.Provider value={runtime}>
           <TranscriptList
@@ -452,128 +474,209 @@ export const SessionStrip = memo(function SessionStrip() {
   )
 })
 
-// Each home row shows four cards: the recents stop there, the pinned sessions page.
-const HOME_CARDS = 4
+// Home's headline by the part of the day, one of two alternating by date.
+const GREETINGS = {
+  morning: ["home.greeting.morning", "home.greeting.morning2"],
+  afternoon: ["home.greeting.afternoon", "home.greeting.afternoon2"],
+  evening: ["home.greeting.evening", "home.greeting.evening2"],
+  night: ["home.greeting.night", "home.greeting.night2"],
+} as const
 
 /**
- * A quiet home screen: the mark and any setup guidance, then cards on the composer's width for
- * pinned sessions, recent sessions, and recent Canvas documents, each document with its opening
- * set on a page. A session's pin, at its card's edge, moves it between the first two rows.
- * First run — no history anywhere — shows only the mark and any setup guidance.
+ * The top of a quiet home screen: the mark and a headline, or the setup guidance while no model is
+ * configured. The composer follows, then Home's next steps, its projects, or its routines.
  */
-function EmptyState({ view, onView }: { view: HomeView; onView: (view: HomeView) => void }) {
+function EmptyState() {
+  const { t } = useI18n()
+  const state = useDesktopState("modelState")
+  // Picked when Home opens, so it never changes while on screen.
+  const [greeting] = useState(() => {
+    const now = new Date()
+    const hour = now.getHours()
+    const part =
+      hour < 5
+        ? "night"
+        : hour < 12
+          ? "morning"
+          : hour < 17
+            ? "afternoon"
+            : hour < 22
+              ? "evening"
+              : "night"
+    const day = Math.floor(now.getTime() / 86_400_000 - now.getTimezoneOffset() / 1440)
+    return GREETINGS[part][day % 2]
+  })
+  if (!state) return null
+  return (
+    <div className="home">
+      <OtisMark className="home-logo" solvable />
+      {/* A model that could not start is reported once, at the composer. */}
+      {state.modelState === "unconfigured" ? (
+        <div className="home-setup">
+          <p>{t("home.noModel")}</p>
+          <p className="home-setupHint">{t("home.setupHint")}</p>
+        </div>
+      ) : (
+        <h1 className="home-greeting">{t(greeting)}</h1>
+      )}
+    </div>
+  )
+}
+
+/**
+ * One of Home's next steps: what it shows, its full text where the label may be cut, the session
+ * it opens, and what choosing it does.
+ */
+type NextStep = {
+  key: string
+  icon: ReactNode
+  label: ReactNode
+  title?: string
+  hint?: string
+  session?: GlobalSessionPickerItem
+  run: () => void
+}
+
+/**
+ * Home's next steps, under the composer, rebuilt from live state as it changes: first what needs
+ * you (a session working, one that finished out of view, one interrupted), then pinned sessions
+ * and the latest work, up to three; starters fill the list to four, each putting a prompt in the
+ * composer to finish.
+ */
+function HomeNext({ composeRef }: { composeRef: RefObject<((text: string) => void) | undefined> }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
-  const state = useDesktopState("sessions", "recentArtifacts", "modelState")
+  const state = useDesktopState("sessions", "recentArtifacts")
   const [error, setError] = useState<string>()
   // Hovering a session lights the others it was last on screen with; opening it brings them.
-  const [hovered, setHovered] = useState<NonNullable<typeof state>["sessions"][number]>()
-  const pinned = usePage(state?.sessions.filter((session) => session.pinned) ?? [], HOME_CARDS)
+  const [hovered, setHovered] = useState<GlobalSessionPickerItem>()
   if (!state) return null
-  const documents = state.recentArtifacts
-  const recents = state.sessions
-    .filter((session) => !session.active && !session.pinned)
-    .slice(0, HOME_CARDS)
   const open = async (run: () => Promise<SessionOpResult>) => {
     setError(undefined)
     const result = await run()
     if (!result.ok) setError(result.reason)
   }
-  const firstRun = pinned.shown.length === 0 && recents.length === 0 && documents.length === 0
-  const cards = (sessions: typeof recents) => (
-    <div className="home-grid home-grid-sessions">
-      {sessions.map((session) => (
-        <SessionCard
-          key={`${session.dirName}:${session.id}`}
-          session={session}
-          meta={`${session.workspaceLabel} · ${formatSessionDetail(session.detail, locale)}`}
-          grouped={inView(hovered, session)}
-          onHover={setHovered}
-          onOpen={() => void open(() => api.selectSession(session.id, session.dirName))}
-        />
-      ))}
-    </div>
-  )
+  // The verb stays quiet and the session or file it names reads in full, in any word order.
+  const phrase = (key: Parameters<typeof t>[0], name: "title" | "name", value: string) => {
+    const [before, after] = t(key, { [name]: "\u0000" }).split("\u0000")
+    return {
+      label: (
+        <>
+          {before}
+          <span className="homeNext-subject">{value}</span>
+          {after}
+        </>
+      ),
+      title: t(key, { [name]: value }),
+    }
+  }
+  const shown = new Set<GlobalSessionPickerItem>()
+  const sessionStep = (
+    session: GlobalSessionPickerItem,
+    key: Parameters<typeof t>[0],
+    icon: ReactNode,
+    hint = formatSessionDetail(session.detail, locale),
+  ): NextStep => {
+    shown.add(session)
+    return {
+      key: `${session.dirName}:${session.id}`,
+      icon,
+      ...phrase(key, "title", session.title),
+      hint,
+      session,
+      run: () => void open(() => api.selectSession(session.id, session.dirName)),
+    }
+  }
+  const pick = (test: (session: GlobalSessionPickerItem) => boolean | undefined) =>
+    state.sessions.filter((session) => !session.active && !shown.has(session) && test(session))
+  const steps: NextStep[] = [
+    ...pick((session) => session.working).map((session) =>
+      sessionStep(
+        session,
+        "home.next.working",
+        <MatrixLoader title={t("session.working")} />,
+        t("session.working"),
+      ),
+    ),
+    ...pick((session) => session.unseen).map((session) =>
+      sessionStep(
+        session,
+        "home.next.review",
+        <span className="stateDot" />,
+        t("session.finished"),
+      ),
+    ),
+    ...pick((session) => session.resumable).map((session) =>
+      sessionStep(session, "home.next.resume", <Icon icon={RotateCcw} size={14} />),
+    ),
+    ...pick((session) => session.pinned).map((session) =>
+      sessionStep(session, "home.next.continue", <Icon icon={Pin} size={14} />),
+    ),
+    ...state.recentArtifacts.slice(0, 1).map((document) => {
+      const { label, title } = phrase("home.next.open", "name", document.name)
+      // The document's opening line says what it is about.
+      const opening = document.reference.excerpt?.split("\n").find((line) => line.trim())
+      return {
+        key: `document:${document.reference.artifactId}`,
+        icon: <FileTypeIcon kind={document.kind} name={document.name} size="xs" />,
+        label,
+        title: opening ? `${title} — ${opening}` : title,
+        hint: formatAge(document.updatedAt, locale),
+        run: () =>
+          void open(async () => {
+            const opened = await api.selectSession(document.sessionId, document.dirName)
+            return opened.ok ? api.openArtifact(document.reference) : opened
+          }),
+      }
+    }),
+    ...pick(() => true)
+      .slice(0, 1)
+      .map((session) =>
+        sessionStep(session, "home.next.continue", <Icon icon={MessagesSquare} size={14} />),
+      ),
+  ].slice(0, 3)
+  const rows: NextStep[] = [
+    ...steps,
+    ...(
+      [
+        [Globe, "home.next.web", "home.next.webPrompt"],
+        [PenLine, "home.next.write", "home.next.writePrompt"],
+        [FolderSearch, "home.next.explain", "home.next.explainPrompt"],
+      ] as const
+    ).map(([icon, label, prompt]) => ({
+      key: label,
+      icon: <Icon icon={icon} size={14} />,
+      label: t(label),
+      run: () => composeRef.current?.(t(prompt)),
+    })),
+  ].slice(0, 4)
 
   return (
-    <div className="home">
-      <div className="home-center">
-        <OtisMark className="home-logo" solvable />
-        {/* A model that could not start is reported once, at the composer. */}
-        {state.modelState === "unconfigured" ? (
-          <div className="home-setup">
-            <p>{t("home.noModel")}</p>
-            <p className="home-setupHint">{t("home.setupHint")}</p>
-          </div>
-        ) : null}
-      </div>
-      {view === "routines" ? (
-        <RoutinesHome />
-      ) : view === "projects" ? (
-        <ProjectsHome onHome={() => onView("home")} />
-      ) : firstRun ? null : (
-        <div className="home-recents">
-          {pinned.shown.length ? (
-            <>
-              <span className="home-heading">
-                {t("home.pinned")}
-                <Pager {...pinned.pager} />
-              </span>
-              {cards(pinned.shown)}
-            </>
-          ) : null}
-          {recents.length ? (
-            <>
-              <span className="home-heading">
-                {t("home.recent")}
-                <span>{t("home.searchSessions")}</span>
-              </span>
-              {cards(recents)}
-            </>
-          ) : null}
-          {documents.length ? (
-            <>
-              <span className="home-heading">{t("home.documents")}</span>
-              <div className="home-grid">
-                {documents.map((document) => (
-                  <button
-                    key={document.reference.artifactId}
-                    type="button"
-                    className="home-card home-card-document"
-                    title={document.name}
-                    onClick={() =>
-                      void open(async () => {
-                        const opened = await api.selectSession(document.sessionId, document.dirName)
-                        return opened.ok ? api.openArtifact(document.reference) : opened
-                      })
-                    }
-                  >
-                    <span
-                      className={`home-page${document.reference.excerpt ? "" : " home-page-blank"}`}
-                      aria-hidden="true"
-                    >
-                      {document.reference.excerpt || (
-                        <FileTypeIcon kind={document.kind} name={document.name} />
-                      )}
-                    </span>
-                    <span className="home-cardText">
-                      <span className="home-cardTitle">{document.name}</span>
-                      <span className="home-cardMeta">
-                        {document.workspaceLabel} · {formatAge(document.updatedAt, locale)}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : null}
-          {error ? (
-            <span className="home-error" role="alert">
-              {error}
-            </span>
-          ) : null}
-        </div>
-      )}
+    <div className="homeNext">
+      {rows.map(({ key, icon, label, title, hint, session, run }) => (
+        <button
+          key={key}
+          type="button"
+          className={
+            session && inView(hovered, session)
+              ? "homeNext-row homeNext-row-grouped"
+              : "homeNext-row"
+          }
+          title={title}
+          onMouseEnter={session && (() => setHovered(session))}
+          onMouseLeave={session && (() => setHovered(undefined))}
+          onClick={run}
+        >
+          <span className="homeNext-icon">{icon}</span>
+          <span className="homeNext-label">{label}</span>
+          {hint ? <span className="homeNext-hint">{hint}</span> : null}
+        </button>
+      ))}
+      {error ? (
+        <span className="home-error" role="alert">
+          {error}
+        </span>
+      ) : null}
     </div>
   )
 }

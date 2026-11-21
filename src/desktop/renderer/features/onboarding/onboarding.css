@@ -1,7 +1,14 @@
 /* First-run onboarding: the same quiet, centered language as the home screen — brand mark, muted guidance,
-   borderless hover rows like the model picker. */
+   borderless hover rows like the model picker — under a faint glow of the accent. */
 .onboarding {
   position: relative;
+  background:
+    radial-gradient(
+      ellipse 60% 40% at 50% 0%,
+      color-mix(in srgb, var(--accent) 9%, transparent),
+      transparent 70%
+    ),
+    var(--bg);
   flex: 1;
   min-height: 0;
   display: flex;
@@ -130,10 +137,10 @@
 
 .onboarding-title {
   margin: 0;
-  font-size: 32px;
-  line-height: 1;
-  font-weight: 580;
-  letter-spacing: -0.03em;
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.035em;
   color: var(--text);
 }
 
@@ -161,29 +168,37 @@
   align-items: center;
   gap: 14px;
   padding: 16px 18px;
-  border: 0;
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--bg-elev);
+  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background var(--motion) ease;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    box-shadow var(--motion);
 }
 
 /* The same card as the home screen's: its surface, inked a little under the pointer. */
 .onboarding-card:hover {
-  background: var(--bg-card-hover);
+  border-color: var(--border);
+  background-color: var(--bg-elev);
+  box-shadow: var(--shadow-raised);
 }
 
 .onboarding-cardChevron {
   margin-left: auto;
   color: var(--text-dim);
-  transition: color var(--motion) ease;
+  transition:
+    color var(--motion),
+    transform var(--motion);
 }
 
 .onboarding-card:hover .onboarding-cardChevron {
   color: var(--text);
+  transform: translateX(2px);
 }
 
 .onboarding-cardIcon {
@@ -264,7 +279,7 @@
   font-size: 24px;
   font-weight: 600;
   text-align: center;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.028em;
   line-height: 1.15;
 }
 

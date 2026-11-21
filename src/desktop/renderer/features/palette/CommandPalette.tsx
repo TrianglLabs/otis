@@ -1,4 +1,5 @@
 import {
+  Check,
   CornerDownLeft,
   FilePlus2,
   FolderOpen,
@@ -402,6 +403,7 @@ export function CommandPalette({
                       <button
                         type="button"
                         className={`palette-rowMain${lifted === key ? " lifted" : ""}`}
+                        aria-current={row.item.active || undefined}
                         draggable
                         onDragStart={(event) => {
                           const { id, dirName } = row.item
@@ -433,6 +435,8 @@ export function CommandPalette({
                               <MatrixLoader title={t("session.working")} />
                             ) : row.item.unseen ? (
                               <span className="stateDot" title={t("session.finished")} />
+                            ) : row.item.active ? (
+                              <Icon icon={Check} size={12} className="palette-rowCheck" />
                             ) : row.item.open ? (
                               <span className="stateDot stateDot-open" title={t("session.open")} />
                             ) : null}

@@ -366,7 +366,7 @@ if (!app.requestSingleInstanceLock()) {
       // and Linux. Hidden rather than removed, so Alt still reaches its reload, zoom, and
       // developer-tools accelerators.
       autoHideMenuBar: process.platform !== "darwin",
-      backgroundColor: "#1A1A1A",
+      backgroundColor: "#1a1a1c",
       titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
       trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 16 } : undefined,
       show: false,

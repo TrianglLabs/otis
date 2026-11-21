@@ -145,7 +145,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-float);
   transform-origin: top center;
   /* Each card behind sits 16px lower and 5% smaller; the front hides all but its bottom edge. */
   transform: translateY(calc(var(--depth) * 16px)) scale(calc(1 - var(--depth) * 0.05));

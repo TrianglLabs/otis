@@ -1,4 +1,5 @@
 import {
+  Check,
   ChevronLeft,
   CircleMinus,
   CirclePlus,
@@ -97,11 +98,23 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
   }, [open, load])
 
   // The list opens on the active model, as a menu opens on its checked item: once on the rows
-  // kept from the last open, and again when the fresh catalog lands. Before paint, so no frame
-  // shows the top first.
+  // kept from the last open, and again when the fresh catalog lands. Its section's heading leads
+  // when both fit, so no row sits cut under the search field; else the row is centred. Before
+  // paint, so no frame shows the top first.
   useLayoutEffect(() => {
-    if (!open) return
-    listRef.current?.querySelector(".modelPicker-row.active")?.scrollIntoView({ block: "center" })
+    const list = listRef.current
+    const active = list?.querySelector<HTMLElement>(".modelPicker-row.active")
+    if (!open || !list || !active) return
+    let heading = active.previousElementSibling
+    while (heading && !heading.classList.contains("popover-section"))
+      heading = heading.previousElementSibling
+    // Layout offsets, which the popover's opening scale does not distort.
+    const top = (element: Element) => (element as HTMLElement).offsetTop - list.offsetTop
+    const bottom = top(active) + active.offsetHeight
+    list.scrollTop =
+      heading && bottom - top(heading) <= list.clientHeight
+        ? top(heading) - 6
+        : top(active) - (list.clientHeight - active.offsetHeight) / 2
   }, [open, items])
 
   // A finished load changes downloaded flags and availability labels; refresh the catalog once it
@@ -287,6 +300,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                       <button
                         type="button"
                         className="modelPicker-select"
+                        aria-current={item.active || undefined}
                         disabled={!selectable || loading || deletingKey !== undefined}
                         onClick={() => void select(key)}
                       >
@@ -314,6 +328,9 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                             {status?.label ?? <ModelDetail item={item} favorite={favorite} />}
                           </span>
                         </span>
+                        {item.active ? (
+                          <Icon icon={Check} size={14} className="modelPicker-check" />
+                        ) : null}
                       </button>
                       {/* The active row is the highlighted one; its rail holds the info and trash
                         affordances, shown on hover. Cancel and download have their own

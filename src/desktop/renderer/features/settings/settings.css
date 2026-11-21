@@ -34,7 +34,7 @@
   padding: 16px 12px 20px;
   overflow-y: auto;
   border-right: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--bg-elev) 32%, var(--bg));
+  background: var(--bg-rail);
 }
 
 /* Only windowed macOS needs space for native traffic lights and a drag region above the tabs. */
@@ -63,10 +63,10 @@
 .settingsSidebar-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  min-height: 32px;
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 5px 10px;
   overflow: hidden;
   color: var(--text-dim);
   font-size: var(--text-ui);
@@ -87,7 +87,8 @@
 .settingsSidebar-tabActive,
 .settingsSidebar-tabActive:hover {
   color: var(--text);
-  background: var(--bg-selected);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-soft);
 }
 
 .settingsSidebar-tabActive .lucide {
@@ -128,11 +129,11 @@
 }
 
 .settingsPage-title {
-  margin: 0 0 4px;
+  margin: 8px 0 4px;
   font-size: 24px;
   font-weight: 580;
   line-height: 1.25;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.03em;
 }
 
 .settingsGroup {
@@ -145,7 +146,7 @@
   padding: 0 16px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-elev) 60%, transparent);
 }
 
 /* A group with one surface per agent keeps them apart. */
@@ -506,7 +507,7 @@
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   background: var(--bg-elev);
-  box-shadow: 0 6px 20px #0003;
+  box-shadow: var(--shadow-float);
   font-size: var(--text-meta);
   white-space: nowrap;
   pointer-events: none;

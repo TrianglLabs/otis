@@ -1,14 +1,26 @@
 /* The shared workspace rail and coworker trace overlay. Rows clone the session-row anatomy; the overlay reuses
    the shared backdrop and enter animation from components.css. */
 
+/* A sheet inset from the window's edges, so the conversation and the work beside it read as two
+   surfaces rather than one split page. Its header spans the rest of the window header's height, so
+   the tabs sit on the same centerline; they are inset from the sheet's edge as far on every side,
+   with corners concentric to the sheet's. */
 .workspaceRail {
+  --sheet-gap: 4px;
+  --rail-header: calc(var(--header-height) - 2 * var(--sheet-gap) - 2px);
+  --rail-tab: 26px;
+  --rail-tab-inset: calc((var(--rail-header) - var(--rail-tab)) / 2);
+  --rail-tab-radius: calc(var(--radius-lg) - var(--rail-tab-inset));
   position: relative;
   width: var(--workspace-rail-width, 240px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  margin: var(--sheet-gap) var(--sheet-gap) var(--sheet-gap) 0;
   background: var(--bg-rail);
-  border-left: 1px solid var(--hairline);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
   user-select: none;
   min-height: 0;
   overflow: hidden;
@@ -18,6 +30,7 @@
   will-change: width, opacity, transform;
   transition:
     width 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    margin 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
     opacity 180ms ease,
     transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
     border-color 180ms ease,
@@ -62,12 +75,14 @@
   width: 0;
   opacity: 0;
   visibility: hidden;
+  margin-right: 0;
   transform: translateX(12px);
-  border-left-color: transparent;
-  border-left-width: 0;
+  border-color: transparent;
+  border-width: 0;
   pointer-events: none;
   transition:
     width 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    margin 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
     opacity 180ms ease,
     transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
     border-color 180ms ease,
@@ -81,8 +96,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  height: var(--header-height);
-  padding: 0 12px;
+  height: var(--rail-header);
+  padding: 0 var(--rail-tab-inset);
   -webkit-app-region: drag;
   flex-shrink: 0;
 }
@@ -106,8 +121,9 @@
   flex-shrink: 0;
   white-space: nowrap;
   border: 0;
-  padding: 5px 9px;
-  border-radius: var(--radius);
+  height: var(--rail-tab);
+  padding: 0 10px;
+  border-radius: var(--rail-tab-radius);
   background: transparent;
   color: var(--text-dim);
   font: inherit;
@@ -123,15 +139,20 @@
   background: var(--bg-hover);
 }
 
+/* The chosen tab is raised like a segmented control's pill, not a grey wash. */
 .workspaceRail-tabs button[aria-selected="true"],
-.workspaceRail-tabs button[aria-selected="true"]:hover {
+.workspaceRail-tabs button[aria-selected="true"]:hover,
+.workspaceRail-tab[data-selected="true"],
+.workspaceRail-tab[data-selected="true"]:hover {
   color: var(--text);
-  background: var(--bg-selected);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-soft);
 }
 
 .workspaceRail-views {
   flex: 1;
   min-height: 0;
+  padding-top: var(--rail-tab-inset);
   display: grid;
   overflow: hidden;
 }
@@ -175,7 +196,12 @@
   padding: 0 0 10px 10px;
 }
 
+/* A file's header stays at the top while its patches scroll under it. A square backing in the
+   sheet's colour hides the lines at its corners; the rounded hover tint lies over it. */
 .changeFile-summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -193,8 +219,23 @@
   display: none;
 }
 
+.changeFile-summary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-rail);
+}
+
 .changeFile-summary:hover {
   background: var(--bg-hover);
+}
+
+/* Each file after the first starts below a hairline, with room on both sides of it. */
+.changeFile + .changeFile {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
 }
 
 .changeFile-chevron {
@@ -237,16 +278,12 @@
 .workspaceRail-tab {
   display: inline-flex;
   align-items: center;
-  border-radius: var(--radius);
+  border-radius: var(--rail-tab-radius);
   transition: background-color var(--motion);
 }
 
 .workspaceRail-tab:hover {
   background: var(--bg-hover);
-}
-
-.workspaceRail-tab[data-selected="true"] {
-  background: var(--bg-selected);
 }
 
 /* The pill carries the colour; the tab inside stays clear in every state, or the two would
@@ -256,6 +293,7 @@
 .workspaceRail-tabs .workspaceRail-tab > [role="tab"][aria-selected="true"],
 .workspaceRail-tabs .workspaceRail-tab > [role="tab"][aria-selected="true"]:hover {
   background: transparent;
+  box-shadow: none;
 }
 
 /* Selected, the tab shows its close, so its own right padding gives way to the button. */
