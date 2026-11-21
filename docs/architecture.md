@@ -287,7 +287,7 @@ and labels it `loaded`.
 
 Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, CUDA on compatible Linux
 and Windows NVIDIA systems, Vulkan on other Linux and Windows GPU systems, otherwise CPU) and the selected GGUF into the
-platform local-data directory. Normal models use upstream llama.cpp `b12359` (v1.0.0), except that CUDA 13.4
+platform local-data directory. Normal models use upstream llama.cpp `b12600` (v1.0.0), except that CUDA 13.4
 machines keep `b11438`, upstream's last 13.4 build. Bonsai 2 uses Prism's
 `prism-b10685-7dffb15` fork because its ternary formats require Prism's
 loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
