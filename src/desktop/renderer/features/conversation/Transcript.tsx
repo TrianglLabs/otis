@@ -1,14 +1,4 @@
-import {
-  FolderSearch,
-  Globe,
-  Maximize2,
-  MessagesSquare,
-  PenLine,
-  Pin,
-  RotateCcw,
-  Shield,
-  X,
-} from "lucide-react"
+import { Globe, Maximize2, MessagesSquare, PenLine, Pin, RotateCcw, Shield, X } from "lucide-react"
 import {
   type DragEvent,
   memo,
@@ -539,9 +529,9 @@ type NextStep = {
 
 /**
  * Home's next steps, under the composer, rebuilt from live state as it changes: first what needs
- * you (a session working, one that finished out of view, one interrupted), then pinned sessions
- * and the latest work, up to three; starters fill the list to four, each putting a prompt in the
- * composer to finish.
+ * you (a session working, one that finished out of view, one interrupted), then pinned sessions,
+ * the latest document, and recent sessions, up to three; starters fill the list to four, each
+ * putting a prompt in the composer to finish.
  */
 function HomeNext({ composeRef }: { composeRef: RefObject<((text: string) => void) | undefined> }) {
   const { api } = useDesktop()
@@ -607,10 +597,10 @@ function HomeNext({ composeRef }: { composeRef: RefObject<((text: string) => voi
       ),
     ),
     ...pick((session) => session.resumable).map((session) =>
-      sessionStep(session, "home.next.resume", <Icon icon={RotateCcw} size={14} />),
+      sessionStep(session, "home.next.resume", <Icon icon={RotateCcw} size={16} />),
     ),
     ...pick((session) => session.pinned).map((session) =>
-      sessionStep(session, "home.next.continue", <Icon icon={Pin} size={14} />),
+      sessionStep(session, "home.next.continue", <Icon icon={Pin} size={16} />),
     ),
     ...state.recentArtifacts.slice(0, 1).map((document) => {
       const { label, title } = phrase("home.next.open", "name", document.name)
@@ -629,11 +619,9 @@ function HomeNext({ composeRef }: { composeRef: RefObject<((text: string) => voi
           }),
       }
     }),
-    ...pick(() => true)
-      .slice(0, 1)
-      .map((session) =>
-        sessionStep(session, "home.next.continue", <Icon icon={MessagesSquare} size={14} />),
-      ),
+    ...pick(() => true).map((session) =>
+      sessionStep(session, "home.next.continue", <Icon icon={MessagesSquare} size={16} />),
+    ),
   ].slice(0, 3)
   const rows: NextStep[] = [
     ...steps,
@@ -641,11 +629,10 @@ function HomeNext({ composeRef }: { composeRef: RefObject<((text: string) => voi
       [
         [Globe, "home.next.web", "home.next.webPrompt"],
         [PenLine, "home.next.write", "home.next.writePrompt"],
-        [FolderSearch, "home.next.explain", "home.next.explainPrompt"],
       ] as const
     ).map(([icon, label, prompt]) => ({
       key: label,
-      icon: <Icon icon={icon} size={14} />,
+      icon: <Icon icon={icon} size={16} />,
       label: t(label),
       run: () => composeRef.current?.(t(prompt)),
     })),

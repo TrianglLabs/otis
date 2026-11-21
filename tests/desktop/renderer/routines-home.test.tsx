@@ -98,20 +98,20 @@ describe("RoutinesHome", () => {
     expect(container.querySelectorAll(".stateDot-failed")).toHaveLength(1)
   })
 
-  it("shows six cards a page, New routine first, and pages through the rest", async () => {
+  it("shows four routines a page under New routine, and pages through the rest", async () => {
     const many = Array.from({ length: 6 }, (_, i) => ({
       ...digest,
       id: `r${i}`,
       name: `Routine ${i}`,
     }))
     const { getByText, queryByText, getByRole, container } = await mount(many)
-    expect(container.querySelectorAll(".home-card")).toHaveLength(6)
+    expect(container.querySelectorAll(".home-card")).toHaveLength(5)
     expect(container.querySelector(".home-card")?.textContent).toContain("New routine")
-    expect(getByText("Routine 4")).toBeTruthy()
-    expect(queryByText("Routine 5")).toBeNull()
+    expect(getByText("Routine 3")).toBeTruthy()
+    expect(queryByText("Routine 4")).toBeNull()
     expect(getByText("1 of 2")).toBeTruthy()
     fireEvent.click(getByRole("button", { name: "Next page" }))
-    expect(getByText("Routine 5")).toBeTruthy()
+    expect(getByText("Routine 4")).toBeTruthy()
     expect(queryByText("Routine 0")).toBeNull()
     expect(container.querySelector(".home-card")?.textContent).toContain("New routine")
     expect((getByRole("button", { name: "Next page" }) as HTMLButtonElement).disabled).toBe(true)

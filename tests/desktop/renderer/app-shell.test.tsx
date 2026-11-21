@@ -3101,6 +3101,19 @@ describe("Home's next steps", () => {
     }
   })
 
+  it("fills spare rows with more recent sessions before the starters", async () => {
+    const sessions = ["One", "Two", "Three", "Four"].map((title, i) =>
+      sessionItem({ id: `s${i}`, title, detail: `${i + 1}h ago` }),
+    )
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions, recentArtifacts: [] })),
+    })
+    await renderApp(api)
+    expect(
+      [...document.querySelectorAll(".homeNext-label")].map((label) => label.textContent),
+    ).toEqual(["Continue One", "Continue Two", "Continue Three", "Search the web"])
+  })
+
   it("shows starters alone when there is no history", async () => {
     const api = fakeApi({
       getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [], recentArtifacts: [] })),
@@ -3108,7 +3121,7 @@ describe("Home's next steps", () => {
     await renderApp(api)
     expect(
       [...document.querySelectorAll(".homeNext-label")].map((label) => label.textContent),
-    ).toEqual(["Search the web", "Write a document", "Explain this folder"])
+    ).toEqual(["Search the web", "Write a document"])
   })
 })
 

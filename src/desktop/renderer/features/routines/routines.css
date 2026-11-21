@@ -1,9 +1,4 @@
-/* Routines on the home screen: the recents' cards, and a sheet for the one being edited. */
-
-.home-card-add .home-cardTile {
-  background: transparent;
-  border: 1px dashed var(--border);
-}
+/* Routines on the home screen: the recents' rows, and a sheet for the one being edited. */
 
 /* A card with nothing to open says so quietly, centred under the grid, for a few seconds. */
 .home-notice {

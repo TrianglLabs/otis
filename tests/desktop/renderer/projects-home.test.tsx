@@ -57,11 +57,14 @@ describe("ProjectsHome", () => {
     const { getByText, getByRole, queryByRole, api, onHome } = await mount([otis, notes])
     expect(getByText("2 sessions", { exact: false })).toBeTruthy()
     expect(getByText("0 sessions")).toBeTruthy()
-    // The pinned project sits in a row of its own above the rest.
+    // One list, the pinned project first.
     const headings = [...document.querySelectorAll(".home-heading")].map(
       (heading) => heading.firstChild?.textContent,
     )
-    expect(headings).toEqual(["Pinned", "Projects"])
+    expect(headings).toEqual(["Projects"])
+    // New project leads the list and picks the folder to work in.
+    await act(async () => fireEvent.click(getByText("New project")))
+    expect(api.pickWorkspaceFolder).toHaveBeenCalledOnce()
     expect(
       getByText("otis").compareDocumentPosition(getByText("Reading")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -73,15 +76,15 @@ describe("ProjectsHome", () => {
     fireEvent.click(getByText("Reading"))
     expect(getByText("/Users/dev/notes")).toBeTruthy()
     expect(getByText("No sessions yet.")).toBeTruthy()
-    // The instructions show their first line on the card; Edit opens a sheet whose Save writes
-    // them only when changed, and Cancel discards the draft.
+    // The instructions show their first line on their row, which opens a sheet whose Save
+    // writes them only when changed, and Cancel discards the draft.
     await waitFor(() => expect(getByText("Prefer bun.")).toBeTruthy())
-    fireEvent.click(getByRole("button", { name: "Edit" }))
+    fireEvent.click(getByRole("button", { name: /^Instructions/ }))
     const editor = getByRole("dialog").querySelector("textarea") as HTMLTextAreaElement
     expect(editor.value).toBe("Prefer bun.")
     await act(async () => fireEvent.click(getByRole("button", { name: "Save" })))
     expect(api.writeProjectInstructions).not.toHaveBeenCalled()
-    fireEvent.click(getByRole("button", { name: "Edit" }))
+    fireEvent.click(getByRole("button", { name: /^Instructions/ }))
     fireEvent.change(getByRole("dialog").querySelector("textarea") as HTMLTextAreaElement, {
       target: { value: "Prefer bun. Keep it short." },
     })
@@ -91,7 +94,7 @@ describe("ProjectsHome", () => {
       "Prefer bun. Keep it short.",
     )
     expect(getByText("Prefer bun. Keep it short.")).toBeTruthy()
-    fireEvent.click(getByRole("button", { name: "Edit" }))
+    fireEvent.click(getByRole("button", { name: /^Instructions/ }))
     fireEvent.change(getByRole("dialog").querySelector("textarea") as HTMLTextAreaElement, {
       target: { value: "Discarded" },
     })
@@ -99,7 +102,7 @@ describe("ProjectsHome", () => {
     expect(queryByRole("dialog")).toBeNull()
     expect(api.writeProjectInstructions).toHaveBeenCalledTimes(1)
     // A new session is the folder opened afresh, shown on Home.
-    await act(async () => fireEvent.click(getByRole("button", { name: "New session" })))
+    await act(async () => fireEvent.click(getByRole("button", { name: /^New session/ })))
     expect(api.openWorkspace).toHaveBeenCalledWith("/Users/dev/notes")
     expect(onHome).toHaveBeenCalledOnce()
   })
@@ -119,21 +122,26 @@ describe("ProjectsHome", () => {
     expect(getByText("2 sessions", { exact: false })).toBeTruthy()
   })
 
-  it("pages projects and a project's sessions four at a time", async () => {
-    const projects = Array.from({ length: 5 }, (_, i) => ({
+  it("pages projects four at a time under New project, pinned first", async () => {
+    const projects = Array.from({ length: 7 }, (_, i) => ({
       ...notes,
       dirName: `p${i}-0123456789ab`,
       label: `Project ${i}`,
     }))
-    const sessions = Array.from({ length: 6 }, (_, i) => session(`s${i}`, `Session ${i}`))
+    const sessions = Array.from({ length: 8 }, (_, i) => session(`s${i}`, `Session ${i}`))
     const { getByText, queryByText, getByRole } = await mount([otis, ...projects], sessions)
-    expect(getByText("Project 3")).toBeTruthy()
-    expect(queryByText("Project 4")).toBeNull()
+    // New project, then the pinned project leading the first page and three more beside it.
+    expect(getByText("New project")).toBeTruthy()
+    expect(getByText("otis")).toBeTruthy()
+    expect(getByText("Project 2")).toBeTruthy()
+    expect(queryByText("Project 3")).toBeNull()
     expect(getByText("1 of 2")).toBeTruthy()
     fireEvent.click(getByRole("button", { name: "Next page" }))
-    expect(getByText("Project 4")).toBeTruthy()
-    // The pinned project is not among the pages; it stays in its own row.
+    expect(getByText("Project 3")).toBeTruthy()
+    expect(queryByText("otis")).toBeNull()
+    fireEvent.click(getByRole("button", { name: "Previous page" }))
     fireEvent.click(getByText("otis"))
+    // New session and the instructions lead four sessions a page.
     expect(getByText("Session 3")).toBeTruthy()
     expect(queryByText("Session 4")).toBeNull()
     fireEvent.click(getByRole("button", { name: "Next page" }))
