@@ -15,11 +15,24 @@ body {
   font-family: var(--font-ui);
   font-optical-sizing: auto;
   font-size: var(--text-ui);
+  /* Inter's tailed l and open digits keep l, I and 1 apart at UI sizes; text sizes run a hair
+     tight, as Inter is drawn for. */
+  font-feature-settings: "cv05", "ss01";
+  letter-spacing: -0.006em;
   line-height: 1.45;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   overflow: hidden;
+}
+
+code,
+kbd,
+pre,
+samp {
+  letter-spacing: 0;
+  font-feature-settings: normal;
 }
 
 ::selection {
@@ -48,10 +61,10 @@ textarea {
   color: inherit;
 }
 
-/* Keyboard focus is a quiet grey ring, in step with the fields' focus lift, never the accent. */
+/* Keyboard focus is a soft accent halo, offset so it never sits on the control's own edge. */
 :focus-visible {
-  outline: 1px solid color-mix(in srgb, var(--text) 40%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
 }
 
 /* Lucide SVGs render inline by default, which sits them on the text baseline with descender space below.

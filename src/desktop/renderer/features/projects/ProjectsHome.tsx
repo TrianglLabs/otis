@@ -154,7 +154,7 @@ export function ProjectsHome({ onHome }: { onHome: () => void }) {
             {t("home.pinned")}
             <Pager {...pinned.pager} />
           </span>
-          <div className="home-grid home-grid-sessions">{pinned.shown.map(card)}</div>
+          <div className="home-grid">{pinned.shown.map(card)}</div>
         </>
       ) : null}
       <span className="home-heading">
@@ -178,7 +178,7 @@ export function ProjectsHome({ onHome }: { onHome: () => void }) {
       {rest.shown.length === 0 ? (
         <p className="project-hint">{t("projects.empty")}</p>
       ) : (
-        <div className="home-grid home-grid-sessions">{rest.shown.map(card)}</div>
+        <div className="home-grid">{rest.shown.map(card)}</div>
       )}
       {error ? <p className="home-error">{error}</p> : null}
     </div>
@@ -314,7 +314,7 @@ function ProjectPage({
       {sessions.length === 0 ? (
         <p className="project-hint">{t("projects.noSessions")}</p>
       ) : (
-        <div className="home-grid home-grid-sessions">
+        <div className="home-grid">
           {shown.map((session) => (
             <SessionCard
               key={session.id}

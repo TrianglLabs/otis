@@ -1,6 +1,6 @@
 import { BorderBeam } from "border-beam"
 import { ArrowUp, ChevronsUpDown, FolderOpen, Plus, Square, WifiOff, X } from "lucide-react"
-import { memo, useEffect, useRef, useState } from "react"
+import { memo, type RefObject, useEffect, useRef, useState } from "react"
 import {
   MAX_DOCUMENTS_PER_MESSAGE,
   MAX_RAW_DOCUMENT_BYTES,
@@ -110,7 +110,14 @@ const ACCENT_BEAM_CSS = `
  * draft is only cleared after the application accepts the prompt (recorded in the session); on
  * rejection the text stays put and the reason is shown.
  */
-export const Composer = memo(function Composer({ installing = false }: { installing?: boolean }) {
+export const Composer = memo(function Composer({
+  installing = false,
+  composeRef,
+}: {
+  installing?: boolean
+  /** Set to put a prompt in the draft, to finish and send, and focus the field. */
+  composeRef: RefObject<((text: string) => void) | undefined>
+}) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const state = useDesktopState(
@@ -204,6 +211,12 @@ export const Composer = memo(function Composer({ installing = false }: { install
       cancelled = true
     }
   }, [api, commandPrefix, skills])
+  useEffect(() => {
+    composeRef.current = (text) => {
+      setDraft(text)
+      textareaRef.current?.focus()
+    }
+  }, [composeRef])
   const acceptCommand = (skill: SkillSummary) => {
     setDraft(`/${skill.name} `)
     setMenuIndex(0)

@@ -336,7 +336,7 @@
   background: var(--bg-elev);
   color: var(--accent);
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-raised);
   transition:
     background var(--motion),
     color var(--motion);

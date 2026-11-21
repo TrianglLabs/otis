@@ -1,27 +1,31 @@
 @import "./fonts.css";
 
 /*
- * Design tokens for the Otis desktop UI. The default values mirror the TUI's default theme
- * (src/cli/theme.ts); themes.css remaps them per theme. Everything visual derives from these
- * tokens so themes stay consistent across the whole interface.
+ * Design tokens for the Otis desktop UI. The default theme shares the TUI's accent and syntax
+ * colors (src/cli/theme.ts) on deeper, neutral surfaces of its own; themes.css remaps them per
+ * theme. Everything visual derives from these tokens so themes stay consistent across the whole
+ * interface.
  */
 :root,
 [data-theme="default"] {
   /* Overlay stacking: every dialog layer above the backdrop. */
   --z-backdrop: 40;
   --z-overlay: 41;
-  /* Surfaces */
+  /* Surfaces: a deep page, raised surfaces a step up, and the workspace sheet between. The page
+     stays above near-black, where locally dimmed backlights (mini-LED zones) visibly dim large
+     dark areas apart from their content and flicker in blocks as it changes. */
   color-scheme: dark;
-  --bg: #1a1a1a;
-  --bg-elev: #262626;
-  /* The workspace rail, a shade above the page; the terminal paints its cells on it too. */
-  --bg-rail: #1f1f1f;
+  --bg: #1a1a1c;
+  --bg-elev: #242427;
+  /* The workspace sheet, a shade above the page; the terminal paints its cells on it too. */
+  --bg-rail: #1f1f21;
   /* Accent */
   --accent: #8b7cff;
   --on-accent: #fff;
-  /* Text */
-  --text: #d8dee9;
-  --text-dim: #808080;
+  /* Text: neutral ink, and greys with a faint lavender cast, so the accent is the only hue at
+     rest. */
+  --text: #ededef;
+  --text-dim: #8e8e9f;
 
   /* Semantic palette (syntax + status) */
   --cyan: #7dd3fc;
@@ -52,8 +56,8 @@
   --diff-add-content: #213d2b;
   --diff-remove-bg: #2e1a20;
   --diff-remove-content: #3d2228;
-  --diff-context-bg: #1a1a1a;
-  --diff-ln: #565656;
+  --diff-context-bg: #1a1a1c;
+  --diff-ln: #56565c;
 
   /* Typography */
   --font-ui:
@@ -70,11 +74,12 @@
 
   /* Geometry, in the macOS manner: every control is one rounded rectangle, surfaces that hold
      content take the large radius, and capsules are kept for switches, tracks, dots, and the
-     floating badges that sit over content. The radii stay small, so a corner reads as a corner. */
-  --radius-sm: 4px; /* inline chips: code spans, swatches */
-  --radius: 6px; /* buttons, chips, inputs, selects, menus, list rows, tabs, sidebar items */
-  --radius-lg: 10px; /* cards, panes, code blocks, grouped lists */
-  --radius-xl: 14px; /* the composer box and the floating overlays */
+     floating badges that sit over content. Nested corners step down so inner and outer curves
+     stay concentric. */
+  --radius-sm: 5px; /* inline chips: code spans, swatches */
+  --radius: 7px; /* buttons, chips, inputs, selects, menus, list rows, tabs, sidebar items */
+  --radius-lg: 11px; /* cards, panes, the workspace sheet, code blocks, grouped lists */
+  --radius-xl: 16px; /* the composer box and the floating overlays */
   --radius-pill: 999px; /* switches, meter tracks, status dots, floating badges, round actions */
   --row-inset: 6px; /* horizontal inset for list-row highlights */
   --row-gap: 2px; /* vertical separation between rounded interactive list rows */
@@ -83,8 +88,13 @@
   --content-max: 780px;
   --scrollbar: 10px; /* the overlay scrollbar's track, mirrored by gutters and masks */
 
-  --shadow-float: 0 16px 48px rgb(0 0 0 / 0.45);
-  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.22);
+  /* Depth on a dark page: a shadow has little darker tone to fade into, so beside a border it
+     only draws a second edge. Raised surfaces cast none; their border or lighter fill is the
+     edge. Overlays cast one below them alone, pulled in at the sides so nothing hugs their
+     hairline. Light themes set their own. */
+  --shadow-float: 0 24px 40px -16px rgb(0 0 0 / 0.5);
+  --shadow-raised: 0 0 #0000;
+  --shadow-soft: 0 0 #0000;
   /* One curve for everything that moves: a fast start that settles, so motion reads as one voice. */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --motion: 250ms var(--ease);
@@ -97,23 +107,26 @@
  */
 :root,
 [data-theme] {
-  --bg-user: color-mix(in srgb, var(--bg-elev) 90%, var(--accent) 10%);
+  --bg-user: color-mix(in srgb, var(--bg-elev) 94%, var(--accent) 6%);
   --bg-code: color-mix(in srgb, var(--bg-elev) 50%, var(--bg));
   --bg-surface: color-mix(in srgb, var(--bg-elev) 70%, var(--bg));
   /* Tints of the text laid over whatever surface is hovered or selected: they lighten dark themes
      and darken light ones by the same step, so no theme tunes them. Elements resting on an opaque
      surface layer the hover as a background-image. */
-  --bg-hover: color-mix(in srgb, var(--text) 12%, transparent);
-  /* A home card under the pointer: its surface, inked a little. */
-  --bg-card-hover: color-mix(in srgb, var(--bg-elev) 92%, var(--text));
-  --bg-selected: color-mix(in srgb, var(--text) 18%, transparent);
+  --bg-hover: color-mix(in srgb, var(--text) 7%, transparent);
+  --bg-selected: color-mix(in srgb, var(--text) 11%, transparent);
+  /* Text a step below dim: shortcuts, counts, and the quietest metadata. */
+  --text-faint: color-mix(in srgb, var(--text-dim) 70%, transparent);
   --accent-ink: color-mix(in srgb, var(--accent) 82%, var(--text));
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
   /* Borders are the text at low alpha, so every theme, light or dark, gets the same quiet lines:
      stronger for control outlines, a hairline for separators and resting cards. */
-  --border: color-mix(in srgb, var(--text) 16%, transparent);
-  --hairline: color-mix(in srgb, var(--text) 8%, transparent);
+  --border: color-mix(in srgb, var(--text) 13%, transparent);
+  --hairline: color-mix(in srgb, var(--text) 7.5%, transparent);
+  /* A control lifted off its track, such as a segmented control's chosen pill: the elevated
+     surface itself on paper, a lighter step of it in the dark. */
+  --bg-control: light-dark(var(--bg-elev), color-mix(in srgb, var(--bg-elev) 86%, var(--text)));
 }
 
 :root[data-text-size="small"] {

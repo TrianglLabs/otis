@@ -239,7 +239,11 @@ describe("Dashboard session navigation", () => {
       dirName: "legacy-0123456789ab",
       workspacePath: undefined,
     }
-    const sessions = [local, foreign, legacy]
+    // Finished out of view, all three are Home's next steps.
+    const sessions = [local, foreign, legacy].map((session) => ({
+      ...session,
+      unseen: true as const,
+    }))
     const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions })) })
     await renderApp(api)
 
@@ -266,13 +270,15 @@ describe("session views in history", () => {
       ],
       axis: "row" as const,
     }
-    const sessions = [{ ...alpha, view }, { ...beta, view }, gamma]
+    const sessions = [{ ...alpha, view }, { ...beta, view }, gamma].map((session) => ({
+      ...session,
+      unseen: true as const,
+    }))
     const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions })) })
     await renderApp(api)
 
     const tile = (title: string) => screen.getByRole("button", { name: new RegExp(title) })
-    const grouped = (title: string) =>
-      tile(title).closest(".home-card")?.classList.contains("home-card-grouped") === true
+    const grouped = (title: string) => tile(title).classList.contains("homeNext-row-grouped")
     fireEvent.mouseEnter(tile("Alpha work"))
     expect([grouped("Alpha work"), grouped("Beta work"), grouped("Gamma work")]).toEqual([
       false,
@@ -292,7 +298,7 @@ describe("session views in history", () => {
     expect([lit("Alpha work"), lit("Beta work"), lit("Gamma work")]).toEqual([true, false, false])
   })
 
-  it("sets each recent document's opening on its card", async () => {
+  it("offers the latest document, its opening line in the row's title", async () => {
     const document = {
       reference: {
         source: "published" as const,
@@ -315,8 +321,8 @@ describe("session views in history", () => {
       getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, recentArtifacts: [document] })),
     })
     await renderApp(api)
-    const card = screen.getByRole("button", { name: /plan\.md/ })
-    expect(card.querySelector(".home-page")?.textContent).toBe("Plan\nShip it")
+    const card = screen.getByRole("button", { name: /Open plan\.md/ })
+    expect(card.getAttribute("title")).toBe("Open plan.md — Plan")
     fireEvent.click(card)
     await waitFor(() => expect(api.selectSession).toHaveBeenCalledWith("s1", "ws-abc"))
   })
@@ -2993,6 +2999,11 @@ describe("AppShell settings navigation", () => {
     expect(activeSession.closest(".palette-row")?.classList.contains("palette-row-active")).toBe(
       true,
     )
+    // It is announced as the current session, a check after its title.
+    expect(activeSession.closest("button")?.getAttribute("aria-current")).toBe("true")
+    expect(
+      activeSession.closest(".palette-rowTitle")?.querySelector(".palette-rowCheck"),
+    ).not.toBeNull()
     fireEvent.contextMenu(activeSession)
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete session" }))
     expect(palette.getByText("Delete this session?")).toBeTruthy()
@@ -3012,7 +3023,7 @@ describe("AppShell settings navigation", () => {
 })
 
 describe("pinned sessions", () => {
-  it("keeps pinned sessions in their own row above the recents, four a page, with a pin on every card", async () => {
+  it("puts pinned sessions on Home ahead of plain recents", async () => {
     const pinned = Array.from({ length: 5 }, (_, i) => ({
       ...sessionItem({ id: `p${i}`, title: `Pinned work ${i}`, detail: "3d ago" }),
       pinned: true as const,
@@ -3022,26 +3033,14 @@ describe("pinned sessions", () => {
       getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [recent, ...pinned] })),
     })
     await renderApp(api)
-    const headings = [...document.querySelectorAll(".home-heading")].map(
-      (heading) => heading.firstChild?.textContent,
-    )
-    expect(headings.slice(0, 2)).toEqual(["Pinned", "Recent"])
-    const card = (title: string) =>
-      screen.getByRole("button", { name: new RegExp(title) }).closest(".home-card") as HTMLElement
-    expect(card("Pinned work 0").compareDocumentPosition(card("Recent work"))).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    )
-    // Four pinned sessions a page; the recents stay as they are.
-    expect(screen.queryByRole("button", { name: /Pinned work 4/ })).toBeNull()
-    expect(screen.getByText("1 of 2")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }))
-    expect(card("Pinned work 4")).toBeTruthy()
-    expect(screen.queryByRole("button", { name: /Pinned work 0/ })).toBeNull()
-    expect(card("Recent work")).toBeTruthy()
-    fireEvent.click(within(card("Pinned work 4")).getByRole("button", { name: "Unpin" }))
-    expect(api.pinSession).toHaveBeenCalledWith("p4", "ws-0123456789ab", false)
-    fireEvent.click(within(card("Recent work")).getByRole("button", { name: "Pin" }))
-    expect(api.pinSession).toHaveBeenCalledWith("r", "ws-0123456789ab", true)
+    // Three steps at most come from history; the pinned ones take them before the recents.
+    const steps = [...document.querySelectorAll(".homeNext-row")].map((row) => row.textContent)
+    expect(steps.slice(0, 3)).toEqual([
+      "Continue Pinned work 03d ago",
+      "Continue Pinned work 13d ago",
+      "Continue Pinned work 23d ago",
+    ])
+    expect(screen.queryByRole("button", { name: /Recent work/ })).toBeNull()
     // The palette's menu offers the same, worded for the home screen.
     fireEvent.keyDown(window, { key: "k", metaKey: true })
     const palette = within(screen.getByRole("dialog"))
@@ -3051,6 +3050,65 @@ describe("pinned sessions", () => {
     fireEvent.contextMenu(palette.getByText("Recent work"))
     fireEvent.click(screen.getByRole("menuitem", { name: "Pin to Home" }))
     expect(api.pinSession).toHaveBeenLastCalledWith("r", "ws-0123456789ab", true)
+  })
+})
+
+describe("Home's next steps", () => {
+  it("leads with what needs you, then starters", async () => {
+    const working = {
+      ...sessionItem({ id: "w", title: "Running job", detail: "now" }),
+      working: true as const,
+    }
+    const finished = {
+      ...sessionItem({ id: "f", title: "Done job", detail: "1h ago" }),
+      unseen: true as const,
+    }
+    const plain = sessionItem({ id: "p", title: "Old job", detail: "2d ago" })
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [plain, finished, working] })),
+    })
+    await renderApp(api)
+    const steps = () =>
+      [...document.querySelectorAll(".homeNext-row")].map(
+        (row) => row.querySelector(".homeNext-label")?.textContent,
+      )
+    expect(steps()).toEqual([
+      "Check on Running job",
+      "Review Done job",
+      "Continue Old job",
+      "Search the web",
+    ])
+    // A starter puts its prompt in the composer to finish, and focuses it.
+    fireEvent.click(screen.getByRole("button", { name: "Search the web" }))
+    const composer = screen.getByPlaceholderText("Ask Otis anything…") as HTMLTextAreaElement
+    expect(composer.value).toBe("Search the web for ")
+    expect(document.activeElement).toBe(composer)
+  })
+
+  it.each([
+    { hour: 9, lines: ["Good morning. What's first?", "Morning. Where should we start?"] },
+    { hour: 14, lines: ["What are we working on?", "What's next on the list?"] },
+    { hour: 20, lines: ["Good evening. What's left?", "Evening. What should we wrap up?"] },
+    { hour: 2, lines: ["Working late? Let's make it count.", "Still at it. What do you need?"] },
+  ])("heads Home by the part of the day at $hour:00", async ({ hour, lines }) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(new Date(2026, 10, 20, hour, 30))
+      await renderApp(fakeApi())
+      expect(lines).toContain(screen.getByRole("heading", { level: 1 }).textContent)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("shows starters alone when there is no history", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [], recentArtifacts: [] })),
+    })
+    await renderApp(api)
+    expect(
+      [...document.querySelectorAll(".homeNext-label")].map((label) => label.textContent),
+    ).toEqual(["Search the web", "Write a document", "Explain this folder"])
   })
 })
 

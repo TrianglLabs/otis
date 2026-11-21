@@ -24,6 +24,7 @@
   --otis-mark-top-opacity: 0.5;
   --shadow-float: 0 8px 28px rgb(0 0 0 / 0.1);
   --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.06);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.05), 0 8px 24px -8px rgb(0 0 0 / 0.12);
 }
 
 [data-theme="ember"] {
@@ -96,6 +97,9 @@
 
 [data-theme="bright"] {
   color-scheme: light;
+  --shadow-float: 0 8px 28px rgb(0 0 0 / 0.12);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -8px rgb(0 0 0 / 0.14);
+  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.08);
   --otis-mark-top-opacity: 0.5;
   --bg: #d8d8d6;
   --bg-elev: #cececa;
@@ -182,6 +186,9 @@
 
 [data-theme="beige"] {
   color-scheme: light;
+  --shadow-float: 0 8px 28px rgb(0 0 0 / 0.12);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -8px rgb(0 0 0 / 0.14);
+  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.08);
   --otis-mark-top-opacity: 0.5;
   --bg: #eae3ce;
   --bg-elev: #ddd3b6;
@@ -278,6 +285,7 @@
   --otis-mark-top-opacity: 0.5;
   --shadow-float: 0 8px 28px rgb(0 0 0 / 0.1);
   --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.06);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.05), 0 8px 24px -8px rgb(0 0 0 / 0.12);
 }
 
 /* A console home screen: light grey with white cards, a brand red, and a neon blue. */
@@ -305,6 +313,7 @@
   --otis-mark-top-opacity: 0.5;
   --shadow-float: 0 8px 28px rgb(0 0 0 / 0.12);
   --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.08);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -8px rgb(0 0 0 / 0.14);
 }
 
 /* The indigo of a 2001 handheld's shell: lavender surfaces, indigo ink, and bright game colors. */
@@ -318,7 +327,6 @@
      lavender, and the default bubble lands on the page color. */
   --bg-hover: color-mix(in srgb, var(--accent) 10%, transparent);
   --bg-selected: color-mix(in srgb, var(--accent) 16%, transparent);
-  --bg-card-hover: color-mix(in srgb, var(--bg-elev) 88%, var(--accent));
   --bg-user: color-mix(in srgb, var(--bg-elev) 80%, var(--accent));
   --on-accent: #ffffff;
   --text: #221d45;
@@ -337,4 +345,5 @@
   --otis-mark-top-opacity: 0.5;
   --shadow-float: 0 8px 28px rgb(34 29 69 / 0.14);
   --shadow-soft: 0 1px 3px rgb(34 29 69 / 0.08);
+  --shadow-raised: 0 1px 2px rgb(34 29 69 / 0.06), 0 8px 24px -8px rgb(34 29 69 / 0.16);
 }

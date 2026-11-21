@@ -276,20 +276,54 @@ describe("ModelPicker favorites", () => {
 })
 
 describe("ModelPicker search", () => {
-  it("lands on the active model each time it opens", async () => {
-    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView")
-    const { list } = await openPicker()
-    const active = list.querySelector(".modelPicker-row.active") as HTMLElement
-    expect(within(active).getByText("Kimi K2.6")).toBeTruthy()
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" })
-    expect(scrollIntoView.mock.instances).toEqual([active])
-    // The rows stay mounted while closed, so a reopen lands on them again before the reload.
-    fireEvent.keyDown(window, { key: "Escape" })
-    scrollIntoView.mockClear()
-    fireEvent.click(screen.getByRole("button", { name: "Kimi K2.6" }))
-    await act(async () => {})
-    expect(scrollIntoView.mock.instances).toEqual([active])
-    scrollIntoView.mockRestore()
+  it("lands on the active model each time it opens, heading first", async () => {
+    // Laid out as the list would be: 30px headings, 50px rows, one after another.
+    let viewport = 400
+    const heightOf = (element: Element) => (element.classList.contains("popover-section") ? 30 : 50)
+    const geometry = [
+      vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        const parent = this.parentElement
+        if (!parent?.classList.contains("modelPicker-list")) return 0
+        let top = 0
+        for (const sibling of parent.children) {
+          if (sibling === this) break
+          top += heightOf(sibling)
+        }
+        return top
+      }),
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return heightOf(this)
+      }),
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => viewport),
+    ]
+    try {
+      const { list } = await openPicker()
+      const active = list.querySelector(".modelPicker-row.active") as HTMLElement
+      expect(within(active).getByText("Kimi K2.6")).toBeTruthy()
+      // The active model carries a check and is announced as current; no other row is.
+      expect(active.querySelector(".modelPicker-check")).not.toBeNull()
+      expect(list.querySelectorAll(".modelPicker-check")).toHaveLength(1)
+      expect(active.querySelector("[aria-current='true']")).not.toBeNull()
+      let heading = active.previousElementSibling as HTMLElement
+      while (!heading.classList.contains("popover-section"))
+        heading = heading.previousElementSibling as HTMLElement
+      expect(heading.textContent).toBe("Fireworks AI")
+      expect(list.scrollTop).toBe(heading.offsetTop - 6)
+      // The rows stay mounted while closed, so a reopen lands on them again before the reload;
+      // a viewport too short for heading and row together centres the row instead.
+      fireEvent.keyDown(window, { key: "Escape" })
+      list.scrollTop = 0
+      viewport = 60
+      fireEvent.click(screen.getByRole("button", { name: "Kimi K2.6" }))
+      await act(async () => {})
+      expect(list.scrollTop).toBe(active.offsetTop - (60 - 50) / 2)
+    } finally {
+      for (const spy of geometry) spy.mockRestore()
+    }
   })
 
   it("opens focused on the search box and lists every provider under its own header", async () => {

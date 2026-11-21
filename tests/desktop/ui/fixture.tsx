@@ -1641,7 +1641,7 @@ async function runDesktopUiChecks() {
     if (attempt === 0)
       await nativeInput({ screenshot: true, screenshotName: "model-picker-loading" })
     assert(
-      getComputedStyle(picker).backgroundColor === getComputedStyle(document.body).backgroundColor,
+      !getComputedStyle(picker).backgroundColor.startsWith("rgba"),
       "Picker lost its opaque background",
     )
     for (let ancestor: HTMLElement | null = picker; ancestor; ancestor = ancestor.parentElement) {
@@ -1710,7 +1710,7 @@ async function runDesktopUiChecks() {
     )
     assert(
       getComputedStyle(element('.themeTile-preview[data-theme="default"]')).backgroundColor ===
-        "rgb(26, 26, 26)",
+        "rgb(26, 26, 28)",
       "Default theme preview inherited the active palette",
     )
     await pause()

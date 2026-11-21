@@ -31,8 +31,9 @@
   padding: 6px 0 6px 10px;
 }
 
-/* Whole-row hover with an elevated active row, mono micro detail line. The row carries the background, so the
-   row carries the radius; the 6px row inset on both sides evens out against the list's scrollbar gutter. */
+/* Whole-row hover, the active model marked with a check rather than a fill, so the pointer's
+   highlight is the only one. The row carries the background, so the row carries the radius; the
+   6px row inset on both sides evens out against the list's scrollbar gutter. */
 .modelPicker-row {
   position: relative;
   display: flex;
@@ -49,9 +50,9 @@
   background: var(--bg-hover);
 }
 
-.modelPicker-row.active,
-.modelPicker-row.active:hover {
-  background: var(--bg-selected);
+.modelPicker-check {
+  flex-shrink: 0;
+  color: var(--accent-ink);
 }
 
 .modelPicker-select {
@@ -70,7 +71,7 @@
 
 .modelPicker-select:disabled {
   cursor: default;
-  opacity: 0.55;
+  opacity: 0.45;
 }
 
 .modelPicker-rowText {
@@ -112,9 +113,10 @@
   color: var(--text-dim);
 }
 
+/* The detail line in the reading face, its figures tabular so sizes and windows line up. */
 .modelPicker-detail {
-  font-family: var(--font-mono);
-  font-size: var(--text-micro);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
   color: var(--text-dim);
   display: inline-flex;
   align-items: center;
@@ -171,9 +173,9 @@
   justify-content: flex-end;
   gap: 6px;
   width: 100%;
-  /* The 22px buttons must fill the two-line row they replace (7 + 18.1 name + 2 gap + 15.2 detail + 7 ≈
-     49px), so the rows below hold still while the confirmation is up. */
-  padding: 13.5px 8px 13.5px 10px;
+  /* The 22px buttons must fill the two-line row they replace (8 + 18.1 name + 2 gap + 16.7
+     detail + 8 ≈ 53px), so the rows below hold still while the confirmation is up. */
+  padding: 15.5px 8px 15.5px 10px;
 }
 
 .modelPicker-confirmText {

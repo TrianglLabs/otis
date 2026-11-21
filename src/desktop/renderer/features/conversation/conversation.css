@@ -322,8 +322,9 @@
   flex-shrink: 0;
   max-width: 180px;
   border: none;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hairline);
   font-family: var(--font-ui);
   font-size: var(--text-meta);
   color: var(--text-dim);
@@ -438,8 +439,9 @@
 .userMessage {
   max-width: 80%;
   background: var(--bg-user);
-  border-radius: var(--radius-lg);
-  padding: 9px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xl);
+  padding: 9px 14px;
   font-size: var(--text-prose);
   line-height: 1.5;
   white-space: pre-wrap;
@@ -891,12 +893,16 @@ button.reasoning-header:hover {
 
 /* Permission card */
 
+/* A turn waiting on you: raised above the transcript, its edge in the accent. */
 .permissionCard {
   min-width: 0;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--accent-line);
   border-radius: var(--radius-lg);
-  background: var(--bg-elev);
-  padding: 14px;
+  background: linear-gradient(var(--accent-soft), transparent 60%), var(--bg-elev);
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 4px color-mix(in srgb, var(--accent) 6%, transparent);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -909,14 +915,14 @@ button.reasoning-header:hover {
 }
 
 .permissionCard-icon {
-  color: var(--text-dim);
+  color: var(--accent-ink);
   display: inline-flex;
   flex-shrink: 0;
 }
 
 .permissionCard-title {
   font-size: var(--text-ui);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text);
 }
 
@@ -988,7 +994,7 @@ button.reasoning-header:hover {
 /* Composer */
 
 .composer {
-  padding: 10px 28px 14px;
+  padding: 10px 28px 16px;
   max-width: var(--content-max);
   margin: 0 auto;
   width: 100%;
@@ -1000,16 +1006,16 @@ button.reasoning-header:hover {
   min-width: 0;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--bg-elev);
-  transition:
-    border-color var(--motion),
-    box-shadow var(--motion);
+  box-shadow: var(--shadow-raised);
+  transition: border-color var(--motion);
 }
 
+/* Focus only firms the edge a shade; the caret already marks the active field. */
 .composer-box:focus-within {
-  border-color: color-mix(in srgb, var(--text) 18%, transparent);
+  border-color: color-mix(in srgb, var(--text) 17%, transparent);
 }
 
 .composer-boxDisabled {
@@ -1098,15 +1104,16 @@ button.reasoning-header:hover {
   border: none;
   background: transparent;
   resize: none;
-  padding: 14px 18px 6px;
+  padding: 15px 18px 6px;
   font-size: var(--text-prose);
   line-height: 1.5;
+  letter-spacing: -0.01em;
   max-height: var(--composer-max);
   outline: none;
 }
 
 .composer-box textarea::placeholder {
-  color: var(--text-dim);
+  color: var(--text-faint);
 }
 
 .composer-footer {
@@ -1298,8 +1305,8 @@ button.composer-model-offline {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
   border-radius: var(--radius-pill);
@@ -1320,7 +1327,8 @@ button.composer-model-offline {
 
 .composer-attach {
   color: var(--text-dim);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .composer-attach:hover:not(:disabled) {
@@ -1333,9 +1341,11 @@ button.composer-model-offline {
   pointer-events: none;
 }
 
+/* Send wakes once there is something to send: a flat accent disc, from a quiet one at rest. */
 .composer-send {
   color: var(--on-accent);
   background: var(--accent);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .composer-send:hover:not(:disabled) {
@@ -1343,8 +1353,9 @@ button.composer-model-offline {
 }
 
 .composer-send:disabled {
-  color: var(--text-dim);
-  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  box-shadow: none;
 }
 
 .composer-stop {
@@ -1374,9 +1385,23 @@ button.composer-model-offline {
   max-height: min(360px, 45vh);
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   background: var(--bg-elev);
+  box-shadow: var(--shadow-float);
+}
+
+/* On the home screen the composer sits near the top with room below it, so the list opens
+   downward, over the steps under the composer. */
+.conversationArea-hero .composer-commands {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+/* The composer, and the list it opens, lie over everything that follows it on the home screen. */
+.conversationArea-hero > .composerWrap {
+  position: relative;
+  z-index: 2;
 }
 
 .composer-command {
@@ -1444,9 +1469,10 @@ button.composer-model-offline {
   font-size: var(--text-meta);
   font-weight: 600;
   color: var(--text);
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-float);
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-raised);
   animation: rise-in var(--motion);
 }
 
@@ -1552,31 +1578,18 @@ button.composer-model-offline {
 
 /* Home screen */
 
-/* The mark and the recents sit at the middle of whatever height the pane has; once they are
-   taller than it, they start at the top and scroll, which "safe" centring gives for free. */
+/* The mark and the headline, centred over the composer; the home screen's column scrolls. */
 .home {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: safe center;
-  gap: 22px;
-  padding: 24px 28px;
-  overflow-y: auto;
-}
-
-/* The mark and any setup message, centered as one block above the recents. */
-.home-center {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
+  padding: 24px 28px 22px;
   text-align: center;
 }
 
-/* Recents: cards on the composer's width, sessions as rows in two columns, documents as pages in
-   three, one fill and one radius throughout. */
+/* Projects and routines: cards on the composer's width in two columns, one fill and one radius
+   throughout. */
 .home-recents {
   display: flex;
   flex-direction: column;
@@ -1589,9 +1602,12 @@ button.composer-model-offline {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin: 22px 4px 10px;
-  font-size: var(--text-ui);
+  margin: 26px 2px 10px;
+  font-size: var(--text-micro);
   font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 
 .home-heading:first-child {
@@ -1602,17 +1618,15 @@ button.composer-model-offline {
 .home-heading > span {
   font-weight: 400;
   font-size: var(--text-meta);
-  color: var(--text-dim);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-faint);
 }
 
 .home-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-}
-
-.home-grid-sessions {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
 }
 
 .home-card {
@@ -1621,22 +1635,26 @@ button.composer-model-offline {
   gap: 12px;
   min-width: 0;
   padding: 12px 14px;
-  border: 0;
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--bg-elev);
+  background: color-mix(in srgb, var(--bg-elev) 55%, transparent);
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
   transition:
     background-color var(--motion),
+    border-color var(--motion),
+    box-shadow var(--motion),
     transform var(--motion);
 }
 
 /* The lift also marks the sessions that come back with the hovered one. */
 .home-card:hover,
 .home-card-grouped {
-  background: var(--bg-card-hover);
+  border-color: var(--border);
+  background-color: var(--bg-elev);
+  box-shadow: var(--shadow-raised);
 }
 
 .home-card:active {
@@ -1686,10 +1704,11 @@ button.composer-model-offline {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius);
-  background: var(--bg-code);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--hairline);
   color: var(--text-dim);
 }
 
@@ -1711,8 +1730,9 @@ button.composer-model-offline {
 
 .home-cardTitle {
   overflow: hidden;
-  font-size: var(--text-body);
-  font-weight: 500;
+  font-size: var(--text-ui);
+  font-weight: 550;
+  letter-spacing: -0.008em;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -1725,38 +1745,101 @@ button.composer-model-offline {
   color: var(--text-dim);
 }
 
-.home-card-document {
+/* The home screen: the headline, the composer, and what sits below them as one column. The mark,
+   headline, and composer (about 300px together) centre at 38% of the window's height, leaving
+   room below for what follows them, whatever it is; so switching between Home, Projects, and
+   Routines changes only what sits below the composer. A tall view scrolls. */
+.conversationArea-hero {
+  padding-top: max(16px, calc(38vh - 150px));
+  overflow-y: auto;
+}
+
+.conversationArea-hero > .conversationPanes {
+  flex: none;
+}
+
+/* Under the composer, on its exact width: the same scrollbar gutter, then its side padding. */
+.homeBelow {
+  flex: none;
+  padding: 2px calc(28px + var(--scrollbar)) 24px 28px;
+}
+
+.homeBelow .home-recents {
+  margin: 10px auto 0;
+}
+
+/* Home's next steps: each row a glyph and a verb-led line, quiet until the pointer finds one.
+   Rows arrive one after another, and a row that joins later (a session finishing) arrives
+   alone. */
+.homeNext {
+  display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  padding: 8px 8px 12px;
+  max-width: calc(var(--content-max) - 56px);
+  margin: 0 auto;
 }
 
-.home-card-document .home-cardText {
-  padding: 0 6px;
-}
-
-/* The document's opening on a small page, in the page colour under the card's, fading out below. */
-.home-page {
-  /* A glimpse of the page, wide and short, so Home's rows stay on one screen above the composer. */
-  aspect-ratio: 21 / 9;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  background: var(--bg);
-  overflow: hidden;
-  font-size: 7.5px;
-  line-height: 1.5;
+.homeNext-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 4px;
   color: var(--text-dim);
-  white-space: pre-line;
-  overflow-wrap: anywhere;
-  mask-image: linear-gradient(#000 60%, transparent);
-  user-select: none;
+  font-size: var(--text-body);
+  text-align: left;
+  transition: color var(--motion);
+  animation: settle-in 380ms var(--ease) backwards;
+  animation-delay: calc((sibling-index() - 1) * 40ms);
 }
 
-.home-page-blank {
-  display: grid;
+.homeNext-row:hover,
+.homeNext-row-grouped {
+  color: var(--text);
+}
+
+.homeNext-icon {
+  display: inline-grid;
   place-items: center;
-  mask-image: none;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--text-faint);
+  transition: color var(--motion);
+}
+
+.homeNext-row:hover .homeNext-icon,
+.homeNext-row-grouped .homeNext-icon {
+  color: var(--text);
+}
+
+.homeNext-icon .lucide {
+  width: 16px;
+  height: 16px;
+}
+
+/* The line leans in a step toward the pointer, as a link in a list does. */
+.homeNext-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: translate var(--motion);
+}
+
+.homeNext-row:hover .homeNext-label {
+  translate: 3px 0;
+}
+
+/* What a step names reads at full strength; the verb around it stays quiet. */
+.homeNext-subject {
+  color: var(--text);
+}
+
+.homeNext-hint {
+  flex-shrink: 0;
+  font-size: var(--text-meta);
+  color: var(--text-faint);
 }
 
 .home-error {
@@ -1767,10 +1850,19 @@ button.composer-model-offline {
 
 .home-logo {
   display: block;
-  width: 64px;
+  width: 52px;
   height: auto;
   color: var(--text-dim);
   user-select: none;
+}
+
+.home-greeting {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 560;
+  line-height: 1.2;
+  letter-spacing: -0.028em;
+  color: var(--text);
 }
 
 .home-setup {
@@ -1793,15 +1885,9 @@ button.composer-model-offline {
 }
 
 /* Short windows keep the whole home in view without scrolling. */
-@media (max-height: 720px) {
-  .home-page {
-    aspect-ratio: 16 / 6;
-  }
-}
-
 @media (max-height: 600px) {
   .home {
-    gap: 14px;
+    gap: 10px;
     padding: 16px 28px;
   }
 
@@ -1809,20 +1895,43 @@ button.composer-model-offline {
     width: 44px;
   }
 
+  .home-greeting {
+    font-size: 24px;
+  }
+
   .home-heading {
     margin-top: 14px;
   }
+}
 
-  .home-page {
-    display: none;
-  }
+/* Projects and routines arrive as Home's steps do: each heading after the one before, and the
+   cards under it one after another from there. */
+@property --rise-from {
+  syntax: "<time>";
+  inherits: true;
+  initial-value: 0s;
+}
 
-  .home-card-document {
-    padding: 12px 14px;
-  }
+.home-recents > * {
+  --rise-from: calc((sibling-index() - 1) * 60ms);
+}
 
-  .home-card-document .home-cardText {
-    padding: 0;
+.home-recents > .home-heading,
+.home-recents .home-card {
+  animation: settle-in 380ms var(--ease) backwards;
+  animation-delay: var(--rise-from);
+}
+
+.home-recents .home-card {
+  animation-delay: calc(var(--rise-from) + (sibling-index() - 1) * 40ms);
+}
+
+/* An entrance: a fade and a short rise, without the blur and scale of rise-in, which smear into a
+   wave when many bordered rows cascade at once. */
+@keyframes settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }
 

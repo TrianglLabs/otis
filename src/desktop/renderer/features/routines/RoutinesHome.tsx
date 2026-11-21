@@ -128,7 +128,7 @@ export function RoutinesHome() {
         {t("home.routines")}
         <Pager {...pager} />
       </span>
-      <div className="home-grid home-grid-sessions">
+      <div className="home-grid">
         <button
           type="button"
           className="home-card home-card-add"

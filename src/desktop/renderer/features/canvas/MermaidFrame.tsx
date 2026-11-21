@@ -70,7 +70,7 @@ export function MermaidFrame({
     const color = (name: string, fallback: string) =>
       styles.getPropertyValue(name).trim() || fallback
     const colors = {
-      background: color("--bg", "#1a1a1a"),
+      background: color("--bg", "#1a1a1c"),
       surface: color("--bg-elev", "#262626"),
       text: color("--text", "#d8dee9"),
       muted: color("--text-dim", "#808080"),
