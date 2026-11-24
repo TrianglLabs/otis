@@ -3,7 +3,7 @@
   "productName": "Otis",
   "desktopName": "ai.triangllabs.otis.desktop",
   "version": "0.3.2",
-  "description": "Local terminal agent powered by tool-capable open models",
+  "description": "AI agent for open and frontier models, on your computer or in the cloud",
   "private": true,
   "license": "MIT",
   "type": "module",

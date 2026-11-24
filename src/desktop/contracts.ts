@@ -14,7 +14,11 @@ import type {
 } from "../artifacts/types.js"
 import type { OtherAgentId } from "../core/context.js"
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
-import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
+import type {
+  LocalPickerChoice,
+  ModelPickerItem,
+  ModelPickerStatus,
+} from "../inference/picker-catalog.js"
 import type {
   HostedModel,
   HostedProvider,
@@ -84,8 +88,8 @@ export const DESKTOP_CHANNELS = {
   deleteSession: "desktop:delete-session",
   forkSession: "desktop:fork-session",
   listModels: "desktop:list-models",
-  listHostedCatalogs: "desktop:list-hosted-catalogs",
-  setModelHidden: "desktop:set-model-hidden",
+  listModelCatalogs: "desktop:list-model-catalogs",
+  setModelsHidden: "desktop:set-models-hidden",
   setModelFavorite: "desktop:set-model-favorite",
   setSkillHidden: "desktop:set-skill-hidden",
   setPrimeTeamId: "desktop:set-prime-team-id",
@@ -400,6 +404,13 @@ export type { OtherAgentFact, OtherAgentImport, OtherAgentPicks } from "../app/o
 export type { RoutineStatus } from "../app/routines.js"
 export type { OtherAgentId } from "../core/context.js"
 export type { ModelPickerItem } from "../inference/picker-catalog.js"
+
+/** The providers whose models Settings can hide from the picker. */
+export type CatalogProvider = HostedProvider | "local"
+
+export type ModelCatalogs = { local: LocalPickerChoice[] } & Partial<
+  Record<HostedProvider, HostedModel[]>
+>
 export type { RoutineInput, RoutineRun, RoutineSchedule } from "../local/routines.js"
 export type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 export type { SkillSummary, SkillsSummary } from "../skills/catalog.js"
@@ -510,12 +521,13 @@ export type DesktopApi = {
    */
   listModels(): Promise<ModelPickerItem[]>
   /**
-   * Every keyed hosted provider's full catalog, hidden models included, for the visibility
-   * switches in Settings. A provider whose fetch fails lists as empty.
+   * The local catalog this machine can run and every keyed hosted provider's full catalog, hidden
+   * models included, for the visibility switches in Settings. A provider whose fetch fails lists
+   * as empty.
    */
-  listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>>
-  /** Hides a hosted model from the picker, or shows it again; the selected model always shows. */
-  setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void>
+  listModelCatalogs(): Promise<ModelCatalogs>
+  /** Hides models from the picker, or shows them again; the selected model always shows. */
+  setModelsHidden(provider: CatalogProvider, ids: string[], hidden: boolean): Promise<void>
   /** Lists a picker row, by `pickerItemKey`, under Favorites on top, or returns it to its section. */
   setModelFavorite(key: string, favorite: boolean): Promise<void>
   /** Keeps a skill loaded but out of the model's offer; listSkills reports it as hidden. */

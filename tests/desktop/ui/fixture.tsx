@@ -84,9 +84,13 @@ async function until(check: () => boolean, message: string) {
   throw new Error(message)
 }
 
-/** Selects the oMLX tab of a local server form and checks its address and key rows line up. */
+/**
+ * Selects oMLX in a local server form (a tab in Settings, a tile in onboarding) and checks its
+ * address and key rows line up.
+ */
 async function checkLocalServerFields(prefix: "settings" | "onboarding") {
-  const tab = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(
+  const selector = prefix === "settings" ? '[role="tab"]' : ".onboarding-providerTile"
+  const tab = Array.from(document.querySelectorAll<HTMLButtonElement>(selector)).find(
     (candidate) => candidate.textContent === "oMLX",
   )
   assert(tab, `${prefix}: oMLX tab is missing`)
@@ -1914,6 +1918,7 @@ async function runDesktopUiChecks() {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     },
   })
   await until(() => !!document.querySelector(".onboarding"), "Onboarding did not open")
@@ -1923,13 +1928,13 @@ async function runDesktopUiChecks() {
     await nativeInput({ screenshot: true, screenshotName: `onboarding-welcome-${theme}` })
   }
   status({ theme: "default" })
-  element<HTMLButtonElement>(".onboarding-cards button:first-child").click()
+  element<HTMLButtonElement>(".onboarding-choices button:first-child").click()
   await until(() => !!document.querySelector(".field"), "Hosted setup did not open")
   await pause(250)
   await nativeInput({ screenshot: true, screenshotName: "onboarding-hosted" })
   element<HTMLButtonElement>(".onboarding-topbar .btn").click()
-  await until(() => !!document.querySelector(".onboarding-cards"), "Onboarding did not go back")
-  element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
+  await until(() => !!document.querySelector(".onboarding-choices"), "Onboarding did not go back")
+  element<HTMLButtonElement>(".onboarding-choices button:last-child").click()
   await until(
     () => !!document.querySelector(".onboarding-providerMarks"),
     "Local setup did not open",
@@ -1943,7 +1948,7 @@ async function runDesktopUiChecks() {
   )
   await pause(250)
   await nativeInput({ screenshot: true, screenshotName: "onboarding-local" })
-  element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
+  element<HTMLButtonElement>(".onboarding-choices button:last-child").click()
   await until(
     () => !!document.querySelector('[aria-label="Address"]'),
     "Local server setup did not open",

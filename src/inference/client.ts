@@ -25,7 +25,7 @@ export type { InferenceClient } from "./types.js"
 /**
  * A hosted provider's OpenAI-compatible chat completions, called with the user's own key. Only
  * Fireworks documents reasoning tiers and a priority service tier; the others keep their
- * defaults.
+ * defaults. OpenRouter routes only to zero-data-retention endpoints.
  */
 export class HostedClient implements InferenceClient {
   readonly provider: HostedProvider
@@ -72,6 +72,7 @@ export class HostedClient implements InferenceClient {
             ...(this.provider === "together" && options.sessionId
               ? { promptCacheKey: options.sessionId }
               : {}),
+            openrouter: this.provider === "openrouter",
             ...(fireworks && {
               reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
               serviceTier: fireworksServiceTier(this.model),

@@ -67,7 +67,6 @@ describe("local model catalog", () => {
       "ornith-ai/Ornith-1.5-9B",
       "google/gemma-4-12B-it",
       "Qwen/Qwen3.8-27B",
-      "prism-ml/Ternary-Bonsai-2-27B-gguf",
       "ConwayResearch/Underdog-Saluki-27B-1.0",
       "Qwen/Qwen3.8-Flash-Next",
       "google/gemma-4-26B-A4B-it",
@@ -96,7 +95,6 @@ describe("local model catalog", () => {
   it("pins Liquid AI's QAD Q4_0 GGUF for the 24B A2B mixture of experts", () => {
     expect(findLocalModel("LiquidAI/LFM2.5-24B-A2B")).toMatchObject({
       sourceModel: "LiquidAI/LFM2.5-24B-A2B",
-      runtime: "upstream",
       ggufRepo: "LiquidAI/LFM2.5-24B-A2B-GGUF",
       ggufRevision: "0912d33141f77e10705345a6732bfd83f0252fdc",
       ggufFiles: [
@@ -114,11 +112,10 @@ describe("local model catalog", () => {
     })
   })
 
-  it("pins Underdog's Saluki GGUF and its Q8 vision projector on the upstream runtime", () => {
+  it("pins Underdog's Saluki GGUF and its Q8 vision projector", () => {
     expect(findLocalModel("ConwayResearch/Underdog-Saluki-27B-1.0")).toMatchObject({
       displayName: "Underdog Saluki 27B",
       sourceModel: "ConwayResearch/Underdog-Saluki-27B-1.0",
-      runtime: "upstream",
       ggufRepo: "ConwayResearch/Underdog-Saluki-27B-1.0",
       ggufRevision: "4f60eba09f4b6db63c72915d328d97e1d93edb8c",
       ggufFiles: [
@@ -144,7 +141,6 @@ describe("local model catalog", () => {
   it("pins ggml-org's IQ4_NL Inkling 2 Mini with a cache for every loop pass", () => {
     expect(findLocalModel("thinkingmachines/Inkling-2-Mini")).toMatchObject({
       sourceModel: "thinkingmachines/Inkling-2-Mini",
-      runtime: "upstream",
       ggufRepo: "ggml-org/Inkling-2-Mini-GGUF",
       ggufRevision: "db61c5b492a6a034d986328d28274af0a439aa6c",
       ggufFiles: [
@@ -192,54 +188,6 @@ describe("local model catalog", () => {
       quant: "Q4_0",
       nativeContextLength: 262_144,
       supportsImageInput: true,
-    })
-  })
-
-  it("pins both Bonsai packings and the required Prism runtime", () => {
-    expect(findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")).toMatchObject({
-      displayName: "Bonsai 2 27B",
-      sourceModel: "prism-ml/Ternary-Bonsai-2-27B-gguf",
-      runtime: "prism",
-      ggufRepo: "prism-ml/Ternary-Bonsai-2-27B-gguf",
-      ggufRevision: "6ed5e12bf84b7a63069882c91dd9e9218647d17b",
-      ggufFiles: [
-        {
-          name: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
-          sha256: "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
-          size: 7_206_168_928,
-        },
-      ],
-      mmproj: {
-        name: "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
-        sha256: "6807ede61d570bb86ba34b756a0fa109edc33668604de867c6ea6d8f1d631903",
-        size: 629_246_976,
-      },
-      quant: "PQ2_0",
-      packings: [
-        {
-          ggufFiles: [
-            {
-              name: "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
-              sha256: "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
-              size: 5_946_648_928,
-            },
-          ],
-          quant: "PTQ1_0",
-        },
-        {
-          ggufFiles: [
-            {
-              name: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
-              sha256: "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
-              size: 7_206_168_928,
-            },
-          ],
-          quant: "PQ2_0",
-        },
-      ],
-      nativeContextLength: 262_144,
-      supportsImageInput: true,
-      attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
     })
   })
 

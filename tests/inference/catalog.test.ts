@@ -261,7 +261,7 @@ describe("listHostedModels for Together AI", () => {
 })
 
 describe("listHostedModels for Baseten", () => {
-  it("keeps every Model API row and reads vision from its input modalities or features", async () => {
+  it("keeps the tool-capable Model API rows and reads vision from modalities or features", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       Response.json({
         data: [
@@ -270,7 +270,7 @@ describe("listHostedModels for Baseten", () => {
             name: "Kimi K2.5",
             context_length: 262_144,
             max_completion_tokens: 32_768,
-            supported_features: ["vision", "reasoning", "reasoning_effort"],
+            supported_features: ["tools", "vision", "reasoning", "reasoning_effort"],
             pricing: { input: 0.6, output: 2.5 },
           },
           // Baseten's rows carry modality at the top level, beside features that never say vision.
@@ -288,16 +288,25 @@ describe("listHostedModels for Baseten", () => {
             name: "DeepSeek V3.2",
             context_length: 163_840,
             max_completion_tokens: 32_768,
-            supported_features: ["reasoning"],
+            supported_features: ["tools", "reasoning"],
             pricing: { input: 0.3, output: 0.5 },
           },
           {
             id: "zai-org/GLM-5",
             name: "GLM 5",
             context_length: 0,
-            supported_features: [],
+            supported_features: ["tools"],
           },
           { id: "zai-org/GLM-5", name: "GLM 5 duplicate", context_length: 10 },
+          // Baseten's decision models list no features: they are not chat models.
+          {
+            id: "decision-models/baseten-joey-2b-latest",
+            name: "joey-1",
+            context_length: 16_384,
+            input_modalities: ["text", "image"],
+            supported_features: [],
+          },
+          { id: "org/unflagged", name: "Unflagged", context_length: 8_192 },
         ],
       }),
     )
@@ -437,6 +446,76 @@ describe("listHostedModels for Prime Intellect", () => {
         modelsURL: "http://localhost/api/v1/models",
       }),
     ).rejects.toThrow("Prime Intellect models response was invalid.")
+  })
+})
+
+describe("listHostedModels for OpenRouter", () => {
+  it("asks for tool-capable zero-retention models, keeps chat rows with tools, and drops the maker from names", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({
+        data: [
+          {
+            id: "anthropic/claude-opus-5.5",
+            name: "Anthropic: Claude Opus 5.5",
+            created: 1_790_000_000,
+            context_length: 1_000_000,
+            architecture: { input_modalities: ["text", "image", "file"] },
+            supported_parameters: ["reasoning", "tool_choice", "tools"],
+            endpoints: ["/api/v1/chat/completions", "/api/v1/responses"],
+          },
+          {
+            id: "moonshotai/kimi-k3",
+            name: "MoonshotAI: Kimi K3",
+            context_length: 262_144,
+            architecture: { input_modalities: ["text"] },
+            supported_parameters: ["tools"],
+          },
+          {
+            // Batch-only variants are not chat models.
+            id: "google/gemini-4-neon:batch",
+            name: "Google: Gemini 4 Neon (batch)",
+            context_length: 1_048_576,
+            architecture: { input_modalities: ["text", "image"] },
+            supported_parameters: ["tools"],
+            endpoints: ["/api/v1/batches"],
+          },
+          {
+            id: "some/model-without-tools",
+            name: "No Tools",
+            context_length: 32_768,
+            architecture: { input_modalities: ["text"] },
+            supported_parameters: ["temperature"],
+          },
+        ],
+      }),
+    )
+
+    const models = await listHostedModels("openrouter", "or_test_key", {
+      fetch: fetchMock as typeof fetch,
+    })
+
+    expect(models).toEqual([
+      {
+        provider: "openrouter",
+        id: "anthropic/claude-opus-5.5",
+        displayName: "Claude Opus 5.5",
+        contextLength: 1_000_000,
+        releasedAt: 1_790_000_000,
+        supportsImageInput: true,
+      },
+      {
+        provider: "openrouter",
+        id: "moonshotai/kimi-k3",
+        displayName: "Kimi K3",
+        contextLength: 262_144,
+        supportsImageInput: false,
+      },
+    ])
+    const url = new URL(String(fetchMock.mock.calls[0][0]))
+    expect(`${url.origin}${url.pathname}`).toBe("https://openrouter.ai/api/v1/models")
+    expect(url.searchParams.get("supported_parameters")).toBe("tools")
+    expect(url.searchParams.get("zdr")).toBe("true")
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ authorization: "Bearer or_test_key" })
   })
 })
 

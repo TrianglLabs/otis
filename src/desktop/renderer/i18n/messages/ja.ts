@@ -105,6 +105,7 @@ export const ja: Messages = {
   "models.serverHeading": "Ollama、LM Studio、PAIR",
   "models.searchPlaceholder": "モデルを検索",
   "models.noMatches": "一致するモデルはありません",
+  "models.otherVendor": "その他",
   "models.noModels": "利用可能なモデルがありません。",
   "models.downloadName": "{{name}} をダウンロードして使う",
   "models.partlyOnCpu": "一部を CPU で実行",
@@ -363,10 +364,11 @@ export const ja: Messages = {
   "markdown.openCanvas": "キャンバスで開く",
   "markdown.copyCode": "コードをコピー",
   "markdown.copied": "コピー済み",
-  "onboarding.tagline": "オープンモデルを活用する、あなた専用の AI エージェント。",
+  "onboarding.tagline":
+    "あなたのコンピューターでも、クラウドでも使える、あなた専用の AI エージェント。",
   "onboarding.welcome": "Otis へようこそ",
   "onboarding.hostedBody":
-    "高性能なオープンモデルをすぐに利用できます。プロバイダーのキーで従量課金接続。",
+    "高性能なオープンモデルとフロンティアモデルをすぐに利用できます。プロバイダーのキーで従量課金接続。",
   "onboarding.localBody":
     "このコンピューターまたはローカル AI ネットワークで実行。プライベートでオフライン対応。",
   "onboarding.back": "戻る",
@@ -452,13 +454,15 @@ export const ja: Messages = {
     "{{servers}} に直接接続します。NVIDIA PAIR を使う場合は、PAIR → Endpoints に表示されるループバックアドレスを入力してください。動作するエンドポイントは1つで十分です。 モデルには64K以上のコンテキストが必要です。",
   "settings.availableModels": "利用可能なモデル",
   "settings.noServerModels": "接続したエンドポイントからモデルが報告されませんでした。",
-  "settings.hostedModels": "ホスト型モデル",
+  "settings.models": "モデル",
   "settings.hostedModelsNote":
     "非表示にしたモデルはモデル選択に表示されません。選択中のモデルは常に表示されます。",
   "settings.hostedModelsFailed": "ホスト型モデルのカタログを読み込めませんでした。",
   "settings.noHostedModels": "モデルがありません。",
   "settings.showModel": "{{name}} をモデル選択に表示",
   "settings.usage": "使用状況",
+  "settings.showAll": "すべて表示",
+  "settings.hideAll": "すべて非表示",
   "settings.usageLoading": "ローカル使用状況を計算中…",
   "settings.usageTotal": "累計トークン",
   "settings.usagePrivate": "すべてのプロバイダーの使用量をローカルに記録",

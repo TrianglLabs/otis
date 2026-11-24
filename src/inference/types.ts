@@ -19,9 +19,20 @@ export type ReasoningContentPart = {
   endedAt?: string
 }
 
+/**
+ * OpenRouter's structured reasoning (`reasoning_details`): text, summary, or encrypted blocks some
+ * models sign. They go back unmodified, in order, so the model can continue its reasoning across
+ * tool calls; any other provider is sent none.
+ */
+export type ReasoningDetailsContentPart = {
+  type: "reasoning_details"
+  details: Record<string, unknown>[]
+}
+
 export type AssistantContentPart =
   | { type: "text"; text: string }
   | ReasoningContentPart
+  | ReasoningDetailsContentPart
   | { type: "tool_call"; toolCall: ChatToolCall }
 
 export type ImageMimeType =
@@ -142,6 +153,7 @@ export function addUsage(total: UsageTotals, usage: TokenUsage): UsageTotals {
 export type ChatStreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string; field: OpenAICompatibleReasoningField }
+  | { type: "reasoning_details"; details: Record<string, unknown>[] }
   | { type: "tool_call"; toolCall: ChatToolCall }
   | { type: "usage"; usage: TokenUsage }
   | { type: "finish"; reason: string }
@@ -162,7 +174,9 @@ export type ContextFile = {
   content: string
 }
 
+/** In the order Otis lists them: OpenRouter first, since its one key reaches the most models. */
 export const HOSTED_PROVIDERS = [
+  "openrouter",
   "fireworks",
   "together",
   "baseten",
@@ -262,6 +276,16 @@ export const HOSTED_PROVIDER_INFO: Record<
     reasoningField: "reasoning_content",
     dataRetention: "zero",
   },
+  // Otis asks OpenRouter for zero-data-retention endpoints only, in the catalog and per request.
+  openrouter: {
+    name: "OpenRouter",
+    keyEnv: "OPENROUTER_API_KEY",
+    keyURL: "https://openrouter.ai/settings/keys",
+    inferenceURL: "https://openrouter.ai/api/v1/chat/completions",
+    modelsURL: "https://openrouter.ai/api/v1/models",
+    reasoningField: "reasoning",
+    dataRetention: "zero",
+  },
 }
 
 const MODEL_PROVIDERS = [...HOSTED_PROVIDERS, "local", "pair", ...SERVER_PROVIDERS] as const
@@ -285,7 +309,11 @@ type SharedModelFields = {
   supportsImageInput: boolean
 }
 
-export type HostedModel = SharedModelFields & { provider: HostedProvider }
+export type HostedModel = SharedModelFields & {
+  provider: HostedProvider
+  /** When the provider's list says the model was released (`created`), in Unix seconds. */
+  releasedAt?: number
+}
 
 export type FireworksModel = HostedModel & { provider: "fireworks" }
 

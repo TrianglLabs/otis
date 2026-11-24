@@ -87,7 +87,7 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
     author: "Qwen",
     summary:
       "Dense 27B with a vision encoder and a 256K context; the full-precision model that Saluki " +
-      "and Bonsai are cut from.",
+      "is cut from.",
     bestAt: [
       "Coding, research, and long-horizon agent work, where Qwen reports substantial gains",
       "Image, document, and diagram understanding",
@@ -99,23 +99,6 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "Download size, the largest of the mid-size models at 19.6 GB",
     ],
     source: `${HF}Qwen/Qwen3.8-27B`,
-  },
-  "prism-ml/Ternary-Bonsai-2-27B-gguf": {
-    author: "Prism",
-    summary:
-      "Qwen3.8-27B in ternary weights, 5.9 GB at 1.75 bits or 7.2 GB at 2.13 by machine, with an " +
-      "optional vision tower; runs on Prism's llama.cpp fork, which Otis manages.",
-    bestAt: [
-      "The smallest 27B-class footprint in the catalog; Prism reports 98 percent of " +
-        "full-precision scores across 14 thinking benchmarks",
-      "Math and coding close to the full model in Prism's measurements",
-      "Image input through the optional vision tower",
-    ],
-    worstAt: [
-      "Tool calling trails Saluki in Underdog's benchmark, 70 of 120 tasks against 88",
-      "Low thinking effort is not supported; the model behaves like extra high",
-    ],
-    source: `${HF}prism-ml/Ternary-Bonsai-2-27B-gguf`,
   },
   "ConwayResearch/Underdog-Saluki-27B-1.0": {
     author: "Underdog",

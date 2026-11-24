@@ -30,7 +30,6 @@ const TOGETHER_TOOL_MODELS: CuratedModels = {
   "deepseek-ai/DeepSeek-V4-Flash-0731": { supportsImageInput: false },
   "deepseek-ai/DeepSeek-V4-Pro-0813": { supportsImageInput: false },
   "deepseek-ai/DeepSeek-V4.1-Flash": { supportsImageInput: true },
-  "meta-llama/Llama-3.3-70B-Instruct-Turbo": { supportsImageInput: false },
 }
 /**
  * River documents function calling, image input and a 1M context for every model it serves;
@@ -76,9 +75,10 @@ type ListModelsOptions = {
 
 /**
  * The tool-capable models a hosted provider serves to this key, sorted by name. Fireworks' catalog
- * states tool support per model, as do Prime Intellect's supported parameters; every Baseten
- * Model API supports tools; Together's and River's documented function-calling models are kept
- * where their live lists confirm them.
+ * states tool support per model, as do Prime Intellect's and OpenRouter's supported parameters
+ * and Baseten's supported features; Together's and River's documented function-calling models
+ * are kept where their live lists confirm them. OpenRouter lists only models with a
+ * zero-data-retention endpoint, the only kind Otis routes to.
  */
 export async function listHostedModels(
   provider: HostedProvider,
@@ -101,7 +101,12 @@ export async function listHostedModels(
   }
 
   if (provider !== "fireworks") {
-    const body = await fetchJson(modelsURL)
+    const url = new URL(modelsURL)
+    if (provider === "openrouter") {
+      url.searchParams.set("supported_parameters", "tools")
+      url.searchParams.set("zdr", "true")
+    }
+    const body = await fetchJson(url)
     // Together answers with a bare array; the others with OpenAI's `{ data }` envelope.
     const rows = Array.isArray(body) ? body : isRecord(body) ? body.data : undefined
     if (!Array.isArray(rows)) throw new Error(`${name} models response was invalid.`)
@@ -115,26 +120,41 @@ export async function listHostedModels(
       if (provider === "together" && row.type !== "chat") continue
       const curated = CURATED_TOOL_MODELS[provider]?.[id]
       if (CURATED_TOOL_MODELS[provider] && !curated) continue
-      const parameters = Array.isArray(row.supported_parameters) ? row.supported_parameters : []
-      if (provider === "primeintellect" && !parameters.includes("tools")) continue
+      // Baseten flags tools among a model's features; its decision models are not chat models.
+      const flags = provider === "baseten" ? row.supported_features : row.supported_parameters
+      if (
+        (provider === "primeintellect" || provider === "openrouter" || provider === "baseten") &&
+        !(Array.isArray(flags) && flags.includes("tools"))
+      )
+        continue
+      // OpenRouter lists batch-only variants (`…:batch`) beside its chat models.
+      const endpoints = Array.isArray(row.endpoints) ? row.endpoints : undefined
+      if (provider === "openrouter" && endpoints && !endpoints.includes("/api/v1/chat/completions"))
+        continue
       seen.add(id)
       const features = Array.isArray(row.supported_features) ? row.supported_features : []
-      // Prime Intellect nests a model's input modalities under its specs; Baseten lists them on
-      // the row.
+      // Prime Intellect nests a model's input modalities under its specs, OpenRouter under its
+      // architecture; Baseten lists them on the row.
       const specs = isRecord(row.specs) ? row.specs : {}
       const modalities = isRecord(specs.modalities) ? specs.modalities : {}
-      const imageInput = [modalities.input, row.input_modalities].some(
-        (inputs) => Array.isArray(inputs) && inputs.includes("image"),
-      )
+      const architecture = isRecord(row.architecture) ? row.architecture : {}
+      const imageInput = [
+        modalities.input,
+        architecture.input_modalities,
+        row.input_modalities,
+      ].some((inputs) => Array.isArray(inputs) && inputs.includes("image"))
+      const name = nonEmptyString(row.display_name) ?? nonEmptyString(row.name)
       models.push({
         provider,
         id,
+        // OpenRouter leads each name with the model's maker ("Anthropic: Claude Opus 5.5"),
+        // which the vendor's logo beside the name already shows.
         displayName:
-          nonEmptyString(row.display_name) ??
-          nonEmptyString(row.name) ??
+          (provider === "openrouter" ? name?.replace(/^[^:]{1,40}:\s+/, "") : name) ??
           id.split("/").at(-1) ??
           id,
         ...contextLengthField(row.context_length ?? row.context_window ?? curated?.contextLength),
+        ...(typeof row.created === "number" && row.created > 0 ? { releasedAt: row.created } : {}),
         supportsImageInput:
           curated?.supportsImageInput ?? (features.includes("vision") || imageInput),
       })

@@ -36,13 +36,11 @@ Selecting a model downloads:
 - for a vision model, its pinned multimodal projector (`mmproj`), from the weights' repository or the model author's,
   which llama-server loads beside the weights so image attachments work.
 
-Ornith 1.5 9B, Gemma 4 12B, 26B A4B and 31B, Qwen3.8 27B, Qwen3.8 Flash Next, Bonsai 2 27B, and Inkling 2 Mini accept
-images. The
-projector counts toward a model's memory footprint; LFM2.5 2.6B, gpt-oss 20B, and GLM-5.3 are text only.
+Ornith 1.5 9B, Gemma 4 12B, 26B A4B and 31B, Qwen3.8 27B, Qwen3.8 Flash Next, Underdog Saluki 27B, and Inkling 2
+Mini accept images. The projector counts toward a model's memory footprint; LFM2.5 2.6B, gpt-oss 20B, and GLM-5.3 are
+text only.
 
-Most models use Otis' pinned upstream llama.cpp build. Bonsai 2 uses a separately pinned Prism llama.cpp build because
-its ternary GGUFs need Prism's loader and compute kernels. Otis selects that runtime from the model catalog; it
-does not replace the upstream runtime used by other models.
+Every model runs on Otis' pinned upstream llama.cpp build.
 
 On Linux and Windows, compatible NVIDIA GPUs use the official upstream CUDA builds and their matching CUDA
 runtime/cuBLAS libraries. Otis downloads both; installing the CUDA toolkit is not required. The system still needs an
@@ -56,15 +54,11 @@ capability 7.5–12.1; an R615 driver (615 to 619) runs CUDA 13.4 from llama.cpp
 it, instead of v1.0.0. Drivers below 615 do not qualify for a 13.x build: x64 falls back to CUDA 12.8 where its compute
 range allows, arm64 to Vulkan. All detected NVIDIA GPUs must be compatible with the selected build. Unknown or incompatible
 configurations keep Vulkan, as do AMD and Intel GPUs. Otis also checks that the downloaded CUDA server can see a CUDA
-device before loading a model; if it cannot, it uses Vulkan. Bonsai uses Prism's official CUDA binaries on Linux x64,
-paired with the same-version NVIDIA runtime/cuBLAS libraries from the pinned upstream companion archives. Prism does
-not publish a Linux arm64 CUDA binary, so Bonsai keeps Vulkan there.
+device before loading a model; if it cannot, it uses Vulkan.
 
 Windows has no glibc gate. CUDA 13.5 and 13.4 apply as on Linux, on x64 and arm64 with an R620 or R615 driver and compute
 capability 7.5–12.1; RTX Spark's Windows driver, 616.41, runs 13.4. Below that, x64 uses CUDA 12.4 with driver 551.61 or newer and compute capability 5.0–9.0, the kernels that
-build ships; an RTX 50 series card on an older driver therefore runs Vulkan until the driver is updated. Bonsai uses
-Prism's Windows CUDA builds: 13.3 on x64 with Prism's own 13.3 companion archive, 13.4 on arm64, and 12.4 where that is
-the qualifying version; Prism publishes no Windows arm64 Vulkan build, so Bonsai runs on the CPU there without CUDA.
+build ships; an RTX 50 series card on an older driver therefore runs Vulkan until the driver is updated.
 
 Otis also retries with Vulkan if the CUDA server exits during model loading with a recognizable CUDA backend
 error. Fallback runs strictly CUDA, then Vulkan, then the CPU build: when Vulkan reports no device or exits with a
@@ -101,16 +95,6 @@ Otis crashes and leaves the server behind, the next model load stops that orphan
 whose owning Otis is still running is left alone. Records from the earlier single-file layout are removed. If the server dies during a session, the next request reports its exit code or signal with the last log
 lines, and reselecting the model restarts it.
 
-For Bonsai 2, Otis also selects the packing automatically. It uses the 5.95 GB `PTQ1_0` packing with up to 8 GiB of
-dedicated VRAM or 16 GiB of unified/system memory, then uses the 7.21 GB `PQ2_0` packing on larger hardware when the
-backend supports it. CUDA systems whose detected GPUs are all Ada (compute capability 8.9, including RTX 40-series,
-L4, and L40) keep `PTQ1_0` for its faster generation in [Prism's measurements](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf#cross-platform-throughput).
-Other CUDA systems above the compact-memory tier use `PQ2_0` for faster prompt processing; this includes mixed or
-unknown GPU architectures. Macs above 16 GiB also use `PQ2_0`. Vulkan requires `PTQ1_0` because the pinned runtime
-lacks PQ2 kernels. If CUDA falls back to Vulkan, Otis reselects PTQ1 and downloads it only if needed, retaining any
-cached PQ2 file. A failure during the fallback download is reported without starting incompatible weights.
-The picker displays the packing preferred for the detected hardware; runtime fallback may use the compact packing.
-
 Underdog Saluki 27B is Underdog's 2-bit mixed quantization of Qwen3.8-27B, a 7.9 GB GGUF with Qwen's chat template
 and a Q8 vision projector that runs on the upstream runtime. LFM2.5 24B A2B uses Liquid AI's quantization-aware
 distillation `Q4_0` GGUF, a 13.6 GB mixture of experts with 2B active parameters that always thinks before answering.
@@ -125,8 +109,7 @@ override. Changes apply to subsequent requests without restarting the model. Con
 This changes model behavior independently of the thinking-trace visibility setting. The startup generation check and
 conversation summaries always use the model's lowest documented thinking setting, whatever the slider says.
 
-Qwen3.8 and Underdog Saluki offer off/low/medium/xhigh, Bonsai 2 off/medium/xhigh, gpt-oss low/medium/high, and
-GLM-5.3 low/high/max. Inkling 2 Mini offers low/medium/high/xhigh: its template renders max like xhigh, and its lowest
+Qwen3.8 and Underdog Saluki offer off/low/medium/xhigh, gpt-oss low/medium/high, and GLM-5.3 low/high/max. Inkling 2 Mini offers low/medium/high/xhigh: its template renders max like xhigh, and its lowest
 setting still reasons. Ornith and Gemma expose on/off only. LFM2.5 has no documented thinking control and does not
 show the slider.
 The capability policy lives in `src/inference/local-thinking.ts`; it uses native template controls, not invented token
@@ -136,7 +119,7 @@ parameters as inference, and changing effort invalidates the previous observed c
 Recommendations star the first fitting group of a curated preference order. This is an Otis default, not a benchmark
 ranking. When a GPU can hold a whole model—selected weights, a 64K context cache, and runtime buffers, after
 llama.cpp's 1 GiB margin per device—the order is GLM-5.3, Qwen3.8 Flash Next, Qwen3.8 27B, LFM2.5 24B A2B,
-Underdog Saluki 27B, Bonsai 2 27B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. A GPU-resident fit does not need host RAM for its layers, so extra
+Underdog Saluki 27B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. A GPU-resident fit does not need host RAM for its layers, so extra
 system RAM alone does not promote a larger model and little system RAM does not hide one. Without such a GPU—CPU-only
 hosts, GPUs whose VRAM is unreported, and GPUs too small to hold any model whole—generation is bound by host memory
 bandwidth, and the order prefers mixtures of experts with few active parameters and small dense models: Qwen3.8 Flash
@@ -151,8 +134,7 @@ Examples with a dedicated GPU:
 | --- | --- |
 | 4 GiB | Qwen3.8 Flash Next when host RAM holds it, else the CPU order |
 | 6–8 GiB | LFM2.5 2.6B |
-| 12 GiB | Ornith 1.5 9B / Gemma 4 12B |
-| 14 GiB | Bonsai 2 27B |
+| 12–14 GiB | Ornith 1.5 9B / Gemma 4 12B |
 | 15 GiB | Underdog Saluki 27B |
 | 16–24 GiB | LFM2.5 24B A2B |
 | 32–80 GiB | Qwen3.8 27B |

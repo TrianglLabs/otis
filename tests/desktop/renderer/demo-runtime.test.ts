@@ -244,9 +244,9 @@ describe("demo runtime model lifecycle", () => {
 
   it("lists the hosted catalog for the visibility switches and hides models from the picker", async () => {
     const api = createDemoRuntime()
-    const catalogs = await api.listHostedCatalogs()
-    // The demo has three providers keyed, each with its own catalog and picker section.
-    expect(Object.keys(catalogs)).toEqual(["fireworks", "together", "baseten"])
+    const catalogs = await api.listModelCatalogs()
+    // The local catalog, then the three keyed providers, each with its own picker section.
+    expect(Object.keys(catalogs)).toEqual(["local", "fireworks", "together", "baseten"])
     expect(catalogs.fireworks?.map((model) => model.id)).toEqual([
       "accounts/fireworks/models/glm-5p3",
       "accounts/fireworks/models/kimi-k3",
@@ -264,21 +264,32 @@ describe("demo runtime model lifecycle", () => {
       (await api.listModels())
         .filter((item) => item.kind === "model" && item.provider === "fireworks")
         .map((item) => item.id)
-    await api.setModelHidden("fireworks", "accounts/fireworks/models/kimi-k3", true)
+    await api.setModelsHidden("fireworks", ["accounts/fireworks/models/kimi-k3"], true)
     expect((await api.getSnapshot()).hiddenModels).toEqual([
       "fireworks:accounts/fireworks/models/kimi-k3",
     ])
     expect(await fireworksIds()).toEqual(["accounts/fireworks/models/glm-5p3"])
     // The active model stays in the picker however it is marked; unhiding restores the row.
-    await api.setModelHidden("fireworks", "accounts/fireworks/models/glm-5p3", true)
+    await api.setModelsHidden("fireworks", ["accounts/fireworks/models/glm-5p3"], true)
     expect(await fireworksIds()).toEqual(["accounts/fireworks/models/glm-5p3"])
-    await api.setModelHidden("fireworks", "accounts/fireworks/models/kimi-k3", false)
+    await api.setModelsHidden("fireworks", ["accounts/fireworks/models/kimi-k3"], false)
     expect(await fireworksIds()).toEqual([
       "accounts/fireworks/models/glm-5p3",
       "accounts/fireworks/models/kimi-k3",
     ])
     // The catalog for the switches never drops a hidden model.
-    expect((await api.listHostedCatalogs()).fireworks).toHaveLength(2)
+    expect((await api.listModelCatalogs()).fireworks).toHaveLength(2)
+    // Local models hide the same way.
+    const [local] = catalogs.local ?? []
+    if (!local) throw new Error("expected a demo local model")
+    const localIds = async () =>
+      (await api.listModels())
+        .filter((item) => item.kind === "model" && item.provider === "local")
+        .map((item) => item.id)
+    expect(await localIds()).toContain(local.id)
+    await api.setModelsHidden("local", [local.id], true)
+    expect(await localIds()).not.toContain(local.id)
+    expect((await api.listModelCatalogs()).local?.map((item) => item.id)).toContain(local.id)
   })
 
   it("switches saved Word versions and reopens the latest independently of the working file", async () => {

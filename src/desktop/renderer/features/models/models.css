@@ -83,12 +83,22 @@
   gap: 2px;
 }
 
+/* The vendor's logo sits on the name's line, not centered between the name and its details. */
+.modelPicker-select > .vendorMark {
+  align-self: flex-start;
+  margin-top: 1px;
+}
+
 .modelPicker-name {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-size: var(--text-ui);
-  font-weight: 500;
+}
+
+/* The active model's name is firmer, as the palette sets the session on screen. */
+.modelPicker-row.active .modelPicker-name {
+  font-weight: 560;
 }
 
 .modelPicker-name > span:first-child {
@@ -278,9 +288,18 @@
 
 .modelCard-naming {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+/* The vendor's logo leads the card, at the size of the title and author together. */
+.vendorMark.modelCard-mark {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+  border-radius: 8px;
 }
 
 .modelCard-title {

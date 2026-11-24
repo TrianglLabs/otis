@@ -604,6 +604,7 @@ describe("DesktopRuntime subagents", () => {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     })
 
     expect(await runtime.setHostedApiKey("fireworks", "good-key")).toEqual({ ok: true })
@@ -690,8 +691,8 @@ describe("DesktopRuntime subagents", () => {
         .map((item) => item.id)
 
     expect(await hostedIds()).toEqual([kimi.id, glm.id, FAKE_MODEL])
-    await runtime.setModelHidden("fireworks", glm.id, true)
-    await runtime.setModelHidden("fireworks", FAKE_MODEL, true)
+    await runtime.setModelsHidden("fireworks", [glm.id], true)
+    await runtime.setModelsHidden("fireworks", [FAKE_MODEL], true)
     expect((await loadLocalSettings()).hiddenModels).toEqual([
       `fireworks:${glm.id}`,
       `fireworks:${FAKE_MODEL}`,
@@ -704,15 +705,15 @@ describe("DesktopRuntime subagents", () => {
       `fireworks:${FAKE_MODEL}`,
     ])
     expect(sent.some((event) => event.type === "status")).toBe(true)
-    await runtime.setModelHidden("fireworks", glm.id, false)
+    await runtime.setModelsHidden("fireworks", [glm.id], false)
     expect(await hostedIds()).toEqual([kimi.id, glm.id, FAKE_MODEL])
 
     // The switches see every model, hidden ones included; a failing provider lists as empty and
     // one without a key is not asked.
-    expect(await runtime.listHostedCatalogs()).toEqual({
-      fireworks: [kimi, glm, hosted(FAKE_MODEL)],
-      together: [],
-    })
+    const { local, ...hostedCatalogs } = await runtime.listModelCatalogs()
+    expect(hostedCatalogs).toEqual({ fireworks: [kimi, glm, hosted(FAKE_MODEL)], together: [] })
+    // The local catalog is this machine's picker section, whatever it holds.
+    expect(local?.every((item) => item.kind === "model" && item.provider === "local")).toBe(true)
     await runtime.shutdown()
   })
 

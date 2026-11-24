@@ -737,7 +737,7 @@ describe("runHeadlessCommand", () => {
       await runHeadlessCommand(["-p", "openai", "--model", "gpt", "hello"], unknown.options),
     ).toBe(2)
     expect(unknown.stderr()).toContain(
-      "--provider must be one of fireworks, together, baseten, primeintellect, river.",
+      "--provider must be one of openrouter, fireworks, together, baseten, primeintellect, river.",
     )
     expect(mocks.loadLocalSettings).not.toHaveBeenCalled()
     expect(mocks.listHostedModels).not.toHaveBeenCalled()

@@ -781,6 +781,8 @@ function isCanonicalBase64(value: string) {
 function isAssistantContentPart(value: unknown) {
   if (!isRecord(value)) return false
   if (value.type === "text") return typeof value.text === "string"
+  if (value.type === "reasoning_details")
+    return Array.isArray(value.details) && value.details.every(isRecord)
   if (value.type === "tool_call") {
     const call = value.toolCall
     return (

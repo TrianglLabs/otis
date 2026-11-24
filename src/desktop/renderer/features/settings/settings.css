@@ -389,11 +389,16 @@
 /* Name and where it ran, then the split taking the slack, so every row ends on its total. */
 .settingsUsage-model {
   display: grid;
-  grid-template-columns: minmax(0, max-content) auto 1fr auto;
+  grid-template-columns: auto minmax(0, max-content) auto 1fr auto;
   align-items: baseline;
   column-gap: 8px;
   padding-top: 12px;
   font-size: var(--text-ui);
+}
+
+/* The vendor's logo leads the row, centered on its line rather than on the text's baseline. */
+.settingsUsage-model > .vendorMark {
+  align-self: center;
 }
 
 .settingsUsage-modelName {
@@ -615,6 +620,39 @@
   min-height: 48px;
   padding: 10px 0;
   font-size: var(--text-ui);
+}
+
+/*
+ * A catalog's tools sit in one row at the top of its card: the search, the pages, and the
+ * show-or-hide-all switch, so nothing floats apart from the list it acts on.
+ */
+.settingsModels {
+  margin-top: 10px;
+}
+
+.settingsModels-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.settingsModels-tools .field {
+  flex: 1;
+}
+
+/* A vendor's heading over its models, set like the model picker's section labels. */
+.settingsRow.settingsModels-vendor {
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 0;
+  padding: 14px 0 4px;
+  color: var(--text);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .settingsRow + .settingsRow {
@@ -1019,4 +1057,8 @@
 
 .settingsServe-row {
   padding: 10px 0 4px;
+}
+
+.settingsModels-vendor + .settingsRow {
+  border-top: none;
 }

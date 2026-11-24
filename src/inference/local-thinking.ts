@@ -10,7 +10,6 @@ type ThinkingCapability = {
 
 // Model-native template controls only; never invent token budgets or unsupported effort tiers.
 // Qwen: https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/chat_template.jinja
-// Bonsai: https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf#best-practices
 // Other entries follow the authors' chat_template.jinja files for the named checkpoints.
 // Gemma templates default thinking off, but our pinned llama-server enables it by default.
 // defaultLevel reflects the managed server's behavior when no request override is sent.
@@ -20,10 +19,6 @@ const CAPABILITIES: Record<string, ThinkingCapability> = {
   // Saluki ships Qwen3.8's template: https://huggingface.co/ConwayResearch/Underdog-Saluki-27B-1.0
   "ConwayResearch/Underdog-Saluki-27B-1.0": {
     levels: ["off", "low", "medium", "xhigh"],
-    defaultLevel: "xhigh",
-  },
-  "prism-ml/Ternary-Bonsai-2-27B-gguf": {
-    levels: ["off", "medium", "xhigh"],
     defaultLevel: "xhigh",
   },
   "openai/gpt-oss-20b": { levels: ["low", "medium", "high"], defaultLevel: "medium" },

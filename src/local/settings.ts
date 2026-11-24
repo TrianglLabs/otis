@@ -49,6 +49,7 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   basetenApiKey?: string
   primeintellectApiKey?: string
   riverApiKey?: string
+  openrouterApiKey?: string
   /** The Prime Intellect team whose wallet pays for requests; omitted bills the personal one. */
   primeintellectTeamId?: string
   pairEndpoints?: PairEndpoints

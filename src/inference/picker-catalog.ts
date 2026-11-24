@@ -95,7 +95,7 @@ export type ModelPickerChoice =
 
 type ListModelPickerOptions = {
   hostedApiKeys?: HostedApiKeys
-  /** Hosted models the user hid from the picker (`modelKey`); the active one still shows. */
+  /** Local and hosted models the user hid from the picker (`modelKey`); the active one shows. */
   hiddenModels?: ReadonlySet<string>
   currentModel?: string
   currentProvider?: ModelProvider
@@ -132,7 +132,6 @@ const GPU_RECOMMENDATION_GROUPS: PreferenceGroups = [
   ["Qwen/Qwen3.8-27B"],
   ["LiquidAI/LFM2.5-24B-A2B"],
   ["ConwayResearch/Underdog-Saluki-27B-1.0"],
-  ["prism-ml/Ternary-Bonsai-2-27B-gguf"],
   ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"],
   ["LiquidAI/LFM2.5-2.6B"],
 ]
@@ -253,7 +252,11 @@ export async function listModelPickerItems(
       }),
     )
   )
-    .filter((item) => item !== undefined)
+    .filter(
+      (item): item is LocalPickerChoice =>
+        item !== undefined &&
+        (item.active || !options.hiddenModels?.has(modelKey("local", item.id))),
+    )
     .sort((a, b) => preference(a.id) - preference(b.id))
 
   const header = (provider: ModelProvider): ModelPickerHeader => ({

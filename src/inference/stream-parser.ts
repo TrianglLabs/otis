@@ -21,6 +21,7 @@ type RawChatCompletionChunk = {
       reasoning_content?: string | null
       reasoning?: string | null
       reasoning_text?: string | null
+      reasoning_details?: unknown
       tool_calls?: RawToolCall[] | null
     } | null
   }>
@@ -34,6 +35,7 @@ export async function* parseChatCompletionStream(
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   const toolCalls = new Map<number, { id?: string; name?: string; arguments: string }>()
+  const reasoningDetails: Record<string, unknown>[] = []
   let currentToolCallIndex: number | undefined
   let finishReason: string | undefined
   let buffer = ""
@@ -112,6 +114,32 @@ export async function* parseChatCompletionStream(
         yield { type: "reasoning_delta", field, text }
         break
       }
+      // OpenRouter streams `reasoning_details` blocks as they are generated. Consecutive pieces
+      // of one block share its `index` and type: their text and summary join, and later fields
+      // such as the signature or encrypted data replace earlier ones.
+      for (const raw of Array.isArray(delta?.reasoning_details) ? delta.reasoning_details : []) {
+        if (!isRecord(raw)) continue
+        const last = reasoningDetails.at(-1)
+        if (
+          !last ||
+          raw.index === undefined ||
+          last.index !== raw.index ||
+          last.type !== raw.type
+        ) {
+          reasoningDetails.push({ ...raw })
+          continue
+        }
+        for (const [key, field] of Object.entries(raw)) {
+          if (field === null || field === undefined) continue
+          const previous = last[key]
+          last[key] =
+            (key === "text" || key === "summary") &&
+            typeof previous === "string" &&
+            typeof field === "string"
+              ? previous + field
+              : field
+        }
+      }
       if (delta?.content) yield { type: "text_delta", text: delta.content }
 
       const deltas = Array.isArray(delta?.tool_calls) ? delta.tool_calls : []
@@ -159,6 +187,7 @@ export async function* parseChatCompletionStream(
       `Inference stream ended with finish_reason=${finishReason} but included no tool calls`,
     )
   }
+  if (reasoningDetails.length > 0) yield { type: "reasoning_details", details: reasoningDetails }
   for (const [index, toolCall] of [...toolCalls].sort(([left], [right]) => left - right)) {
     if (!toolCall.name)
       throw new Error("Inference stream included a tool call without a function name")

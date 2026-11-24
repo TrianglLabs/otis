@@ -437,6 +437,35 @@ describe("JsonlSession", () => {
     expect(reopened.replayMessages()).toEqual(messages)
   })
 
+  it("persists OpenRouter reasoning details unmodified for replay", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory })
+    const admission = await session.admitPrompt("think")
+    const messages: ChatMessage[] = [
+      { role: "user", content: "think" },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", field: "reasoning", text: "Check." },
+          {
+            type: "reasoning_details",
+            details: [
+              { type: "reasoning.text", text: "Check.", signature: "sig", index: 0 },
+              { type: "reasoning.encrypted", data: "opaque==", index: 1 },
+            ],
+          },
+          { type: "text", text: "Done." },
+        ],
+      },
+    ]
+
+    await session.completeTurn(admission, messages)
+    const reopened = await openSession({ cwd, directory })
+
+    expect(reopened.replayMessages()).toEqual(messages)
+  })
+
   it("loads reasoning written before trace identity and timing metadata", async () => {
     const cwd = await trackedTempDir()
     const path = join(cwd, "legacy.jsonl")

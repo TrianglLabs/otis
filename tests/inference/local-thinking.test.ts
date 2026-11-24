@@ -7,21 +7,13 @@ import {
 } from "../../src/inference/local-thinking.js"
 
 describe("local thinking capabilities", () => {
-  it("offers only native effort tiers and excludes unsupported Bonsai low effort", () => {
+  it("offers only native effort tiers", () => {
     expect(localThinkingCapability("Qwen/Qwen3.8-27B")?.levels).toEqual([
       "off",
       "low",
       "medium",
       "xhigh",
     ])
-    expect(localThinkingCapability("prism-ml/Ternary-Bonsai-2-27B-gguf")?.levels).toEqual([
-      "off",
-      "medium",
-      "xhigh",
-    ])
-    expect(() =>
-      validateLocalThinkingSelection("prism-ml/Ternary-Bonsai-2-27B-gguf", "low"),
-    ).toThrow()
     expect(() => validateLocalThinkingSelection("Qwen/Qwen3.8-27B", "high")).toThrow()
     // Inkling's template renders max as xhigh and cannot turn reasoning off.
     expect(localThinkingCapability("thinkingmachines/Inkling-2-Mini")).toEqual({
@@ -50,7 +42,6 @@ describe("local thinking capabilities", () => {
 
   it("picks off when listed, else the lowest native effort, for minimal reasoning", () => {
     expect(minimalLocalThinkingLevel("Qwen/Qwen3.8-27B")).toBe("off")
-    expect(minimalLocalThinkingLevel("prism-ml/Ternary-Bonsai-2-27B-gguf")).toBe("off")
     expect(minimalLocalThinkingLevel("google/gemma-4-12B-it")).toBe("off")
     expect(minimalLocalThinkingLevel("openai/gpt-oss-20b")).toBe("low")
     expect(minimalLocalThinkingLevel("zai-org/GLM-5.3")).toBe("low")

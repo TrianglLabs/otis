@@ -155,6 +155,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     },
     hiddenModels: [],
     favoriteModels: [],

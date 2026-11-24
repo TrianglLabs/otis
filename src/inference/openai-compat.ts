@@ -118,7 +118,8 @@ function formatInterval(ms: number) {
 
 /**
  * With `reasoningField`, only reasoning stored in that field is replayed; strict providers reject
- * any other key. Without it every stored field goes back.
+ * any other key. Without it every stored field goes back. With `openrouter`, a message's
+ * structured reasoning goes back in place of its plain reasoning text.
  */
 export function openaiChatCompletionRequest(
   model: string,
@@ -129,6 +130,13 @@ export function openaiChatCompletionRequest(
     /** Together's routing hint for prompt caches, the counterpart of the affinity header. */
     promptCacheKey?: string
     reasoningField?: OpenAICompatibleReasoningField
+    /**
+     * OpenRouter: route the session to the provider holding its cache (`session_id`), only to
+     * zero-data-retention endpoints, with automatic prompt caching (one top-level marker the
+     * models that cache only when asked, Anthropic's, need and the others ignore), replaying
+     * `reasoning_details` blocks.
+     */
+    openrouter?: boolean
   } = {},
 ) {
   const tools = options.tools ?? []
@@ -140,6 +148,11 @@ export function openaiChatCompletionRequest(
     model,
     ...(extras.serviceTier ? { service_tier: extras.serviceTier } : {}),
     ...(extras.promptCacheKey ? { prompt_cache_key: extras.promptCacheKey } : {}),
+    ...(extras.openrouter && {
+      ...(options.sessionId ? { session_id: options.sessionId } : {}),
+      provider: { zdr: true },
+      cache_control: { type: "ephemeral" },
+    }),
     messages: [
       {
         role: "system",
@@ -169,10 +182,12 @@ export function openaiChatCompletionRequest(
           }
         }
         const reasoning: Partial<Record<OpenAICompatibleReasoningField, string>> = {}
+        const details: Record<string, unknown>[] = []
         const toolCalls = []
         for (const part of message.content) {
           if (part.type === "reasoning" && (extras.reasoningField ?? part.field) === part.field)
             reasoning[part.field] = (reasoning[part.field] ?? "") + part.text
+          if (part.type === "reasoning_details" && extras.openrouter) details.push(...part.details)
           if (part.type === "tool_call") {
             toolCalls.push({
               id: part.toolCall.id,
@@ -184,7 +199,7 @@ export function openaiChatCompletionRequest(
         return {
           role: "assistant",
           content: textContent(message.content) || null,
-          ...reasoning,
+          ...(details.length > 0 ? { reasoning_details: details } : reasoning),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         }
       }),

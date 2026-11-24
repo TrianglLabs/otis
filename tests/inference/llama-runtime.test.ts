@@ -15,11 +15,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type HardwareProbe, inferenceMemoryBudget } from "../../src/inference/hardware.js"
-import {
-  type LlamaRuntimeKind,
-  llamaRuntimeReleaseTag,
-  pinnedLlamaCppAsset,
-} from "../../src/inference/llama-binary.js"
+import { llamaRuntimeReleaseTag, pinnedLlamaCppAsset } from "../../src/inference/llama-binary.js"
 import {
   LlamaCppRuntime,
   type LocalLoadProgress,
@@ -47,11 +43,8 @@ const hardware: HardwareProbe = {
 }
 
 const pinnedAsset = pinnedLlamaCppAsset(hardware)
-/** The pinned release tags, read from the asset table's download URLs. */
-const releaseTagOf = (runtime: LlamaRuntimeKind) =>
-  pinnedLlamaCppAsset(hardware, runtime).url.split("/").at(-2) ?? ""
-const LLAMA_CPP_RELEASE_TAG = releaseTagOf("upstream")
-const PRISM_LLAMA_CPP_RELEASE_TAG = releaseTagOf("prism")
+/** The pinned release tag, read from the asset table's download URL. */
+const LLAMA_CPP_RELEASE_TAG = pinnedAsset.url.split("/").at(-2) ?? ""
 const pinnedArchiveURL = pinnedAsset.url
 const archiveBody = Buffer.from("archive")
 const fakeRuntimeAsset: NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> = () => ({
@@ -213,7 +206,7 @@ describe("llama.cpp runtime", () => {
     )
     await expect(
       readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8"),
-    ).resolves.toContain(`"artifactSha256":"${fakeRuntimeAsset(hardware, "upstream").sha256}"`)
+    ).resolves.toContain(`"artifactSha256":"${fakeRuntimeAsset(hardware).sha256}"`)
     expect(await readFile(join(dirname(binary as string), "ggml-metal.metal"), "utf8")).toBe(
       "metal backend",
     )
@@ -253,59 +246,6 @@ describe("llama.cpp runtime", () => {
     expect(command).toBe(pinned)
     expect(urls).not.toContain(pinnedArchiveURL)
     await expect(stat(join(directory, "bin", "b10667"))).rejects.toMatchObject({ code: "ENOENT" })
-    await runtime.stop()
-  })
-
-  it("uses the pinned Prism runtime only for Bonsai and preserves the upstream bundle", async () => {
-    const model = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    if (!model) throw new Error("missing Bonsai catalog entry")
-    const fit = fitLocalModel(model, hardware)
-    const directory = await tempDir()
-    await cacheWeights(fit.model, directory)
-    const upstream = await installFakeBinary(directory, LLAMA_CPP_RELEASE_TAG)
-    const prismArchiveURL =
-      "https://github.com/PrismML-Eng/llama.cpp/releases/download/prism-b10685-7dffb15/test-prism.tar.gz"
-    const selectedRuntimes: string[] = []
-    let command = ""
-    const runtime = new LlamaCppRuntime({
-      env: {},
-      runtimeAsset: (_target, selectedRuntime) => {
-        selectedRuntimes.push(selectedRuntime)
-        return {
-          name: "test-prism.tar.gz",
-          url: prismArchiveURL,
-          size: archiveBody.byteLength,
-          sha256: createHash("sha256").update(archiveBody).digest("hex"),
-        }
-      },
-      dataDirectory: directory,
-      allocatePort: async () => 18774,
-      spawn: ((nextCommand) => {
-        command = String(nextCommand)
-        return fakeChild()
-      }) as LlamaCppRuntimeOptions["spawn"],
-      fetch: (async (input: RequestInfo | URL) => {
-        const url = String(input)
-        if (url === prismArchiveURL) return new Response(archiveBody)
-        if (url.includes("/health")) return new Response("ok")
-        if (url.includes("/props")) return runtimeProperties(fit.contextLength)
-        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
-        return new Response("missing", { status: 404 })
-      }) as typeof fetch,
-      extractArchive: async (_archive, destination) => {
-        const bundle = join(destination, "bin")
-        await mkdir(bundle, { recursive: true })
-        await writeFile(join(bundle, "llama-server"), "prism server")
-        await writeFile(join(bundle, "libllama.dylib"), "llama library")
-        await writeFile(join(bundle, "libggml.dylib"), "ggml library")
-      },
-    })
-
-    await runtime.ensureServing(model, fit, hardware)
-
-    expect(selectedRuntimes).toEqual(["prism"])
-    expect(command).toBe(join(directory, "bin", "prism-b10685-7dffb15", "llama-server"))
-    await expect(stat(upstream)).resolves.toBeDefined()
     await runtime.stop()
   })
 
@@ -1528,7 +1468,7 @@ describe("llama.cpp runtime", () => {
     const runtime = new LlamaCppRuntime({
       env: {},
       dataDirectory: directory,
-      runtimeAsset: () => ({ ...fakeRuntimeAsset(hardware, "upstream"), sha256: "0".repeat(64) }),
+      runtimeAsset: () => ({ ...fakeRuntimeAsset(hardware), sha256: "0".repeat(64) }),
       spawn: spawnRuntime as LlamaCppRuntimeOptions["spawn"],
       extractArchive,
       fetch: (async () => new Response(archiveBody)) as typeof fetch,
@@ -2084,172 +2024,6 @@ describe("CUDA runtime bundles", () => {
   })
 
   it.each([
-    ["12.8", "12.8"],
-    // Prism's newest CUDA build is 13.3; a 13.4 or 13.5 machine runs it on the same driver.
-    ["13.4", "13.3"],
-    ["13.5", "13.3"],
-  ] as const)("starts Bonsai with Prism CUDA on a %s machine and its cached PQ2 weights", async (cudaVersion, prismVersion) => {
-    const setup = await cudaRuntimeSetup(cudaVersion, "prism")
-    const selectAsset = vi.fn(setup.options.runtimeAsset)
-    const runtime = new LlamaCppRuntime({ ...setup.options, runtimeAsset: selectAsset })
-    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
-    expect(setup.fit.model.quant).toBe("PQ2_0")
-    expect(selectAsset).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: "cuda", cudaVersion: prismVersion }),
-      "prism",
-    )
-    expect(setup.commands).toEqual([
-      join(
-        setup.directory,
-        "bin",
-        `${PRISM_LLAMA_CPP_RELEASE_TAG}-cuda-${prismVersion}`,
-        "llama-server",
-      ),
-    ])
-    expect(setup.downloads).toEqual(["https://runtime.test/cuda", "https://runtime.test/cudart"])
-    await runtime.stop()
-  })
-
-  it("keeps Bonsai on Prism and reuses cached PTQ1 when CUDA falls back to Vulkan", async () => {
-    const setup = await cudaRuntimeSetup("13.4", "prism")
-    const fallback = fitLocalModel(setup.model, { ...setup.hardware, backend: "vulkan" }).model
-    await cacheWeights(fallback, setup.directory)
-    const spawn = vi.fn(setup.options.spawn)
-    const selectAsset = vi.fn(setup.options.runtimeAsset)
-    const runtime = new LlamaCppRuntime({
-      ...setup.options,
-      runtimeAsset: selectAsset,
-      spawn: spawn as unknown as LlamaCppRuntimeOptions["spawn"],
-      listDevices: async (path) =>
-        path.includes("-cuda-")
-          ? "Available devices:\n  (none)"
-          : "Available devices:\n  Vulkan0: NVIDIA RTX",
-    })
-    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
-    expect(setup.fit.model.quant).toBe("PQ2_0")
-    expect(spawn.mock.calls[0]?.[1]).toContain(localGgufPath(fallback, setup.directory))
-    expect(selectAsset).toHaveBeenLastCalledWith(
-      expect.objectContaining({ backend: "vulkan" }),
-      "prism",
-    )
-    expect(setup.commands).toEqual([
-      join(setup.directory, "bin", PRISM_LLAMA_CPP_RELEASE_TAG, "llama-server"),
-    ])
-    expect(setup.downloads).toEqual([
-      "https://runtime.test/cuda",
-      "https://runtime.test/cudart",
-      "https://runtime.test/vulkan",
-    ])
-    await runtime.stop()
-  })
-
-  it.each([
-    "probe",
-    "startup",
-  ] as const)("downloads verified PTQ1 after Bonsai CUDA %s failure and reuses the live fallback", async (failure) => {
-    const setup = await cudaRuntimeSetup("13.4", "prism")
-    const body = Buffer.from("fallback PTQ1 weights")
-    const model = {
-      ...setup.model,
-      packings: setup.model.packings?.map((packing) =>
-        packing.quant !== "PTQ1_0"
-          ? packing
-          : {
-              ...packing,
-              ggufFiles: [
-                {
-                  ...packing.ggufFiles[0],
-                  size: body.length,
-                  sha256: createHash("sha256").update(body).digest("hex"),
-                },
-              ],
-            },
-      ) as LocalModelSpec["packings"],
-    }
-    const fit = fitLocalModel(model, setup.hardware)
-    const fallback = fitLocalModel(model, { ...setup.hardware, backend: "vulkan" }).model
-    const fallbackPath = localGgufPath(fallback, setup.directory)
-    const originalFetch = setup.options.fetch
-    if (!originalFetch) throw new Error("missing fake fetch")
-    const children: ReturnType<typeof fakeChild>[] = []
-    const paths: string[] = []
-    const progress: string[] = []
-    const runtime = new LlamaCppRuntime({
-      ...setup.options,
-      listDevices: async (path) =>
-        path.includes("-cuda-")
-          ? failure === "probe"
-            ? "Available devices: (none)"
-            : "CUDA0: NVIDIA"
-          : "Vulkan0: NVIDIA",
-      fetch: (async (input, init) => {
-        if (String(input).endsWith(fallback.ggufFiles[0].name)) {
-          setup.downloads.push(String(input))
-          return new Response(body)
-        }
-        return await originalFetch(input, init)
-      }) as typeof fetch,
-      spawn: ((_command: string, args?: readonly string[]) => {
-        const child = fakeChild()
-        children.push(child)
-        paths.push(String(args?.[1]))
-        if (failure === "startup" && children.length === 1) {
-          queueMicrotask(() => {
-            child.stderr.emit("data", "CUDA error: initialization error")
-            child.exitCode = 1
-            child.emit("exit", 1)
-          })
-        }
-        return child
-      }) as LlamaCppRuntimeOptions["spawn"],
-    })
-    try {
-      const endpoint = await runtime.ensureServing(model, fit, setup.hardware, {
-        onProgress: ({ phase }) => progress.push(phase),
-      })
-      expect(paths).toEqual(
-        failure === "probe"
-          ? [fallbackPath]
-          : [localGgufPath(model, setup.directory), fallbackPath],
-      )
-      expect(await readFile(fallbackPath)).toEqual(body)
-      expect((await stat(localGgufPath(model, setup.directory))).size).toBe(model.ggufFiles[0].size)
-      expect(progress).toContain("download")
-      expect(progress.at(-1)).toBe("loading")
-      expect(setup.downloads.filter((url) => url.includes("huggingface.co"))).toHaveLength(1)
-      const launches = children.length
-      expect(await runtime.ensureServing(model, fit, setup.hardware)).toBe(endpoint)
-      expect(children).toHaveLength(launches)
-      if (failure === "startup") expect(children[0]?.exitCode).not.toBeNull()
-    } finally {
-      await runtime.stop()
-    }
-  })
-
-  it("does not start Vulkan with PQ2 when the required PTQ1 download fails", async () => {
-    const setup = await cudaRuntimeSetup("13.4", "prism")
-    const originalFetch = setup.options.fetch
-    if (!originalFetch) throw new Error("missing fake fetch")
-    const runtime = new LlamaCppRuntime({
-      ...setup.options,
-      listDevices: async (path) => (path.includes("-cuda-") ? "(none)" : "Vulkan0: NVIDIA"),
-      fetch: (async (input, init) =>
-        String(input).includes("huggingface.co")
-          ? new Response("unavailable", { status: 503 })
-          : await originalFetch(input, init)) as typeof fetch,
-    })
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
-      "HTTP 503",
-    )
-    expect(setup.commands).toEqual([])
-    expect(runtime.serving).toBeUndefined()
-    expect((await stat(localGgufPath(setup.model, setup.directory))).size).toBe(
-      setup.model.ggufFiles[0].size,
-    )
-    await runtime.stop()
-  })
-
-  it.each([
     "12.8",
     "13.4",
     "13.5",
@@ -2275,21 +2049,26 @@ describe("CUDA runtime bundles", () => {
   it("reports a runtime installed only once its verified bundle is in place", async () => {
     const setup = await cudaRuntimeSetup("13.5")
     const runtime = new LlamaCppRuntime(setup.options)
-    expect(await runtime.runtimeInstalled(setup.model, setup.hardware)).toBe(false)
+    expect(await runtime.runtimeInstalled(setup.hardware)).toBe(false)
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
-    expect(await runtime.runtimeInstalled(setup.model, setup.hardware)).toBe(true)
+    expect(await runtime.runtimeInstalled(setup.hardware)).toBe(true)
     await runtime.stop()
   })
 
   it("installs a runtime ahead of its first start, starting nothing, and drops old bundles", async () => {
     const setup = await cudaRuntimeSetup("13.5")
     const old = await installFakeBinary(setup.directory, "b10964")
+    // Bundles of Prism's retired llama.cpp fork go too.
+    const prism = await installFakeBinary(setup.directory, "prism-b10685-7dffb15")
+    const prismCuda = await installFakeBinary(setup.directory, "prism-b10685-7dffb15-cuda-13.3")
     const runtime = new LlamaCppRuntime(setup.options)
-    await runtime.installRuntime(setup.model, setup.hardware, new AbortController().signal)
-    expect(await runtime.runtimeInstalled(setup.model, setup.hardware)).toBe(true)
+    await runtime.installRuntime(setup.hardware, new AbortController().signal)
+    expect(await runtime.runtimeInstalled(setup.hardware)).toBe(true)
     expect(setup.downloads).toEqual(["https://runtime.test/cuda", "https://runtime.test/cudart"])
     expect(setup.commands).toEqual([])
     await expect(stat(old)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(prism)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(prismCuda)).rejects.toMatchObject({ code: "ENOENT" })
     // The first start finds it in place.
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.downloads).toHaveLength(2)
@@ -2324,7 +2103,7 @@ describe("CUDA runtime bundles", () => {
       const path = join(setup.cudaDir, ".otis-runtime.json")
       const manifest = JSON.parse(await readFile(path, "utf8"))
       // The server archive still matches; the companion must match too.
-      manifest.artifactSha256 = setup.options.runtimeAsset?.(setup.hardware, "upstream").sha256
+      manifest.artifactSha256 = setup.options.runtimeAsset?.(setup.hardware).sha256
       await writeFile(path, JSON.stringify(manifest))
     }
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
@@ -2432,7 +2211,6 @@ describe("CUDA runtime bundles", () => {
 
 async function cudaRuntimeSetup(
   cudaVersion: "12.4" | "12.8" | "13.4" | "13.5" = "13.5",
-  runtime: LlamaRuntimeKind = "upstream",
   platform: "linux" | "win32" = "linux",
 ) {
   const windows = platform === "win32"
@@ -2444,10 +2222,7 @@ async function cudaRuntimeSetup(
     cudaVersion,
     unifiedMemory: false,
   }
-  const spec =
-    runtime === "prism" ? findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf") : catalogModel()
-  if (!spec) throw new Error("missing local model")
-  const fit = fitLocalModel(spec, cudaHardware)
+  const fit = fitLocalModel(catalogModel(), cudaHardware)
   const model = fit.model
   const directory = await tempDir()
   await cacheWeights(model, directory)
@@ -2503,11 +2278,7 @@ async function cudaRuntimeSetup(
     fit,
     hardware: cudaHardware,
     directory,
-    cudaDir: join(
-      directory,
-      "bin",
-      `${llamaRuntimeReleaseTag(runtime, cudaVersion)}-cuda-${cudaVersion}`,
-    ),
+    cudaDir: join(directory, "bin", `${llamaRuntimeReleaseTag(cudaVersion)}-cuda-${cudaVersion}`),
     options,
     downloads,
     commands,
@@ -2520,7 +2291,7 @@ function cpuAwareRuntimeAsset(
 ): NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> {
   const asset = setup.options.runtimeAsset
   if (!asset) throw new Error("missing fake runtime asset")
-  return (target, runtime) =>
+  return (target) =>
     target.backend === "cpu"
       ? {
           name: "cpu",
@@ -2528,7 +2299,7 @@ function cpuAwareRuntimeAsset(
           size: 3,
           sha256: createHash("sha256").update("cpu").digest("hex"),
         }
-      : asset(target, runtime)
+      : asset(target)
 }
 
 /** A model start with a recorded server from an earlier process, plus fake pid controls. */
@@ -2879,7 +2650,7 @@ describe("Windows runtime bundles", () => {
   })
 
   it("installs CUDA 13.5 beside its cudart64 libraries and probes the device", async () => {
-    const setup = await cudaRuntimeSetup("13.5", "upstream", "win32")
+    const setup = await cudaRuntimeSetup("13.5", "win32")
     const runtime = new LlamaCppRuntime(setup.options)
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.commands).toEqual([join(setup.cudaDir, "llama-server.exe")])

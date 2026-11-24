@@ -8,7 +8,7 @@
 
 <p align="center">
   <b>A personal AI agent to help you think, create, and get things done.</b><br>
-  Powered by open models, on your computer or in the cloud.
+  Open models on your computer, or open and frontier models in the cloud.
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@ connects to the models you already run.
 - **Local models, without the setup work.** Otis recommends a model for your hardware, downloads it, and runs it
   for you. No account, no telemetry, and it works offline.
 - **Local or hosted, your call.** Run local models without per-token fees, or use hosted models with your own
-  Fireworks AI, Together AI, Baseten, Prime Intellect, or River AI key. Pick the model. Keep the work.
+  Fireworks AI, Together AI, Baseten, Prime Intellect, River AI, or OpenRouter key. Pick the model. Keep the work.
 - **Keeps going when the network drops.** A session on a hosted model switches to your local model or local server,
   even mid-message, and switches back once you're online. Web search steps aside until the web is reachable again.
   Turn it off in Settings.
@@ -174,7 +174,7 @@ Desktop app / OpenTUI terminal / headless CLI
       ├─ llama.cpp ── Otis-managed local GGUF inference
       ├─ NVIDIA PAIR ── routing across your local AI cluster
       ├─ oMLX · any OpenAI-compatible server ── user-managed inference on loopback
-      ├─ Fireworks AI · Together AI · Baseten · Prime Intellect · River AI ── hosted inference and model discovery
+      ├─ Fireworks AI · Together AI · Baseten · Prime Intellect · River AI · OpenRouter ── hosted inference and model discovery
       └─ Parallel Search MCP ── web search and page reading
 ```
 
@@ -252,10 +252,12 @@ to an eligible computer in your cluster, an [oMLX](docs/local-servers.md) server
 
 **Hosted.** [Fireworks](https://app.fireworks.ai/api-keys), [Together AI](https://api.together.ai/settings/projects/~current/api-keys),
 [Baseten](https://app.baseten.co/settings/api_keys), [Prime Intellect](https://app.primeintellect.ai/dashboard/tokens),
-or [River AI](https://console.river.ai/keys) with your own API key, entered during setup, from `/settings`, or from the environment:
+[River AI](https://console.river.ai/keys), or [OpenRouter](https://openrouter.ai/settings/keys) with your own API key,
+entered during setup, from `/settings`, or from the environment. OpenRouter adds frontier models such as Claude, GPT,
+and Gemini; Otis lists and routes to only its zero-data-retention endpoints:
 
 ```sh
-export FIREWORKS_API_KEY=fw_your_key   # or TOGETHER_API_KEY, BASETEN_API_KEY, PRIME_API_KEY, RIVER_API_KEY
+export FIREWORKS_API_KEY=fw_your_key   # or TOGETHER_API_KEY, BASETEN_API_KEY, PRIME_API_KEY, RIVER_API_KEY, OPENROUTER_API_KEY
 export PRIME_TEAM_ID=team_id           # optional: bill Prime Intellect to a team wallet
 otis
 ```
@@ -367,6 +369,13 @@ boundaries, testing guidance, and the verification checklist.
 
 ## License
 
-Otis is released under the [MIT License](LICENSE). Copyright © 2026 Triangl Labs.
+Otis is released under the [MIT License](LICENSE). Copyright © 2026 Triangl Labs, Inc.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled third-party license notices.
+
+### Trademarks and forks
+
+The MIT License covers the code only. It grants no rights to the Otis name, logo, cube mark, or application icons,
+which belong to Triangl Labs, Inc. You are welcome to fork Otis, but a fork you publish must use its own name and
+icons, and must say plainly that it is unofficial and not affiliated with or endorsed by Triangl Labs, Inc.
+Presenting a project as official Otis is not allowed. See [TRADEMARK.md](TRADEMARK.md) for the full policy.

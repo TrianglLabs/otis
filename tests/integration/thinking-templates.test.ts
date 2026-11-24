@@ -32,13 +32,6 @@ const ALL_LEVELS: readonly LocalThinkingLevel[] = [
   "max",
 ]
 
-/** Levels a template honors that the table leaves out on the author's published guidance. */
-const POLICY_EXCLUSIONS: Record<string, readonly LocalThinkingLevel[]> = {
-  // https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf#best-practices names medium and
-  // xhigh; the template itself also accepts low.
-  "prism-ml/Ternary-Bonsai-2-27B-gguf": ["low"],
-}
-
 /** The wire form of a level as if it were listed, so unsupported levels can be probed too. */
 function rawThinkingParameters(level: LocalThinkingLevel) {
   if (level === "off" || level === "on")
@@ -101,11 +94,6 @@ describe.skipIf(reason)("thinking capability table against chat templates", () =
           for (const level of ALL_LEVELS) {
             if (capability.levels.includes(level)) continue
             const rendered = await render(server.port, rawThinkingParameters(level))
-            if (POLICY_EXCLUSIONS[model.spec.id]?.includes(level)) {
-              expect(rendered.prompt, `${level} is honored by the template`).toBeDefined()
-              expect(rendered.prompt).not.toBe(base.prompt)
-              continue
-            }
             if (rendered.prompt !== undefined) {
               expect(rendered.prompt, `${level} must be ignored`).toBe(base.prompt)
             } else {
