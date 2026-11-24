@@ -146,7 +146,7 @@
 .workspaceRail-tab[data-selected="true"]:hover {
   color: var(--text);
   background: var(--bg-control);
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--shadow-control);
 }
 
 .workspaceRail-views {
