@@ -9,7 +9,7 @@ import {
   nativeImage,
   Tray,
 } from "electron"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest"
 import {
   ALERT_DOT,
   renderTrayIcon,
@@ -570,6 +570,12 @@ describe("tray menu", () => {
   })
 
   it("names the routine due next, as a time today or with its day later", () => {
+    // Midday, so the routine due in an hour is still today wherever and whenever this runs.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date(2026, 9, 12, 12, 0))
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
     const mounted = mountTray()
     const soon = new Date(Date.now() + 60 * 60_000)
     const later = new Date(Date.now() + 48 * 60 * 60_000)
