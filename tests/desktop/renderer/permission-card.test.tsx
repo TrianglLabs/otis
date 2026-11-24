@@ -97,6 +97,7 @@ const SNAPSHOT: DesktopSnapshot = {
     baseten: false,
     primeintellect: false,
     river: false,
+    openrouter: false,
   },
   hiddenModels: [],
   favoriteModels: [],

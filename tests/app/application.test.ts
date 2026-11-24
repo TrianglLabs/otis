@@ -728,7 +728,6 @@ describe("Application offline fallback", () => {
     app.watchNetwork()
     await app.checkNetwork()
     await vi.waitFor(() => expect(install).toHaveBeenCalled())
-    expect(install.mock.calls[0][0].id).toBe(savedLocal.id)
     expect(app.focused.selection?.model).toEqual(fakeModel)
     await app.shutdown()
   })
@@ -1254,8 +1253,8 @@ describe("Application model transactions", () => {
   it("hides and shows hosted models for the picker and persists the choice", async () => {
     const app = await ready("otis-app-hidden-")
     expect(app.status().hiddenModels).toEqual([])
-    await app.setModelHidden("together", "moonshotai/Kimi-K3", true)
-    await app.setModelHidden("baseten", "zai-org/GLM-5.3", true)
+    await app.setModelsHidden("together", ["moonshotai/Kimi-K3"], true)
+    await app.setModelsHidden("baseten", ["zai-org/GLM-5.3"], true)
     expect(app.status().hiddenModels).toEqual([
       "together:moonshotai/Kimi-K3",
       "baseten:zai-org/GLM-5.3",
@@ -1264,7 +1263,16 @@ describe("Application model transactions", () => {
       "together:moonshotai/Kimi-K3",
       "baseten:zai-org/GLM-5.3",
     ])
-    await app.setModelHidden("together", "moonshotai/Kimi-K3", false)
+    await app.setModelsHidden("together", ["moonshotai/Kimi-K3"], false)
+    expect(app.status().hiddenModels).toEqual(["baseten:zai-org/GLM-5.3"])
+    // Several models at once land in one save, and showing them again removes each.
+    await app.setModelsHidden("together", ["a/one", "a/two"], true)
+    expect((await loadLocalSettings()).hiddenModels).toEqual([
+      "baseten:zai-org/GLM-5.3",
+      "together:a/one",
+      "together:a/two",
+    ])
+    await app.setModelsHidden("together", ["a/one", "a/two"], false)
     expect(app.status().hiddenModels).toEqual(["baseten:zai-org/GLM-5.3"])
     await app.shutdown()
   })

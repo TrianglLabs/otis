@@ -12,14 +12,19 @@ import {
   Loader2,
   Plug,
   RulerDimensionLine,
+  Search,
   Settings,
   Star,
   X,
 } from "lucide-react"
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react"
+import { Fragment, type KeyboardEvent, useCallback, useEffect, useState } from "react"
 import type { ServerInput } from "../../../../app/local-servers.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
-import { pickerItemKey } from "../../../../inference/picker-filter.js"
+import {
+  filterModelPickerItems,
+  groupByVendor,
+  pickerItemKey,
+} from "../../../../inference/picker-filter.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
@@ -32,10 +37,9 @@ import {
   serverFormInputs,
 } from "../../../../inference/types.js"
 import { Button, IconButton } from "../../components/Button.js"
-import { Icon, ProviderMark, RetentionBadge } from "../../components/Icon.js"
+import { Icon, ProviderMark, RetentionBadge, VendorMark } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { ProgressBar, ProgressStop } from "../../components/Progress.js"
-import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -75,9 +79,10 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const serverList = new Intl.ListFormat(locale, { type: "disjunction" })
   const [path, setPath] = useState<OnboardingPath>("welcome")
   const [direction, setDirection] = useState<OnboardingDirection>("forward")
-  const [hostedProvider, setHostedProvider] = useState<HostedProvider>("fireworks")
+  const [hostedProvider, setHostedProvider] = useState<HostedProvider>(HOSTED_PROVIDERS[0])
   const [apiKey, setApiKey] = useState("")
   const [teamId, setTeamId] = useState("")
+  const [modelQuery, setModelQuery] = useState("")
   // The server form shows one server at a time; every address stays in state and is probed.
   const [serverTab, setServerTab] = useState<LocalServerTab>("ollama")
   const [pairInputs, setPairInputs] = useState({ ollama: "", lmStudio: "" })
@@ -249,30 +254,41 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
             <h1 className="onboarding-title">{t("onboarding.welcome")}</h1>
             <p className="onboarding-sub">{t("onboarding.tagline")}</p>
           </div>
-          <div className="onboarding-cards">
+          <div className="onboarding-choices">
             <button
               type="button"
-              className="onboarding-card"
-              onClick={() => navigate("cloud", "forward")}
+              className="onboarding-choice"
+              onClick={() => {
+                // A provider that already has a key opens on its models; otherwise OpenRouter.
+                setHostedProvider(
+                  HOSTED_PROVIDERS.find((provider) => state?.hostedConfigured[provider]) ??
+                    HOSTED_PROVIDERS[0],
+                )
+                navigate("cloud", "forward")
+              }}
             >
-              <Icon icon={Cloud} size={18} className="onboarding-cardIcon" />
-              <span className="onboarding-cardText">
-                <span className="onboarding-cardTitle">{t("common.hosted")}</span>
-                <span className="onboarding-cardBody">{t("onboarding.hostedBody")}</span>
+              <span className="onboarding-choiceMark" aria-hidden>
+                <Icon icon={Cloud} size={20} className="onboarding-choiceIcon" />
               </span>
-              <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
+              <span className="onboarding-choiceText">
+                <span className="onboarding-choiceTitle">{t("common.hosted")}</span>
+                <span className="onboarding-choiceBody">{t("onboarding.hostedBody")}</span>
+              </span>
+              <Icon icon={ChevronRight} size={16} className="onboarding-choiceChevron" />
             </button>
             <button
               type="button"
-              className="onboarding-card"
+              className="onboarding-choice"
               onClick={() => navigate("local", "forward")}
             >
-              <Icon icon={Laptop} size={18} className="onboarding-cardIcon" />
-              <span className="onboarding-cardText">
-                <span className="onboarding-cardTitle">{t("common.local")}</span>
-                <span className="onboarding-cardBody">{t("onboarding.localBody")}</span>
+              <span className="onboarding-choiceMark" aria-hidden>
+                <Icon icon={Laptop} size={20} className="onboarding-choiceIcon" />
               </span>
-              <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
+              <span className="onboarding-choiceText">
+                <span className="onboarding-choiceTitle">{t("common.local")}</span>
+                <span className="onboarding-choiceBody">{t("onboarding.localBody")}</span>
+              </span>
+              <Icon icon={ChevronRight} size={16} className="onboarding-choiceChevron" />
             </button>
           </div>
         </div>
@@ -289,6 +305,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     serverModels: 3,
   }[path]
   const stepCount = path === "server" || path === "serverModels" ? 4 : 3
+  const matches = filterModelPickerItems(rows, modelQuery)
   return (
     <main className="onboarding">
       <div className="onboarding-topbar">
@@ -343,24 +360,24 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
               <p className="onboarding-panelTitle">{t("onboarding.chooseLocal")}</p>
               <p className="onboarding-hint">{t("onboarding.localHint")}</p>
             </div>
-            <div className="onboarding-cards">
+            <div className="onboarding-choices">
               <button
                 type="button"
-                className="onboarding-card"
+                className="onboarding-choice"
                 onClick={() => navigate("managed", "forward")}
               >
-                <span className="onboarding-cardMark" aria-hidden>
-                  <OtisMark className="onboarding-cardOtisMark" decorative />
+                <span className="onboarding-choiceMark" aria-hidden>
+                  <OtisMark className="onboarding-choiceOtisMark" decorative />
                 </span>
-                <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">{t("onboarding.managed")}</span>
-                  <span className="onboarding-cardBody">{t("onboarding.managedBody")}</span>
+                <span className="onboarding-choiceText">
+                  <span className="onboarding-choiceTitle">{t("onboarding.managed")}</span>
+                  <span className="onboarding-choiceBody">{t("onboarding.managedBody")}</span>
                 </span>
-                <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
+                <Icon icon={ChevronRight} size={16} className="onboarding-choiceChevron" />
               </button>
               <button
                 type="button"
-                className="onboarding-card"
+                className="onboarding-choice"
                 onClick={() => {
                   setPairInputs({
                     ollama: state?.pairEndpoints.ollama ?? LOCAL_SERVER_DEFAULTS.ollama,
@@ -380,15 +397,15 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     <ProviderMark key={tab} provider={tab} className="onboarding-providerMark" />
                   ))}
                 </span>
-                <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">{t("onboarding.server")}</span>
-                  <span className="onboarding-cardBody">
+                <span className="onboarding-choiceText">
+                  <span className="onboarding-choiceTitle">{t("onboarding.server")}</span>
+                  <span className="onboarding-choiceBody">
                     {t("onboarding.serverBody", {
                       servers: serverList.format([...servers, "NVIDIA PAIR"]),
                     })}
                   </span>
                 </span>
-                <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
+                <Icon icon={ChevronRight} size={16} className="onboarding-choiceChevron" />
               </button>
             </div>
           </>
@@ -401,19 +418,17 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 <legend className="onboarding-providersLegend">
                   {t("onboarding.chooseProvider")}
                 </legend>
-                <TabStrip
-                  size="lg"
-                  tabs={HOSTED_PROVIDERS.map((provider) => [
+                <ProviderGrid
+                  choices={HOSTED_PROVIDERS.map((provider) => [
                     provider,
-                    <>
-                      {HOSTED_PROVIDER_INFO[provider].name}
-                      {state?.hostedConfigured[provider] ? <Icon icon={Check} size={11} /> : null}
-                    </>,
+                    HOSTED_PROVIDER_INFO[provider].name,
                   ])}
                   selected={hostedProvider}
+                  connected={(provider) => state?.hostedConfigured[provider] === true}
                   onSelect={(provider) => {
                     setError(undefined)
                     setApiKey("")
+                    setModelQuery("")
                     setHostedProvider(provider)
                   }}
                 />
@@ -574,16 +589,10 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 <legend className="onboarding-providersLegend">
                   {t("onboarding.chooseServer")}
                 </legend>
-                <TabStrip
-                  size="lg"
-                  tabs={localServerTabs(state?.runtimePlatform).map(([tab, name]) => [
-                    tab,
-                    <>
-                      {name}
-                      {connected(tab) ? <Icon icon={Check} size={11} /> : null}
-                    </>,
-                  ])}
+                <ProviderGrid
+                  choices={localServerTabs(state?.runtimePlatform)}
                   selected={serverTab}
+                  connected={connected}
                   onSelect={(tab) => {
                     setError(undefined)
                     setServerTab(tab)
@@ -699,56 +708,125 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
         ) : null}
 
         {path === "cloud" && hostedConfigured ? (
-          <div className="onboarding-list">
-            {rows.map((item) => {
-              const status = "status" in item ? item.status : undefined
-              const loading = status?.kind === "progress"
-              return (
-                <div key={pickerItemKey(item)} className="onboarding-row">
-                  <button
-                    type="button"
-                    className="onboarding-rowSelect"
-                    disabled={!isPickerRowSelectable(item) || loading}
-                    onClick={() => void select(item)}
-                  >
-                    <span className="onboarding-rowName">
-                      {item.displayName}
-                      {"recommended" in item && item.recommended ? (
-                        <span className="onboarding-recommended" title={t("common.recommended")}>
-                          <Icon icon={Star} size={11} />
-                        </span>
-                      ) : null}
-                      {"cpuOffload" in item && item.cpuOffload ? (
-                        <span className="onboarding-cpuOffload" title={t("models.partlyOnCpu")}>
-                          <Icon icon={Cpu} size={11} />
-                        </span>
-                      ) : null}
-                    </span>
-                    <span
-                      className={`onboarding-rowDetail${status?.kind === "error" ? " error" : ""}`}
-                    >
-                      {status?.label ?? pickerDetailLabel(item, t)}
-                    </span>
-                  </button>
-                  {loading ? (
-                    <ProgressStop
-                      percent={status.percent}
-                      label={t("common.cancelModelLoad")}
-                      className="onboarding-cancel"
-                      onClick={() => void api.cancelModelSelection()}
-                    />
+          <>
+            <TextField
+              icon={Search}
+              aria-label={t("models.searchPlaceholder")}
+              placeholder={t("models.searchPlaceholder")}
+              value={modelQuery}
+              onChange={(event) => setModelQuery(event.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <div className="onboarding-list">
+              {groupByVendor(matches).map(({ vendor, rows: group }, _, groups) => (
+                <Fragment key={vendor?.name ?? ""}>
+                  {vendor || groups.length > 1 ? (
+                    <p className="onboarding-group">
+                      {vendor ? <VendorMark vendor={vendor} label={vendor.name} /> : null}
+                      {vendor?.name ?? t("models.otherVendor")}
+                    </p>
                   ) : null}
-                </div>
-              )
-            })}
-            {!items && !error ? (
-              <p className="onboarding-hint">{t("common.loadingModels")}</p>
-            ) : null}
-          </div>
+                  {group.map((item) => {
+                    const status = "status" in item ? item.status : undefined
+                    const loading = status?.kind === "progress"
+                    return (
+                      <div key={pickerItemKey(item)} className="onboarding-row">
+                        <button
+                          type="button"
+                          className="onboarding-rowSelect"
+                          disabled={!isPickerRowSelectable(item) || loading}
+                          onClick={() => void select(item)}
+                        >
+                          <span className="onboarding-rowName">
+                            {item.displayName}
+                            {"recommended" in item && item.recommended ? (
+                              <span
+                                className="onboarding-recommended"
+                                title={t("common.recommended")}
+                              >
+                                <Icon icon={Star} size={11} />
+                              </span>
+                            ) : null}
+                            {"cpuOffload" in item && item.cpuOffload ? (
+                              <span
+                                className="onboarding-cpuOffload"
+                                title={t("models.partlyOnCpu")}
+                              >
+                                <Icon icon={Cpu} size={11} />
+                              </span>
+                            ) : null}
+                          </span>
+                          <span
+                            className={`onboarding-rowDetail${status?.kind === "error" ? " error" : ""}`}
+                          >
+                            {status?.label ?? pickerDetailLabel(item, t)}
+                          </span>
+                        </button>
+                        {loading ? (
+                          <ProgressStop
+                            percent={status.percent}
+                            label={t("common.cancelModelLoad")}
+                            className="onboarding-cancel"
+                            onClick={() => void api.cancelModelSelection()}
+                          />
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </Fragment>
+              ))}
+              {items && rows.length > 0 && matches.length === 0 ? (
+                <p className="onboarding-hint">{t("models.noMatches")}</p>
+              ) : null}
+              {!items && !error ? (
+                <p className="onboarding-hint">{t("common.loadingModels")}</p>
+              ) : null}
+            </div>
+          </>
         ) : null}
 
         {path !== "managed" && error ? <p className="onboarding-error">{error}</p> : null}
       </div>
     </main>
+  )
+}
+
+/**
+ * Providers or servers as tiles with their logos, the chosen one raised: three across, or two
+ * across for four so no tile sits alone. Connected ones carry a check.
+ */
+function ProviderGrid<T extends HostedProvider | LocalServerTab>({
+  choices,
+  selected,
+  connected,
+  onSelect,
+}: {
+  choices: readonly (readonly [T, string])[]
+  selected: T
+  connected: (choice: T) => boolean
+  onSelect: (choice: T) => void
+}) {
+  return (
+    <div
+      className="onboarding-providerGrid"
+      style={{ gridTemplateColumns: `repeat(${choices.length === 4 ? 2 : 3}, minmax(0, 1fr))` }}
+    >
+      {choices.map(([choice, name]) => (
+        <button
+          key={choice}
+          type="button"
+          aria-pressed={choice === selected}
+          className="onboarding-providerTile"
+          onClick={() => onSelect(choice)}
+        >
+          <ProviderMark provider={choice} className="onboarding-providerMark" />
+          <span className="onboarding-providerName">{name}</span>
+          {connected(choice) ? (
+            <Icon icon={Check} size={12} className="onboarding-providerCheck" />
+          ) : null}
+        </button>
+      ))}
+    </div>
   )
 }

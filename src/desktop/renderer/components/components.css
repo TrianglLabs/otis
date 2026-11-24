@@ -164,7 +164,7 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-dim);
 }
 
 .popover-footer {
@@ -332,7 +332,7 @@
   width: fit-content;
   padding: 2px;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
+  background: var(--bg-track);
   box-shadow: inset 0 0 0 1px var(--hairline);
 }
 
@@ -831,7 +831,6 @@
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   background: var(--bg-surface);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.08);
   transition:
     border-color var(--motion),
     box-shadow var(--motion);
@@ -1054,4 +1053,42 @@
   display: block;
   width: 32px;
   height: auto;
+}
+
+/*
+ * A vendor's logo beside its models, sized like the icons. Parts a vendor draws in black or white
+ * take the full text color, whatever the label beside them is set in.
+ */
+.vendorMark {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text);
+}
+
+.vendorMark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* A raster logo is a square picture; its corners round like the provider tiles'. */
+img.vendorMark {
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+/* No logo: the name's initial on a small tile, so the column of marks stays whole. */
+.vendorMark-letter {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--bg-control);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
 }

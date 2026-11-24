@@ -8,7 +8,11 @@ import { hostedProviderReachable } from "../inference/catalog.js"
 import { listHostedModels } from "../inference/client.js"
 import { requireLocalContextLength } from "../inference/context-policy.js"
 import { describeError } from "../inference/errors.js"
-import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
+import {
+  deleteLocalGguf,
+  listDownloadedLocalModels,
+  removeRetiredLocalModels,
+} from "../inference/gguf-cache.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import { validateImageAttachments } from "../inference/images.js"
 import { localLoadStatus } from "../inference/llama-runtime.js"
@@ -486,6 +490,7 @@ export class Application {
     if (!app.#focused.client)
       app.models.setState(app.hasConfiguredSelection() ? "starting" : "unconfigured")
     void app.publishUsage()
+    void removeRetiredLocalModels().catch(() => undefined)
     return app
   }
 
@@ -819,8 +824,8 @@ export class Application {
       void this.#onDevice()
         .then(async ([first]) => {
           const start = first?.start
-          if (start && !(await this.models.llama.runtimeInstalled(start.spec, start.hardware)))
-            await this.models.llama.installRuntime(start.spec, start.hardware, preparing.signal)
+          if (start && !(await this.models.llama.runtimeInstalled(start.hardware)))
+            await this.models.llama.installRuntime(start.hardware, preparing.signal)
         })
         .catch(() => {})
         .finally(() => {
@@ -900,7 +905,7 @@ export class Application {
     const candidates = await this.#onDevice()
     const startable: CatalogModel[] = []
     for (const { model, start } of candidates)
-      if (!start || (await this.models.llama.runtimeInstalled(start.spec, start.hardware)))
+      if (!start || (await this.models.llama.runtimeInstalled(start.hardware)))
         startable.push(model)
     // One whose window holds the conversation keeps it whole; any other compacts it to fit, and
     // the summary is what the hosted model continues from once back.
@@ -959,7 +964,7 @@ export class Application {
 
   /** Keeps a skill loaded but out of the model's offer, from the next turn on, or back in. */
   setSkillHidden(name: string, hidden: boolean) {
-    return this.#setListed("hiddenSkills", name, hidden)
+    return this.#setListed("hiddenSkills", [name], hidden)
   }
 
   /** The skills reread from disk as the pickers list them, each with where it comes from. */
@@ -1746,23 +1751,36 @@ export class Application {
     return undefined
   }
 
-  /** Hides a hosted model from the picker, or shows it again; the active model stays listed. */
-  async setModelHidden(provider: HostedProvider, id: string, hidden: boolean) {
-    await this.#setListed("hiddenModels", modelKey(provider, id), hidden)
+  /**
+   * Hides hosted or managed local models from the picker, or shows them again, in one save; the
+   * active model stays listed.
+   */
+  async setModelsHidden(
+    provider: HostedProvider | "local",
+    ids: readonly string[],
+    hidden: boolean,
+  ) {
+    await this.#setListed(
+      "hiddenModels",
+      ids.map((id) => modelKey(provider, id)),
+      hidden,
+    )
     this.#notify({ type: "status" })
   }
 
   /** Favorites a picker row, keyed by `pickerItemKey`, so it lists on top, or unfavorites it. */
   async setModelFavorite(key: string, favorite: boolean) {
-    await this.#setListed("favoriteModels", key, favorite)
+    await this.#setListed("favoriteModels", [key], favorite)
     this.#notify({ type: "status" })
   }
 
-  /** Adds an entry to one of the saved settings lists or removes it; an emptied list clears. */
-  async #setListed(field: SettingsList, entry: string, listed: boolean) {
+  /** Adds entries to one of the saved settings lists or removes them; an emptied list clears. */
+  async #setListed(field: SettingsList, entries: readonly string[], listed: boolean) {
     const values = new Set(this.settings[field] ?? [])
-    if (listed) values.add(entry)
-    else values.delete(entry)
+    for (const entry of entries) {
+      if (listed) values.add(entry)
+      else values.delete(entry)
+    }
     const next = [...values]
     this.settings[field] = next.length ? next : undefined
     await saveSettingsList(field, next)

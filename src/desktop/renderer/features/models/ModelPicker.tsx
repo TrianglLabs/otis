@@ -26,10 +26,11 @@ import type {
 import {
   arrangeFavorites,
   filterModelPickerItems,
+  modelVendor,
   pickerItemKey,
 } from "../../../../inference/picker-filter.js"
 import { Button, IconButton } from "../../components/Button.js"
-import { Icon } from "../../components/Icon.js"
+import { Icon, VendorMark } from "../../components/Icon.js"
 import { CubeLoader } from "../../components/OtisMark.js"
 import { ProgressStop } from "../../components/Progress.js"
 import { formatContextWindow, formatMemory } from "../../format.js"
@@ -304,6 +305,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                         disabled={!selectable || loading || deletingKey !== undefined}
                         onClick={() => void select(key)}
                       >
+                        <VendorMark vendor={modelVendor(item)} label={item.displayName} />
                         <span className="modelPicker-rowText">
                           <span className="modelPicker-name">
                             <span>{item.displayName}</span>
@@ -514,6 +516,11 @@ function ModelCard({
       <div className="modelCard-scroll">
         <header className="modelCard-hero">
           <div className="modelCard-headline">
+            <VendorMark
+              vendor={modelVendor(item)}
+              label={item.displayName}
+              className="modelCard-mark"
+            />
             <div className="modelCard-naming">
               <h2 className="modelCard-title">
                 {item.displayName}

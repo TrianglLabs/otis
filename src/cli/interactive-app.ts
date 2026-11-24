@@ -484,7 +484,7 @@ export class InteractiveApp {
         } else if (command.setting === "toggle-model" && command.provider && command.modelId) {
           const key = modelKey(command.provider, command.modelId)
           const hidden = !this.#app.settings.hiddenModels?.includes(key)
-          await this.#app.setModelHidden(command.provider, command.modelId, hidden)
+          await this.#app.setModelsHidden(command.provider, [command.modelId], hidden)
           await this.#openHostedModelsMenu(command.provider)
         } else if (command.setting === "delete-model") {
           if (command.modelId) {

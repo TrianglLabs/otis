@@ -336,7 +336,9 @@ function messageContent(message: ChatMessage): { texts: string[]; imageTokens: n
     const texts = message.content.map((part) =>
       part.type === "tool_call"
         ? part.toolCall.id + part.toolCall.name + part.toolCall.arguments
-        : part.text,
+        : part.type === "reasoning_details"
+          ? JSON.stringify(part.details)
+          : part.text,
     )
     return { texts, imageTokens: 0 }
   }

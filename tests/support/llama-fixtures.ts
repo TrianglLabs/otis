@@ -5,11 +5,7 @@ import { homedir } from "node:os"
 import { basename, join } from "node:path"
 import { promisify } from "node:util"
 import { detectHardware, type HardwareProbe } from "../../src/inference/hardware.js"
-import {
-  llamaRuntimeReleaseTag,
-  llamaRuntimeTarget,
-  pinnedLlamaCppAsset,
-} from "../../src/inference/llama-binary.js"
+import { llamaRuntimeReleaseTag, pinnedLlamaCppAsset } from "../../src/inference/llama-binary.js"
 import {
   LOCAL_MODELS,
   type LocalModelSpec,
@@ -75,7 +71,7 @@ export async function findCachedLocalModels(): Promise<{
     if (!fit.available) continue
     const spec = fit.model
     const files = await cachedFiles(spec, roots)
-    const bundle = await installedBundle(spec, hardware, roots)
+    const bundle = await installedBundle(hardware, roots)
     if (files && bundle) models.push({ spec, files, bundle, hardware })
   }
   models.sort((a, b) => localModelWeightBytes(a.spec) - localModelWeightBytes(b.spec))
@@ -97,12 +93,11 @@ async function cachedFiles(spec: LocalModelSpec, roots: string[]) {
   return undefined
 }
 
-async function installedBundle(spec: LocalModelSpec, hardware: HardwareProbe, roots: string[]) {
-  const target = llamaRuntimeTarget(hardware, spec.runtime)
-  const releaseTag = llamaRuntimeReleaseTag(spec.runtime)
+async function installedBundle(target: HardwareProbe, roots: string[]) {
+  const releaseTag = llamaRuntimeReleaseTag(target.cudaVersion)
   let artifactSha256: string
   try {
-    const asset = pinnedLlamaCppAsset(target, spec.runtime)
+    const asset = pinnedLlamaCppAsset(target)
     artifactSha256 = asset.companion
       ? createHash("sha256").update(`${asset.sha256}:${asset.companion.sha256}`).digest("hex")
       : asset.sha256

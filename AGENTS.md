@@ -11,7 +11,7 @@ the original file bytes and selected revision, independently of the preview rend
 
 Otis is locally controlled. It has no user accounts, invite codes, hosted control plane, remote profile, cloud usage
 database, or cloud synchronization dependency. Hosted inference goes directly to the chosen provider (Fireworks,
-Together AI, Baseten, Prime Intellect, or River AI) with a user-owned API key for that provider.
+Together AI, Baseten, Prime Intellect, River AI, or OpenRouter) with a user-owned API key for that provider.
 Local inference runs Otis-managed `llama-server` or connects to a user-managed oMLX server or NVIDIA PAIR proxy on loopback;
 PAIR owns its cluster and routes requests across the user's local network. Web search and extraction go directly to
 Parallel's Search MCP. `otis serve` runs the desktop runtime as a daemon on the user's own machine; a desktop app pairs
@@ -23,13 +23,13 @@ with it over a private network using a local token. There is no relay, account, 
   `src/app` owns conversation lifecycle and model-selection transactions; adapters own screens and rendering.
 - Runtime and package manager: TypeScript on Bun.
 - Inference: the hosted providers' OpenAI-compatible chat completions (Fireworks, Together AI, Baseten, Prime
-  Intellect, River AI), called directly from the local runtime; local models via either Otis-managed llama.cpp
+  Intellect, River AI, OpenRouter), called directly from the local runtime; local models via either Otis-managed llama.cpp
   `llama-server`, user-managed oMLX, or an NVIDIA PAIR endpoint on loopback.
 - Web access: Parallel Search MCP, called directly from the local runtime.
 - Models: curated official Hugging Face checkpoints for managed local GGUF, live user-managed oMLX and PAIR endpoint inventory,
   plus user-selectable hosted models that are known to support tool calling (see the model policy).
 - Configuration: private local file, with `FIREWORKS_API_KEY`, `TOGETHER_API_KEY`, `BASETEN_API_KEY`,
-  `PRIME_API_KEY`, and `RIVER_API_KEY` as environment overrides.
+  `PRIME_API_KEY`, `RIVER_API_KEY`, and `OPENROUTER_API_KEY` as environment overrides.
 - Sessions and usage: append-only local JSONL events.
 - Tools: local structured tools plus direct Parallel-backed `web_search` and `web_read`.
 - Distribution: GitHub Actions and GitHub Releases.
@@ -44,8 +44,8 @@ proxy, or other Otis-owned runtime service without an explicit product decision.
 
 ## Model policy
 
-Never offer a hosted model whose tool support is not established: Fireworks' public serverless catalog and Prime
-Intellect's `/v1/models` mark it per model; every Baseten Model API supports tools; Together's and River AI's catalogs
+Never offer a hosted model whose tool support is not established: Fireworks' public serverless catalog, Prime
+Intellect's `/v1/models`, OpenRouter's `/api/v1/models`, and Baseten's `/v1/models` (`supported_features`) mark it per model; Together's and River AI's catalogs
 carry no such flag, so Otis offers only the models their function-calling documentation names, and only while their
 live `/v1/models` still list them (`CURATED_TOOL_MODELS` in `src/inference/catalog.ts`). Managed-local
 catalog entries must use official Hugging Face checkpoints; GGUF files come from the model author when they publish
@@ -56,7 +56,9 @@ PAIR, its engines, or its cluster. Treat PAIR inventory context as a model-archi
 persist it or use metadata from a route forwarded to one node as cluster-wide model or compaction state.
 Otis defaults to the highest reasoning tier Fireworks documents for each known model family; keep that compatibility
 policy centralized, and use the provider default when Fireworks has not documented a safe effort value. The other
-hosted providers get no `reasoning_effort` or `service_tier` (their defaults apply). Avoid other
+hosted providers get no `reasoning_effort` or `service_tier` (their defaults apply). OpenRouter offers open and frontier
+models alike, but only those with a zero-data-retention endpoint, and every OpenRouter request asks for one
+(`provider: { zdr: true }`); send no OpenRouter attribution headers. Avoid other
 model-specific reasoning, sampling, or token settings without an explicit capability model. Do not enable llama.cpp
 built-in `--tools`; Otis tools stay in the local runtime.
 
@@ -67,7 +69,8 @@ compaction; a custom server that reports none uses the limit the user entered, a
 the model id the user entered. Tool support on a custom server is the user's responsibility, documented, not
 Otis' claim. Servers stay on loopback. Otis must not install, start, stop, or manage their models.
 
-Preserve provider-native reasoning and tool-call history when sending later turns.
+Preserve provider-native reasoning and tool-call history when sending later turns, including OpenRouter's
+`reasoning_details` blocks, unmodified and in order.
 
 ## Privacy and secrets
 

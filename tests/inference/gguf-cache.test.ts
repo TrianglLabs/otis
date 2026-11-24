@@ -10,6 +10,7 @@ import {
   isLocalGgufDownloaded,
   listDownloadedLocalModels,
   localMmprojPath,
+  removeRetiredLocalModels,
 } from "../../src/inference/gguf-cache.js"
 import {
   findLocalModel,
@@ -572,9 +573,18 @@ describe("local GGUF cache", () => {
     await expect(stat(`${dest}.otis.json`)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("discovers and deletes every cached packing of one model", async () => {
-    const model = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    if (!model) throw new Error("missing Bonsai catalog entry")
+  it("deletes every cached packing of one model", async () => {
+    const base = findLocalModel("ConwayResearch/Underdog-Saluki-27B-1.0")
+    if (!base) throw new Error("missing Saluki catalog entry")
+    const file = (name: string, size: number) => ({ name, size, sha256: "0".repeat(64) })
+    const model: LocalModelSpec = {
+      ...base,
+      mmproj: file("shared-mmproj.gguf", 3),
+      packings: [
+        { quant: "Q2", ggufFiles: [file("model-Q2.gguf", 4)] },
+        { quant: "Q4", ggufFiles: [file("model-Q4.gguf", 5)] },
+      ],
+    }
     const directory = await tempDir()
     await mkdir(join(directory, "models"), { recursive: true })
     // Both packings share the projector; each has its own weights.
@@ -592,17 +602,41 @@ describe("local GGUF cache", () => {
       await writeFile(`${path}.otis.json`, "manifest")
     }
 
-    await expect(listDownloadedLocalModels(directory)).resolves.toEqual([
-      expect.objectContaining({ id: model.id, quant: "PTQ1_0" }),
-    ])
     await deleteLocalGguf(model, directory)
 
-    await expect(listDownloadedLocalModels(directory)).resolves.toEqual([])
     for (const path of paths) {
       await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" })
       await expect(stat(`${path}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
       await expect(stat(`${path}.otis.json`)).rejects.toMatchObject({ code: "ENOENT" })
     }
+  })
+
+  it("deletes the retired Bonsai files once and leaves catalog models alone", async () => {
+    const directory = await tempDir()
+    const models = join(directory, "models")
+    await mkdir(models, { recursive: true })
+    const retired = [
+      "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
+      "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+      "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
+    ].map((name) => join(models, name))
+    for (const path of retired) {
+      await writeFile(path, "weights")
+      await writeFile(`${path}.otis.json`, "manifest")
+      await writeFile(`${path}.partial`, "unfinished")
+    }
+    const kept = join(models, "Qwen3.8-27B-Q4_K_M.gguf")
+    await writeFile(kept, "weights")
+
+    await removeRetiredLocalModels(directory)
+    // A second run, with nothing left to delete, is quiet.
+    await removeRetiredLocalModels(directory)
+
+    for (const path of retired) {
+      for (const suffix of ["", ".otis.json", ".partial"])
+        await expect(stat(`${path}${suffix}`)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    await expect(readFile(kept, "utf8")).resolves.toBe("weights")
   })
 
   it("downloads, verifies, and deletes every shard in a split GGUF", async () => {

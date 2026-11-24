@@ -56,11 +56,11 @@ document helpers process files locally and do not call a document API. Installin
 uses the Python package index; loading the skill alone performs no installation or network request.
 
 Provider keys are never written to sessions, transcripts, tool results, or usage records. A `FIREWORKS_API_KEY`,
-`TOGETHER_API_KEY`, `BASETEN_API_KEY`, or `PRIME_API_KEY` environment value overrides the saved key for that provider
+`TOGETHER_API_KEY`, `BASETEN_API_KEY`, `PRIME_API_KEY`, `RIVER_API_KEY`, or `OPENROUTER_API_KEY` environment value overrides the saved key for that provider
 without being copied into `config.json`; `PRIME_TEAM_ID` does the same for the Prime Intellect team id, which is sent
 only to Prime Intellect as a billing header. Fireworks and Baseten requests carry the session id as an
-`x-session-affinity` routing hint, and Together requests as `prompt_cache_key`, so the conversation keeps hitting the
-replica that holds its prompt cache; the id is the local session file's name, a creation timestamp plus a random
+`x-session-affinity` routing hint, Together requests as `prompt_cache_key`, and OpenRouter requests as `session_id`,
+so the conversation keeps hitting the replica that holds its prompt cache; the id is the local session file's name, a creation timestamp plus a random
 suffix, and no other provider receives it. The managed `llama-server`
 child and its device probe receive an allowlisted environment; Hugging Face tokens and provider keys are never
 forwarded to them.
@@ -70,13 +70,16 @@ potentially sensitive. Visible traces show a short preview and can be expanded i
 
 ## Network boundaries
 
-- Hosted prompts go directly from Otis to the selected provider (Fireworks, Together AI, Baseten, or Prime Intellect)
+- Hosted prompts go directly from Otis to the selected provider (Fireworks, Together AI, Baseten, Prime Intellect,
+  River AI, or OpenRouter)
   using the user's key for that provider; a key is sent only to its own provider. Otis shows each provider's
   documented retention as a shield next to it: Fireworks and Baseten state that they keep no prompts or outputs by
   default (service metadata such as token counts may still be recorded); Together AI stores prompts and responses
   until zero data retention is switched on in the organization's privacy settings; Prime Intellect publishes no
   inference retention terms, and its gateway models route to third-party model vendors under Prime Intellect's
-  terms. Check each provider's data policy before sending sensitive content.
+  terms. OpenRouter forwards each request to a backend provider; Otis lists only models with a zero-data-retention
+  endpoint and asks OpenRouter to route every request to one (`provider: { zdr: true }`), and sends no attribution
+  headers. Check each provider's data policy before sending sensitive content.
 - While the terminal or desktop app runs, Otis checks whether the hosted providers its sessions use, and Parallel's
   Search MCP endpoint, can be reached: when the machine's network addresses change, when a request cannot get through,
   and every 30 seconds while one cannot. Each check is a `HEAD` request to the provider's public model-list URL or to
@@ -99,6 +102,7 @@ potentially sensitive. Visible traces show a short preview and can be expanded i
 
 Read the [Fireworks Zero Data Retention policy](https://docs.fireworks.ai/guides/security_compliance/data_handling)
 and the data policies of [Together AI](https://www.together.ai/privacy),
-[Baseten](https://www.baseten.co/privacy-policy), and [Prime Intellect](https://www.primeintellect.ai/privacy-policy),
+[Baseten](https://www.baseten.co/privacy-policy), [Prime Intellect](https://www.primeintellect.ai/privacy-policy), and
+[OpenRouter](https://openrouter.ai/docs/guides/features/zdr),
 the [architecture guide](architecture.md) for complete runtime boundaries, and [SECURITY.md](../SECURITY.md) for private
 vulnerability reporting.

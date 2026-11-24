@@ -187,7 +187,9 @@ describe("OnboardingPage", () => {
   it("owns the window until a model is configured — no composer, no transcript", async () => {
     await renderApp(fakeApi())
     expect(await screen.findByRole("heading", { name: "Welcome to Otis" })).toBeTruthy()
-    expect(await screen.findByText(/Your personal AI agent, powered by open models/)).toBeTruthy()
+    expect(
+      await screen.findByText(/Your personal AI agent, on your computer or in the cloud/),
+    ).toBeTruthy()
     expect(screen.getByText("Welcome to Otis")).toBeTruthy()
     expect(screen.queryByLabelText("Prompt")).toBeNull()
     // The workspace header stays out of onboarding (no Search / context meter)…
@@ -243,11 +245,72 @@ describe("OnboardingPage", () => {
     expect(api.selectModel).toHaveBeenCalledWith("fireworks:accounts/fireworks/models/kimi-k2p6")
   })
 
+  it("groups hosted models by vendor, newest first, and narrows them as the user types", async () => {
+    const openrouter = (id: string, displayName: string, releasedAt?: number) =>
+      ({
+        kind: "model",
+        provider: "openrouter",
+        id,
+        displayName,
+        supportsImageInput: false,
+        available: true,
+        active: false,
+        ...(releasedAt === undefined ? {} : { releasedAt }),
+      }) satisfies ModelPickerItem
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        hostedConfigured: hostedConfigured("openrouter"),
+      })),
+      listModels: vi.fn(async () => [
+        openrouter("openai/gpt-6.2", "GPT-6.2", 300),
+        openrouter("anthropic/claude-opus-5", "Claude Opus 5", 100),
+        openrouter("anthropic/claude-opus-5.5", "Claude Opus 5.5", 200),
+        openrouter("openai/gpt-5", "GPT-5", 50),
+        FIREWORKS_ITEM,
+      ]),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
+
+    // Vendors alphabetically under their own headings, each vendor's newest model first, and
+    // names without the vendor prefix; another provider's rows stay out.
+    await screen.findByText("Claude Opus 5.5")
+    const list = document.querySelector(".onboarding-list")
+    if (!list) throw new Error("missing model list")
+    const lines = [...list.querySelectorAll(".onboarding-group, .onboarding-rowName")].map(
+      (node) => node.textContent,
+    )
+    expect(lines).toEqual([
+      "Anthropic",
+      "Claude Opus 5.5",
+      "Claude Opus 5",
+      "OpenAI",
+      "GPT-6.2",
+      "GPT-5",
+    ])
+
+    fireEvent.change(screen.getByLabelText("Search models"), { target: { value: "gpt" } })
+    expect(screen.queryByText("Anthropic")).toBeNull()
+    expect(screen.getByText("GPT-6.2")).toBeTruthy()
+    fireEvent.change(screen.getByLabelText("Search models"), { target: { value: "gemini" } })
+    expect(screen.getByText("No models match")).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText("Search models"), { target: { value: "opus 5.5" } })
+    fireEvent.click(rowButton(screen.getByText("Claude Opus 5.5")))
+    expect(api.selectModel).toHaveBeenCalledWith("openrouter:anthropic/claude-opus-5.5")
+  })
+
   it("cloud path without a key shows the key form and saves it", async () => {
     const api = fakeApi()
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
-    // Fireworks is the default provider; its key page is the one the link opens.
+    // With no key anywhere, OpenRouter leads and is chosen first.
+    expect(screen.getByRole("button", { name: "OpenRouter" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    )
+    expect(screen.getByText(/Pay-as-you-go with your OpenRouter account/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Fireworks AI" }))
     expect(screen.getByText(/Pay-as-you-go with your Fireworks AI account/)).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
     expect(api.openHostedKeyPage).toHaveBeenCalledWith("fireworks")
@@ -270,10 +333,10 @@ describe("OnboardingPage", () => {
     })
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
-    const together = screen.getByRole("tab", { name: "Together AI" })
-    expect(together.getAttribute("aria-selected")).toBe("false")
+    const together = screen.getByRole("button", { name: "Together AI" })
+    expect(together.getAttribute("aria-pressed")).toBe("false")
     fireEvent.click(together)
-    expect(together.getAttribute("aria-selected")).toBe("true")
+    expect(together.getAttribute("aria-pressed")).toBe("true")
     expect(screen.getByText(/Pay-as-you-go with your Together AI account/)).toBeTruthy()
     expect(screen.queryByLabelText("Fireworks AI API key")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
@@ -311,6 +374,7 @@ describe("OnboardingPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
     expect(api.listModels).not.toHaveBeenCalled()
 
+    fireEvent.click(screen.getByRole("button", { name: "Fireworks AI" }))
     fireEvent.change(screen.getByLabelText("Fireworks AI API key"), {
       target: { value: "fw_test_key" },
     })
@@ -333,7 +397,7 @@ describe("OnboardingPage", () => {
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
     const managed = await screen.findByRole("button", { name: /Managed by Otis/ })
-    expect(managed.querySelector(".onboarding-cardOtisMark")).toBeTruthy()
+    expect(managed.querySelector(".onboarding-choiceOtisMark")).toBeTruthy()
     fireEvent.click(managed)
 
     expect(await screen.findByText("Qwen 3.5 9B")).toBeTruthy()
@@ -522,11 +586,11 @@ describe("OnboardingPage", () => {
     expect((screen.getByLabelText("Address") as HTMLInputElement).value).toBe(
       "http://127.0.0.1:11434",
     )
-    fireEvent.click(screen.getByRole("tab", { name: "LM Studio" }))
+    fireEvent.click(screen.getByRole("button", { name: "LM Studio" }))
     expect((screen.getByLabelText("Address") as HTMLInputElement).value).toBe(
       "http://127.0.0.1:1234",
     )
-    fireEvent.click(screen.getByRole("tab", { name: "Custom server" }))
+    fireEvent.click(screen.getByRole("button", { name: "Custom server" }))
     expect((screen.getByLabelText("Address") as HTMLInputElement).value).toBe(
       "http://127.0.0.1:8080",
     )
@@ -696,13 +760,18 @@ describe("OnboardingPage", () => {
     // reads Connected.
     const panel = within(screen.getByRole("tabpanel", { name: "Inference" }))
     expect(panel.getAllByText("Connected")).toHaveLength(1)
-    expect(panel.getAllByText("Not connected")).toHaveLength(4)
+    expect(panel.getAllByText("Not connected")).toHaveLength(5)
     expect(panel.getByRole("button", { name: "Replace key" })).toBeTruthy()
-    expect(panel.getAllByRole("button", { name: "Add key" })).toHaveLength(4)
+    expect(panel.getAllByRole("button", { name: "Add key" })).toHaveLength(5)
     expect(screen.queryByLabelText("Together AI API key")).toBeNull()
 
     // Connect opens one inline field; saving a key closes it again.
-    fireEvent.click(panel.getAllByRole("button", { name: "Add key" })[0])
+    const addKey = (provider: string) => {
+      const row = panel.getByText(provider).closest(".settingsRow")
+      if (!(row instanceof HTMLElement)) throw new Error(`no row for ${provider}`)
+      fireEvent.click(within(row).getByRole("button", { name: "Add key" }))
+    }
+    addKey("Together AI")
     const togetherKey = screen.getByLabelText("Together AI API key") as HTMLInputElement
     expect(togetherKey.type).toBe("password")
     expect(screen.queryByLabelText("Baseten API key")).toBeNull()
@@ -716,7 +785,7 @@ describe("OnboardingPage", () => {
 
     // A refused key stays in the open field with the reason beside it.
     vi.mocked(api.setHostedApiKey).mockResolvedValueOnce({ ok: false, reason: "Bad key" })
-    fireEvent.click(panel.getAllByRole("button", { name: "Add key" })[1])
+    addKey("Baseten")
     const basetenKey = screen.getByLabelText("Baseten API key") as HTMLInputElement
     fireEvent.change(basetenKey, { target: { value: "nope" } })
     fireEvent.keyDown(basetenKey, { key: "Enter" })
@@ -729,7 +798,7 @@ describe("OnboardingPage", () => {
     expect(screen.queryByLabelText("Baseten API key")).toBeNull()
 
     // Only Prime Intellect offers a team to bill; saving just the team needs no key.
-    fireEvent.click(panel.getAllByRole("button", { name: "Add key" })[2])
+    addKey("Prime Intellect")
     expect(screen.getByLabelText("Prime Intellect API key")).toBeTruthy()
     const team = screen.getByLabelText("Team ID (optional)") as HTMLInputElement
     expect(team.value).toBe("")
@@ -745,6 +814,8 @@ describe("OnboardingPage", () => {
     await renderApp(fakeApi())
     fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
     fireEvent.click(screen.getByRole("button", { name: "Back" }))
-    expect(await screen.findByText(/Your personal AI agent, powered by open models/)).toBeTruthy()
+    expect(
+      await screen.findByText(/Your personal AI agent, on your computer or in the cloud/),
+    ).toBeTruthy()
   })
 })

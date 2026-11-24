@@ -161,7 +161,7 @@ export function createUILayout(
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-why",
-      content: "Your personal AI agent, powered by open models.",
+      content: "Your personal AI agent, on your computer or in the cloud.",
       fg: colors.text,
       selectable: false,
     }),

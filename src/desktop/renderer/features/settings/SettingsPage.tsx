@@ -20,23 +20,33 @@ import {
   Plug,
   Puzzle,
   RulerDimensionLine,
+  Search,
   SlidersHorizontal,
   X,
 } from "lucide-react"
 import {
   type CSSProperties,
+  Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useRef,
   useState,
 } from "react"
 import type { ServerInput } from "../../../../app/local-servers.js"
-import type { PairPickerChoice, ServerPickerChoice } from "../../../../inference/picker-catalog.js"
-import { modelKey } from "../../../../inference/picker-filter.js"
+import type {
+  ModelPickerChoice,
+  PairPickerChoice,
+  ServerPickerChoice,
+} from "../../../../inference/picker-catalog.js"
+import {
+  filterModelPickerItems,
+  groupByVendor,
+  modelKey,
+  modelVendor,
+} from "../../../../inference/picker-filter.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
-  type HostedModel,
   type HostedProvider,
   isServerProvider,
   type LocalServerTab,
@@ -49,7 +59,9 @@ import type { LocalStats, LocalUsageDay } from "../../../../local/stats.js"
 import type { ToolActivityKind } from "../../../../tools/activity.js"
 import type {
   AppIcon,
+  CatalogProvider,
   DesktopApi,
+  ModelCatalogs,
   OtherAgentId,
   OtherAgentImport,
   ServeStatus,
@@ -64,8 +76,8 @@ import macroIcon from "../../assets/app-icons/macro.png"
 import nightIcon from "../../assets/app-icons/night.png"
 import obsidianIcon from "../../assets/app-icons/obsidian.png"
 import obsidianDarkIcon from "../../assets/app-icons/obsidian-dark.png"
-import { Button, IconButton, Toggle } from "../../components/Button.js"
-import { Icon, ProviderMark, RetentionBadge } from "../../components/Icon.js"
+import { Button, IconButton, Pager, Toggle, usePage } from "../../components/Button.js"
+import { Icon, ProviderMark, RetentionBadge, VendorMark } from "../../components/Icon.js"
 import { CubeLoader } from "../../components/OtisMark.js"
 import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
@@ -129,6 +141,8 @@ export type SettingsTab = keyof typeof SETTINGS_TABS
 const SKILLS_PAGE = 10
 /** Facts shown at once in the memory list; Show more adds as many. */
 const MEMORY_PAGE = 10
+/** Models per page in Settings, where one provider can list hundreds. */
+const MODELS_PAGE = 20
 /** Rows of another agent's items shown at once; Show more adds as many. */
 const AGENT_PAGE = 8
 const MODELS_SHOWN = 5
@@ -640,7 +654,7 @@ export function SettingsPage({
                   </div>
                 </div>
 
-                <HostedModelsSettings
+                <ModelVisibilitySettings
                   configured={state.hostedConfigured}
                   hiddenModels={state.hiddenModels}
                 />
@@ -1085,12 +1099,13 @@ function HostedProviderRow({
 }
 
 /**
- * Every keyed hosted provider's catalog, one provider at a time behind a tab strip, with a
- * visibility switch per model. The catalogs load when the tab opens and again when a key is added
- * or removed; the switches follow the status stream, so a toggle lands when the main process has
- * persisted it.
+ * Every keyed hosted provider's catalog and the local models this machine can run, one provider
+ * at a time behind a tab strip, with a visibility switch per model under its vendor. A search
+ * narrows the catalog, the models it matches can be shown or hidden together, and a long one
+ * pages. The catalogs load when the tab opens and again when a key is added or removed; the
+ * switches follow the status stream, so a toggle lands when the main process has persisted it.
  */
-function HostedModelsSettings({
+function ModelVisibilitySettings({
   configured,
   hiddenModels,
 }: {
@@ -1099,19 +1114,37 @@ function HostedModelsSettings({
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const [catalogs, setCatalogs] = useState<Partial<Record<HostedProvider, HostedModel[]>>>()
+  const [catalogs, setCatalogs] = useState<ModelCatalogs>()
   const [failed, setFailed] = useState(false)
-  const [chosen, setChosen] = useState<HostedProvider>()
-  const providers = HOSTED_PROVIDERS.filter((provider) => configured[provider])
+  const [chosen, setChosen] = useState<CatalogProvider>()
+  const [query, setQuery] = useState("")
+  const providers: CatalogProvider[] = [
+    ...HOSTED_PROVIDERS.filter((provider) => configured[provider]),
+    "local",
+  ]
   const keyed = providers.join(" ")
-  // A provider whose key was removed falls back to the first keyed one.
+  // A provider whose key was removed falls back to the first one listed.
   const provider = chosen && providers.includes(chosen) ? chosen : providers[0]
+  const label = (entry: CatalogProvider) =>
+    entry === "local" ? t("models.local") : HOSTED_PROVIDER_INFO[entry].name
+  const models: ModelPickerChoice[] =
+    provider === "local"
+      ? (catalogs?.local ?? [])
+      : (catalogs?.[provider] ?? []).map((model) => ({
+          kind: "model" as const,
+          ...model,
+          available: true,
+          active: false,
+        }))
+  const matches = filterModelPickerItems(models, query)
+  const groups = groupByVendor(matches)
+  const rows = groups.flatMap(({ vendor, rows: group }) => group.map((item) => ({ vendor, item })))
+  const { shown, pager } = usePage(rows, MODELS_PAGE)
   useEffect(() => {
-    if (!keyed) return
     let cancelled = false
     setCatalogs(undefined)
     setFailed(false)
-    void api.listHostedCatalogs().then(
+    void api.listModelCatalogs().then(
       (result) => {
         if (!cancelled) setCatalogs(result)
       },
@@ -1123,45 +1156,89 @@ function HostedModelsSettings({
       cancelled = true
     }
   }, [api, keyed])
-  if (!provider) return null
-  const name = HOSTED_PROVIDER_INFO[provider].name
-  const models = catalogs?.[provider] ?? []
+  // Nothing to hide: no key, and no local model this machine can run.
+  if (providers.length === 1 && catalogs?.local.length === 0) return null
+  const hidden = (id: string) => hiddenModels.includes(modelKey(provider, id))
+  const allShown = matches.every((model) => !hidden(model.id))
   return (
     <div className="settingsGroup">
-      <h2 className="settings-section">{t("settings.hostedModels")}</h2>
+      <h2 className="settings-section">{t("settings.models")}</h2>
       <TabStrip
-        tabs={providers.map((entry) => [entry, HOSTED_PROVIDER_INFO[entry].name])}
+        tabs={providers.map((entry) => [entry, label(entry)])}
         selected={provider}
-        onSelect={setChosen}
+        onSelect={(next) => {
+          setChosen(next)
+          setQuery("")
+          pager.onPage(0)
+        }}
       />
-      <div className="settingsSurface">
-        <section role="tabpanel" aria-label={name}>
+      <div className="settingsSurface settingsModels">
+        <section role="tabpanel" aria-label={label(provider)}>
+          {models.length > 0 ? (
+            <div className="settingsModels-tools">
+              <TextField
+                icon={Search}
+                aria-label={t("models.searchPlaceholder")}
+                placeholder={t("models.searchPlaceholder")}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                  pager.onPage(0)
+                }}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              {pager.pages > 1 ? <Pager {...pager} /> : null}
+              {matches.length > 0 ? (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    void api.setModelsHidden(
+                      provider,
+                      matches.map((model) => model.id),
+                      allShown,
+                    )
+                  }
+                >
+                  {t(allShown ? "settings.hideAll" : "settings.showAll")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           {failed ? (
             <div className="settingsRow settings-message settings-error">
               {t("settings.hostedModelsFailed")}
             </div>
           ) : catalogs === undefined ? (
             <CubeLoader label={t("common.loadingModels")} />
-          ) : models.length ? (
-            models.map((model) => (
-              <div className="settingsRow" key={model.id}>
-                <span className="settingsRow-label">
-                  {model.displayName}
-                  <span className="settingsRow-meta settingsRow-detail">
-                    <ModelDetail
-                      item={{ kind: "model", ...model, available: true, active: false }}
-                    />
+          ) : shown.length ? (
+            shown.map(({ vendor, item: model }, index) => (
+              <Fragment key={model.id}>
+                {(vendor || groups.length > 1) && vendor !== shown[index - 1]?.vendor ? (
+                  <div className="settingsRow settingsModels-vendor">
+                    {vendor ? <VendorMark vendor={vendor} label={vendor.name} /> : null}
+                    {vendor?.name ?? t("models.otherVendor")}
+                  </div>
+                ) : null}
+                <div className="settingsRow">
+                  <span className="settingsRow-label">
+                    {model.displayName}
+                    <span className="settingsRow-meta settingsRow-detail">
+                      <ModelDetail item={model} />
+                    </span>
                   </span>
-                </span>
-                <Toggle
-                  label={t("settings.showModel", { name: model.displayName })}
-                  checked={!hiddenModels.includes(modelKey(provider, model.id))}
-                  onChange={(shown) => void api.setModelHidden(provider, model.id, !shown)}
-                />
-              </div>
+                  <Toggle
+                    label={t("settings.showModel", { name: model.displayName })}
+                    checked={!hidden(model.id)}
+                    onChange={(visible) => void api.setModelsHidden(provider, [model.id], !visible)}
+                  />
+                </div>
+              </Fragment>
             ))
           ) : (
-            <div className="settingsRow settings-message">{t("settings.noHostedModels")}</div>
+            <div className="settingsRow settings-message">
+              {t(models.length ? "models.noMatches" : "settings.noHostedModels")}
+            </div>
           )}
         </section>
       </div>
@@ -1683,6 +1760,7 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
                       { "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties
                     }
                   >
+                    <VendorMark vendor={modelVendor({ displayName: name })} label={name} />
                     <span className="settingsUsage-modelName" title={name}>
                       {name}
                     </span>

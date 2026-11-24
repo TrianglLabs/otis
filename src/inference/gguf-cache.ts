@@ -85,6 +85,25 @@ async function downloadedLocalPacking(model: LocalModelSpec, dataDirectory?: str
   return undefined
 }
 
+/** Files of models the catalog no longer offers, so nothing else would ever list or delete them. */
+const RETIRED_GGUF_FILES = [
+  // Bonsai 2 27B, retired with Prism's llama.cpp fork in v0.3.3.
+  "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
+  "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+  "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
+]
+
+/** Deletes retired models' weights, with their manifests and partial downloads. */
+export async function removeRetiredLocalModels(dataDirectory?: string) {
+  const root = modelCacheRoot(dataDirectory)
+  await Promise.all(
+    RETIRED_GGUF_FILES.flatMap((name) => {
+      const dest = join(root, name)
+      return [dest, manifestPath(dest), partialPath(dest)].map((path) => rm(path, { force: true }))
+    }),
+  )
+}
+
 export async function deleteLocalGguf(model: LocalModelSpec, dataDirectory?: string) {
   const packings = localModelPackings(model)
   const destinations = [

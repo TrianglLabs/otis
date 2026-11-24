@@ -124,9 +124,18 @@
      stronger for control outlines, a hairline for separators and resting cards. */
   --border: color-mix(in srgb, var(--text) 13%, transparent);
   --hairline: color-mix(in srgb, var(--text) 7.5%, transparent);
-  /* A control lifted off its track, such as a segmented control's chosen pill: the elevated
-     surface itself on paper, a lighter step of it in the dark. */
-  --bg-control: light-dark(var(--bg-elev), color-mix(in srgb, var(--bg-elev) 86%, var(--text)));
+  /* A control lifted off its track, such as a segmented control's chosen pill: on paper a step
+     toward white, since some light themes elevate darker than their page; a lighter step of the
+     elevated surface in the dark. The track under it is a firmer tint on paper for the same
+     reason, so the chosen pill reads in every theme. */
+  --bg-control: light-dark(
+    color-mix(in srgb, var(--bg-elev) 25%, #fff),
+    color-mix(in srgb, var(--bg-elev) 86%, var(--text))
+  );
+  --bg-track: light-dark(
+    color-mix(in srgb, var(--text) 8%, transparent),
+    color-mix(in srgb, var(--text) 5%, transparent)
+  );
 }
 
 :root[data-text-size="small"] {

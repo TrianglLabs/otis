@@ -175,13 +175,20 @@ it("validates the model favorite call", async () => {
 })
 
 it("validates the model visibility call and forwards the catalog listing", async () => {
-  const setModelHidden = vi.fn(async () => {})
-  const handler = handlerFor(DESKTOP_CHANNELS.setModelHidden, { setModelHidden })
-  await handler("fireworks", "accounts/fireworks/models/kimi", true)
-  expect(setModelHidden).toHaveBeenCalledWith("fireworks", "accounts/fireworks/models/kimi", true)
-  await expect(handler("openai", "gpt", true)).rejects.toThrow("Invalid hosted provider")
-  await expect(handler("fireworks", "", true)).rejects.toThrow("Invalid model id")
-  await expect(handler("fireworks", "kimi", "yes")).rejects.toThrow("Invalid visibility flag")
+  const setModelsHidden = vi.fn(async () => {})
+  const handler = handlerFor(DESKTOP_CHANNELS.setModelsHidden, { setModelsHidden })
+  await handler("fireworks", ["accounts/fireworks/models/kimi"], true)
+  expect(setModelsHidden).toHaveBeenCalledWith(
+    "fireworks",
+    ["accounts/fireworks/models/kimi"],
+    true,
+  )
+  await handler("local", ["qwen"], false)
+  expect(setModelsHidden).toHaveBeenLastCalledWith("local", ["qwen"], false)
+  await expect(handler("openai", ["gpt"], true)).rejects.toThrow("Invalid provider")
+  await expect(handler("fireworks", "kimi", true)).rejects.toThrow("Invalid model ids")
+  await expect(handler("fireworks", ["kimi", ""], true)).rejects.toThrow("Invalid model ids")
+  await expect(handler("fireworks", ["kimi"], "yes")).rejects.toThrow("Invalid visibility flag")
   const setTextSize = vi.fn(async () => {})
   const size = handlerFor(DESKTOP_CHANNELS.setTextSize, { setTextSize })
   await size("large")
@@ -192,8 +199,9 @@ it("validates the model visibility call and forwards the catalog listing", async
   await team("team_abc")
   expect(setPrimeTeamId).toHaveBeenCalledWith("team_abc")
   await expect(team(42)).rejects.toThrow("Invalid team id")
-  const listHostedCatalogs = vi.fn(async () => ({ fireworks: [] }))
-  expect(await handlerFor(DESKTOP_CHANNELS.listHostedCatalogs, { listHostedCatalogs })()).toEqual({
+  const listModelCatalogs = vi.fn(async () => ({ local: [], fireworks: [] }))
+  expect(await handlerFor(DESKTOP_CHANNELS.listModelCatalogs, { listModelCatalogs })()).toEqual({
+    local: [],
     fireworks: [],
   })
 })

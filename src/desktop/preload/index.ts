@@ -57,9 +57,9 @@ const api: DesktopApi = {
     invoke(DESKTOP_CHANNELS.writeProjectInstructions, dirName, text),
   refreshSessions: () => invoke(DESKTOP_CHANNELS.refreshSessions),
   listModels: () => invoke(DESKTOP_CHANNELS.listModels),
-  listHostedCatalogs: () => invoke(DESKTOP_CHANNELS.listHostedCatalogs),
-  setModelHidden: (provider, id, hidden) =>
-    invoke(DESKTOP_CHANNELS.setModelHidden, provider, id, hidden),
+  listModelCatalogs: () => invoke(DESKTOP_CHANNELS.listModelCatalogs),
+  setModelsHidden: (provider, ids, hidden) =>
+    invoke(DESKTOP_CHANNELS.setModelsHidden, provider, ids, hidden),
   setModelFavorite: (key, favorite) => invoke(DESKTOP_CHANNELS.setModelFavorite, key, favorite),
   setSkillHidden: (name, hidden) => invoke(DESKTOP_CHANNELS.setSkillHidden, name, hidden),
   setPrimeTeamId: (teamId) => invoke(DESKTOP_CHANNELS.setPrimeTeamId, teamId),

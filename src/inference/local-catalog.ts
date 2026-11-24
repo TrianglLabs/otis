@@ -1,5 +1,4 @@
-import type { HardwareBackend, HardwareProbe } from "./hardware.js"
-import { type LlamaRuntimeKind, llamaRuntimeTarget } from "./llama-binary.js"
+import type { HardwareProbe } from "./hardware.js"
 import type { LocalCatalogModel } from "./types.js"
 
 const GIBIBYTE = 1024 ** 3
@@ -45,18 +44,11 @@ type LocalModelPacking = {
   /** Set when this packing lives in another repository than the model's. */
   ggufRepo?: string
   ggufRevision?: string
-  /**
-   * Backends with kernels for this packing in the pinned runtime. Omitted means all supported
-   * backends.
-   */
-  supportedBackends?: readonly HardwareBackend[]
-  /** Prefer this packing when the applicable memory limit or CUDA architecture rule matches. */
+  /** Prefer this packing when the applicable memory limit matches. */
   useWhen?: {
     maximumDedicatedGpuMemoryBytes?: number
     maximumSystemMemoryBytes?: number
     maximumUnifiedMemoryBytes?: number
-    /** Matches only when every detected CUDA GPU belongs to one of these architectures. */
-    cudaComputeCapabilities?: readonly number[]
   }
 }
 
@@ -65,8 +57,6 @@ export type LocalModelSpec = {
   displayName: string
   /** Official Hugging Face checkpoint or author-published GGUF identity. */
   sourceModel: string
-  /** Pinned llama.cpp distribution capable of loading this model's GGUF format. */
-  runtime: LlamaRuntimeKind
   ggufRepo: string
   /** Immutable Hugging Face repository commit containing every `ggufFiles` entry. */
   ggufRevision: string
@@ -78,7 +68,7 @@ export type LocalModelSpec = {
    */
   mmproj?: LocalGgufFile
   quant: string
-  /** First compatible matching rule wins; otherwise use the last compatible packing. */
+  /** The first packing whose rule matches wins; otherwise the last packing. */
   packings?: readonly [LocalModelPacking, ...LocalModelPacking[]]
   nativeContextLength: number
   supportsImageInput: boolean
@@ -87,28 +77,6 @@ export type LocalModelSpec = {
   vocabSize: number
   /** `hidden_size` of the source checkpoint; it scales the activations of one micro-batch. */
   hiddenSize: number
-}
-
-const BONSAI_PTQ1: LocalModelPacking = {
-  quant: "PTQ1_0",
-  ggufFiles: [
-    {
-      name: "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
-      sha256: "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
-      size: 5_946_648_928,
-    },
-  ],
-}
-
-const BONSAI_PQ2: LocalModelPacking = {
-  quant: "PQ2_0",
-  ggufFiles: [
-    {
-      name: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
-      sha256: "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
-      size: 7_206_168_928,
-    },
-  ],
 }
 
 const FLASH_NEXT_IQ3: LocalModelPacking = {
@@ -147,7 +115,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "ornith-ai/Ornith-1.5-9B",
     displayName: "Ornith 1.5 9B",
     sourceModel: "ornith-ai/Ornith-1.5-9B",
-    runtime: "upstream",
     ggufRepo: "ornith-ai/Ornith-1.5-9B-GGUF",
     ggufRevision: "abdd624b12ebf020b767fff532ff44fe552b28c3",
     ggufFiles: [
@@ -173,7 +140,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "google/gemma-4-12B-it",
     displayName: "Gemma 4 12B",
     sourceModel: "google/gemma-4-12B-it",
-    runtime: "upstream",
     ggufRepo: "google/gemma-4-12B-it-qat-q4_0-gguf",
     ggufRevision: "29d097773436b69ff9feafd636ab4cf873786537",
     ggufFiles: [
@@ -204,7 +170,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "LiquidAI/LFM2.5-2.6B",
     displayName: "LFM2.5 2.6B",
     sourceModel: "LiquidAI/LFM2.5-2.6B",
-    runtime: "upstream",
     ggufRepo: "LiquidAI/LFM2.5-2.6B-GGUF",
     ggufRevision: "84022ce711b28455e8c4fc364ce68c00cf995875",
     ggufFiles: [
@@ -225,7 +190,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "Qwen/Qwen3.8-27B",
     displayName: "Qwen3.8 27B",
     sourceModel: "Qwen/Qwen3.8-27B",
-    runtime: "upstream",
     ggufRepo: "ggml-org/Qwen3.8-27B-GGUF",
     ggufRevision: "0669b98607d47046c7c2b3f801011d54a08cfccf",
     ggufFiles: [
@@ -248,50 +212,10 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     hiddenSize: 5_120,
   },
   {
-    id: "prism-ml/Ternary-Bonsai-2-27B-gguf",
-    displayName: "Bonsai 2 27B",
-    sourceModel: "prism-ml/Ternary-Bonsai-2-27B-gguf",
-    runtime: "prism",
-    ggufRepo: "prism-ml/Ternary-Bonsai-2-27B-gguf",
-    ggufRevision: "6ed5e12bf84b7a63069882c91dd9e9218647d17b",
-    ggufFiles: BONSAI_PQ2.ggufFiles,
-    quant: BONSAI_PQ2.quant,
-    packings: [
-      {
-        ...BONSAI_PTQ1,
-        useWhen: {
-          maximumDedicatedGpuMemoryBytes: 8 * GIBIBYTE,
-          maximumSystemMemoryBytes: 16 * GIBIBYTE,
-          maximumUnifiedMemoryBytes: 16 * GIBIBYTE,
-          // Prism measures faster PTQ1 decode on Ada (RTX 40-series, L4/L40).
-          // Other CUDA architectures prefer PQ2's faster prompt processing.
-          cudaComputeCapabilities: [8.9],
-        },
-      },
-      {
-        ...BONSAI_PQ2,
-        // Vulkan fallback must reselect PTQ1: this build has no PQ2 kernels.
-        supportedBackends: ["metal", "cuda", "cpu"],
-      },
-    ],
-    mmproj: {
-      name: "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
-      sha256: "6807ede61d570bb86ba34b756a0fa109edc33668604de867c6ea6d8f1d631903",
-      size: 629_246_976,
-    },
-    nativeContextLength: 262_144,
-    supportsImageInput: true,
-    // Bonsai retains the Qwen3.8 27B architecture and KV-cache geometry.
-    attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
-    vocabSize: 248_320,
-    hiddenSize: 5_120,
-  },
-  {
     id: "ConwayResearch/Underdog-Saluki-27B-1.0",
     displayName: "Underdog Saluki 27B",
     // Underdog's 2-bit mixed quantization of Qwen3.8-27B, published by its author as GGUF only.
     sourceModel: "ConwayResearch/Underdog-Saluki-27B-1.0",
-    runtime: "upstream",
     ggufRepo: "ConwayResearch/Underdog-Saluki-27B-1.0",
     ggufRevision: "4f60eba09f4b6db63c72915d328d97e1d93edb8c",
     ggufFiles: [
@@ -318,7 +242,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "Qwen/Qwen3.8-Flash-Next",
     displayName: "Qwen3.8 Flash Next",
     sourceModel: "Qwen/Qwen3.8-Flash-Next",
-    runtime: "upstream",
     // Qwen's ggml-org conversion is Q8 only, 163 GB; the smaller conversion of the official
     // checkpoint serves every machine that cannot hold it, which is most of them.
     ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
@@ -371,7 +294,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "openai/gpt-oss-20b",
     displayName: "gpt-oss 20B",
     sourceModel: "openai/gpt-oss-20b",
-    runtime: "upstream",
     ggufRepo: "ggml-org/gpt-oss-20b-GGUF",
     ggufRevision: "ef9b12f2ff56c69cf32153a02784e7a3c88bf524",
     ggufFiles: [
@@ -397,7 +319,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "LiquidAI/LFM2.5-24B-A2B",
     displayName: "LFM2.5 24B A2B",
     sourceModel: "LiquidAI/LFM2.5-24B-A2B",
-    runtime: "upstream",
     ggufRepo: "LiquidAI/LFM2.5-24B-A2B-GGUF",
     ggufRevision: "0912d33141f77e10705345a6732bfd83f0252fdc",
     // Liquid's quantization-aware distillation checkpoint, trained to recover Q4_0's loss.
@@ -420,7 +341,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "google/gemma-4-26B-A4B-it",
     displayName: "Gemma 4 26B A4B",
     sourceModel: "google/gemma-4-26B-A4B-it",
-    runtime: "upstream",
     ggufRepo: "google/gemma-4-26B-A4B-it-qat-q4_0-gguf",
     ggufRevision: "d1c082be9cf3c8a514acf63b8761f4b41935842e",
     ggufFiles: [
@@ -451,7 +371,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "thinkingmachines/Inkling-2-Mini",
     displayName: "Inkling 2 Mini",
     sourceModel: "thinkingmachines/Inkling-2-Mini",
-    runtime: "upstream",
     ggufRepo: "ggml-org/Inkling-2-Mini-GGUF",
     ggufRevision: "db61c5b492a6a034d986328d28274af0a439aa6c",
     // 4-bit imatrix experts in layers 0-19, Q8_0 elsewhere: the packing ggml-org leads with.
@@ -485,7 +404,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "google/gemma-4-31B-it",
     displayName: "Gemma 4 31B",
     sourceModel: "google/gemma-4-31B-it",
-    runtime: "upstream",
     ggufRepo: "google/gemma-4-31B-it-qat-q4_0-gguf",
     ggufRevision: "59dde24573e7e61570dba08b18a2e1fe246955ed",
     ggufFiles: [
@@ -516,7 +434,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "zai-org/GLM-5.3",
     displayName: "GLM-5.3",
     sourceModel: "zai-org/GLM-5.3",
-    runtime: "upstream",
     ggufRepo: "unsloth/GLM-5.3-GGUF",
     ggufRevision: "8cf52b13b13065f576d01753f5f65f7263cc9062",
     ggufFiles: [
@@ -598,33 +515,18 @@ export function localModelForHardware(
   model: LocalModelSpec,
   hardware: HardwareProbe,
 ): LocalModelSpec {
-  if (!model.packings) return model
-  hardware = llamaRuntimeTarget(hardware, model.runtime)
-  const compatible = model.packings.filter(
-    ({ supportedBackends }) => !supportedBackends || supportedBackends.includes(hardware.backend),
-  )
+  const { packings } = model
+  if (!packings) return model
   const packing =
-    compatible.find(({ useWhen: rule }) => {
+    packings.find(({ useWhen: rule }) => {
       if (!rule) return true
-      if (
-        hardware.backend === "cuda" &&
-        hardware.gpuCount > 0 &&
-        hardware.cudaComputeCapabilities?.length === hardware.gpuCount &&
-        hardware.cudaComputeCapabilities.every((compute) =>
-          rule.cudaComputeCapabilities?.includes(compute),
-        )
-      ) {
-        return true
-      }
       const [limit, memory] = hardware.unifiedMemory
         ? [rule.maximumUnifiedMemoryBytes, hardware.totalMemoryBytes]
         : hardware.backend !== "cpu" && hardware.gpuMemoryBytes !== undefined
           ? [rule.maximumDedicatedGpuMemoryBytes, hardware.gpuMemoryBytes]
           : [rule.maximumSystemMemoryBytes, hardware.totalMemoryBytes]
       return limit !== undefined && memory <= limit
-    }) ?? compatible.at(-1)
-  if (!packing)
-    throw new Error(`${model.displayName} has no packing for the ${hardware.backend} backend.`)
+    }) ?? packings[packings.length - 1]
   return packed(model, packing)
 }
 

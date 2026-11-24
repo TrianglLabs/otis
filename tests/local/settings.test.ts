@@ -140,21 +140,19 @@ describe("local settings", () => {
     const file = join(await tempDirectory(), "config.json")
     await Promise.all([
       saveLocalThinking("Qwen/Qwen3.8-27B", "low", { file }),
-      saveLocalThinking("prism-ml/Ternary-Bonsai-2-27B-gguf", "medium", { file }),
+      saveLocalThinking("google/gemma-4-12B-it", "off", { file }),
       saveThinkingVisible(true, { file }),
     ])
     await saveSelectedModel(model("hosted", "Hosted", 65536), { file })
     await clearSelectedModel({ file })
     expect((await loadLocalSettings({ file, env: {} })).localThinking).toEqual({
       "Qwen/Qwen3.8-27B": "low",
-      "prism-ml/Ternary-Bonsai-2-27B-gguf": "medium",
+      "google/gemma-4-12B-it": "off",
     })
     await saveLocalThinking("Qwen/Qwen3.8-27B", "default", { file })
-    await expect(
-      saveLocalThinking("prism-ml/Ternary-Bonsai-2-27B-gguf", "low", { file }),
-    ).rejects.toThrow()
+    await expect(saveLocalThinking("google/gemma-4-12B-it", "low", { file })).rejects.toThrow()
     expect((await loadLocalSettings({ file, env: {} })).localThinking).toEqual({
-      "prism-ml/Ternary-Bonsai-2-27B-gguf": "medium",
+      "google/gemma-4-12B-it": "off",
     })
     expect((await loadLocalSettings({ file, env: {} })).thinkingVisible).toBe(true)
   })

@@ -117,6 +117,7 @@ const SNAPSHOT: DesktopSnapshot = snapshotFixture({
     baseten: false,
     primeintellect: false,
     river: false,
+    openrouter: false,
   },
 })
 
@@ -676,7 +677,7 @@ describe("AppShell settings navigation", () => {
   })
 
   it("lists each keyed provider's hosted models with picker visibility switches", async () => {
-    const listHostedCatalogs = vi.fn(async () => ({
+    const listModelCatalogs = vi.fn(async () => ({
       fireworks: [
         {
           provider: "fireworks" as const,
@@ -694,8 +695,9 @@ describe("AppShell settings navigation", () => {
         },
       ],
       together: [],
+      local: [],
     }))
-    const setModelHidden = vi.fn(async () => {})
+    const setModelsHidden = vi.fn(async () => {})
     const snapshot: DesktopSnapshot = {
       ...SNAPSHOT,
       hostedConfigured: {
@@ -704,13 +706,14 @@ describe("AppShell settings navigation", () => {
         baseten: false,
         primeintellect: false,
         river: false,
+        openrouter: false,
       },
       hiddenModels: ["fireworks:accounts/fireworks/models/glm"],
     }
     let emit!: (event: DesktopEvent) => void
     const api = fakeApi({
-      listHostedCatalogs,
-      setModelHidden,
+      listModelCatalogs,
+      setModelsHidden,
       getSnapshot: vi.fn(async () => snapshot),
       subscribe: vi.fn((listener) => {
         emit = listener
@@ -722,12 +725,13 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
 
     const panel = within(screen.getByRole("tabpanel", { name: "Inference" }))
-    expect(panel.getByText("Hosted models")).toBeTruthy()
-    expect(listHostedCatalogs).toHaveBeenCalledOnce()
-    // One provider at a time behind a tab strip; the first keyed provider opens.
+    expect(panel.getByText("Models")).toBeTruthy()
+    expect(listModelCatalogs).toHaveBeenCalledOnce()
+    // One provider at a time behind a tab strip, local last; the first keyed provider opens.
     expect(panel.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Fireworks AI",
       "Together AI",
+      "Local",
     ])
     const fireworks = within(panel.getByRole("tabpanel", { name: "Fireworks AI" }))
     // The detail line is the picker's: context, then the modality with its icon.
@@ -740,15 +744,15 @@ describe("AppShell settings navigation", () => {
     expect(glm.getAttribute("aria-checked")).toBe("false")
 
     fireEvent.click(kimi)
-    expect(setModelHidden).toHaveBeenLastCalledWith(
+    expect(setModelsHidden).toHaveBeenLastCalledWith(
       "fireworks",
-      "accounts/fireworks/models/kimi",
+      ["accounts/fireworks/models/kimi"],
       true,
     )
     fireEvent.click(glm)
-    expect(setModelHidden).toHaveBeenLastCalledWith(
+    expect(setModelsHidden).toHaveBeenLastCalledWith(
       "fireworks",
-      "accounts/fireworks/models/glm",
+      ["accounts/fireworks/models/glm"],
       false,
     )
     // The switch follows the status stream, not the click.
@@ -777,6 +781,83 @@ describe("AppShell settings navigation", () => {
       within(panel.getByRole("tabpanel", { name: "Together AI" })).getByText("No models listed."),
     ).toBeTruthy()
     expect(panel.queryByRole("tab", { name: "Baseten" })).toBeNull()
+  })
+
+  it("searches, groups, pages, and bulk-toggles a long hosted catalog", async () => {
+    // 22 Anthropic and 3 OpenAI models: past one page of 20, so search and pages appear.
+    const anthropic = Array.from({ length: 22 }, (_, index) => ({
+      provider: "openrouter" as const,
+      id: `anthropic/claude-${index}`,
+      displayName: `Claude ${index}`,
+      supportsImageInput: false,
+      releasedAt: index,
+    }))
+    const openai = ["gpt-a", "gpt-b", "gpt-c"].map((name, index) => ({
+      provider: "openrouter" as const,
+      id: `openai/${name}`,
+      displayName: name.toUpperCase(),
+      supportsImageInput: false,
+      releasedAt: index,
+    }))
+    const setModelsHidden = vi.fn(async (_provider: string, _ids: string[], _hidden: boolean) => {})
+    const api = fakeApi({
+      listModelCatalogs: vi.fn(async () => ({ local: [], openrouter: [...anthropic, ...openai] })),
+      setModelsHidden,
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        hostedConfigured: {
+          fireworks: false,
+          together: false,
+          baseten: false,
+          primeintellect: false,
+          river: false,
+          openrouter: true,
+        },
+        hiddenModels: [],
+      })),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    const panel = within(screen.getByRole("tabpanel", { name: "Inference" }))
+    const list = within(await panel.findByRole("tabpanel", { name: "OpenRouter" }))
+
+    // Newest first under the vendor's heading, named without it, twenty to a page.
+    expect(list.getByText("Anthropic")).toBeTruthy()
+    const names = () =>
+      list
+        .getAllByRole("switch")
+        .map((toggle) => toggle.getAttribute("aria-label")?.replace(/^Show | in the.*$/g, ""))
+    expect(names().slice(0, 2)).toEqual(["Claude 21", "Claude 20"])
+    expect(list.getByText("Claude 21")).toBeTruthy()
+    expect(names()).toHaveLength(20)
+    expect(panel.getByText("1 of 2")).toBeTruthy()
+
+    // The next page carries the rest, its OpenAI models under their own heading.
+    fireEvent.click(panel.getByRole("button", { name: "Next page" }))
+    expect(names()).toEqual(["Claude 1", "Claude 0", "GPT-C", "GPT-B", "GPT-A"])
+    expect(list.getByText("OpenAI")).toBeTruthy()
+
+    // Hide all acts on every match, across pages, in one call; a search narrows it.
+    fireEvent.click(panel.getByRole("button", { name: "Hide all" }))
+    const allIds = [...anthropic, ...openai].map((model) => model.id)
+    expect(setModelsHidden).toHaveBeenLastCalledWith(
+      "openrouter",
+      expect.arrayContaining(allIds),
+      true,
+    )
+    expect(setModelsHidden.mock.lastCall?.[1]).toHaveLength(allIds.length)
+    fireEvent.change(panel.getByLabelText("Search models"), { target: { value: "gpt" } })
+    expect(panel.queryByText("1 of 2")).toBeNull()
+    expect(names()).toEqual(["GPT-C", "GPT-B", "GPT-A"])
+    fireEvent.click(panel.getByRole("button", { name: "Hide all" }))
+    expect(setModelsHidden).toHaveBeenLastCalledWith(
+      "openrouter",
+      ["openai/gpt-a", "openai/gpt-b", "openai/gpt-c"],
+      true,
+    )
+    fireEvent.change(panel.getByLabelText("Search models"), { target: { value: "gemini" } })
+    expect(list.getByText("No models match")).toBeTruthy()
   })
 
   it("shows locally recorded usage on its own Usage tab", async () => {

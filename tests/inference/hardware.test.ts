@@ -48,10 +48,6 @@ describe("hardware detection", () => {
     expect(hardware.gpuVendor).toBe("nvidia")
     expect(hardware.cudaVersion).toBe(cudaVersion)
     expect(hardware.gpuCount).toBe(output.split("\n").length)
-    const capabilities = output.split("\n").map((line) => Number(line.split(",")[2]))
-    expect(hardware.cudaComputeCapabilities).toEqual(
-      capabilities.every(Number.isFinite) ? capabilities : undefined,
-    )
     expect(inferenceMemoryBudget(hardware).deviceHeadroomBytes).toBe(1024 ** 3)
   })
 
@@ -146,7 +142,6 @@ describe("hardware detection", () => {
     expect(hardware.gpuCount).toBe(2)
     expect(hardware.gpuMemoryBytes).toBe((24576 + 8192) * 1024 * 1024)
     expect(hardware.unifiedMemory).toBe(false)
-    expect(hardware.cudaComputeCapabilities).toBeUndefined()
     expect(inferenceMemoryBudget(hardware)).toEqual({
       deviceHeadroomBytes: 1024 ** 3,
       gpuMemoryBudgetBytes: 30 * 1024 ** 3,
@@ -363,7 +358,6 @@ describe("hardware detection", () => {
       backend: "cuda",
       gpuCount: 2,
       gpuMemoryBytes: 30_000 * 1024 ** 2,
-      cudaComputeCapabilities: [8, 8],
     })
     expect(hardware.notes).toBeUndefined()
     const partition = await detectHardware({

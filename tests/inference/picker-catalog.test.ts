@@ -13,7 +13,6 @@ import {
   LOCAL_MODELS,
   type LocalModelSpec,
   localModelFiles,
-  localModelPackings,
 } from "../../src/inference/local-catalog.js"
 import {
   fitLocalModel,
@@ -32,7 +31,9 @@ import {
 import {
   arrangeFavorites,
   filterModelPickerItems,
+  groupByVendor,
   modelKey,
+  modelVendor,
   pickerItemKey,
   providerLabel,
 } from "../../src/inference/picker-filter.js"
@@ -61,7 +62,6 @@ const tight: HardwareProbe = {
 
 const GIBIBYTE = 1024 ** 3
 const LFM = "LiquidAI/LFM2.5-2.6B"
-const BONSAI = "prism-ml/Ternary-Bonsai-2-27B-gguf"
 const SALUKI = "ConwayResearch/Underdog-Saluki-27B-1.0"
 const LFM_24B = "LiquidAI/LFM2.5-24B-A2B"
 const QWEN = "Qwen/Qwen3.8-27B"
@@ -183,33 +183,9 @@ describe("model picker catalog", () => {
   })
 
   it.each([
-    [16, "PTQ1_0"],
-    [24, "PQ2_0"],
-  ])("shows the selected Bonsai packing at %d GB", async (memoryGB, quant) => {
-    const items = await listModelPickerItems({
-      hardware: {
-        ...ample,
-        totalMemoryBytes: memoryGB * 1024 ** 3,
-        gpuMemoryBytes: memoryGB * 1024 ** 3,
-      },
-      dataDirectory: await tempDir(),
-    })
-    const bonsai = items.find(
-      (item): item is LocalPickerChoice =>
-        item.kind === "model" &&
-        item.provider === "local" &&
-        item.id === "prism-ml/Ternary-Bonsai-2-27B-gguf",
-    )
-    expect(bonsai?.availabilityLabel).toContain(`· ${quant}`)
-    expect(bonsai?.quant).toBe(quant)
-    expect(bonsai?.memoryBytes).toBeGreaterThan(0)
-  })
-
-  it.each([
     [8188, [LFM]],
     [8191, [LFM]],
     [8192, [LFM]],
-    // Vulkan selects Bonsai's PTQ1 packing, whose 64K footprint with the projector is 11.3 GiB.
     [12288, [ORNITH, GEMMA]],
     [16380, [LFM_24B]],
   ])("stars models whose full footprint fits %d MiB of Vulkan VRAM", async (gpuMiB, ids) => {
@@ -224,8 +200,8 @@ describe("model picker catalog", () => {
     [6, [LFM]],
     [8, [LFM]],
     [12, [ORNITH, GEMMA]],
-    // Bonsai PQ2 needs 12.47 GiB at 64K, Saluki 13.12 GiB, and LFM2.5 24B A2B 14.80 GiB.
-    [14, [BONSAI]],
+    // Saluki needs 13.12 GiB at 64K and LFM2.5 24B A2B 14.80 GiB, beyond 14 GiB less its margin.
+    [14, [ORNITH, GEMMA]],
     [15, [SALUKI]],
     [16, [LFM_24B]],
     [20, [LFM_24B]],
@@ -267,7 +243,6 @@ describe("model picker catalog", () => {
       LFM_24B,
       QWEN,
       SALUKI,
-      BONSAI,
       ORNITH,
       GEMMA,
       LFM,
@@ -312,13 +287,12 @@ describe("model picker catalog", () => {
   })
 
   it("falls back at the exact working-set boundary without rounding memory upward", async () => {
-    const model = findLocalModel(BONSAI)
-    const packing = model && localModelPackings(model).find(({ quant }) => quant === "PQ2_0")
-    if (!packing) throw new Error("missing Bonsai packing")
-    // Above 16 GiB Bonsai uses PQ2, and two thirds of RAM less llama.cpp's margin must hold it.
-    const totalMemoryBytes = ((memoryRequiredFor(packing, 65_536) + GIBIBYTE) * 3) / 2
+    const model = findLocalModel(SALUKI)
+    if (!model) throw new Error("missing Saluki catalog entry")
+    // Two thirds of RAM less llama.cpp's margin must hold Saluki's 64K footprint.
+    const totalMemoryBytes = ((memoryRequiredFor(model, 65_536) + GIBIBYTE) * 3) / 2
     await expect(recommendedIds(await macHardware(totalMemoryBytes / GIBIBYTE))).resolves.toEqual([
-      BONSAI,
+      SALUKI,
     ])
     await expect(
       recommendedIds(await macHardware((totalMemoryBytes - 2) / GIBIBYTE)),
@@ -401,7 +375,6 @@ describe("model picker catalog", () => {
           expect(required).toBeLessThanOrEqual(
             fit.requiresCpuOffload ? gpuBudget + availableModelMemory(hardware) : gpuBudget,
           )
-          if (id === BONSAI) expect(fit.model.quant).toBe("PTQ1_0")
         }
       }
     }
@@ -436,25 +409,6 @@ describe("model picker catalog", () => {
       )
       expect(row.cpuOffload).toBe(gpuGiB === 20)
     }
-  })
-
-  it("distinguishes the selected Bonsai packing from another cached packing", async () => {
-    const model = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    const compact = model && localModelPackings(model).find(({ quant }) => quant === "PTQ1_0")
-    if (!model || !compact) throw new Error("missing Bonsai packing")
-    const directory = await tempDir()
-    await cacheFiles(compact, directory)
-
-    const items = await listModelPickerItems({
-      hardware: { ...ample, totalMemoryBytes: 24 * 1024 ** 3, gpuMemoryBytes: 24 * 1024 ** 3 },
-      dataDirectory: directory,
-    })
-    const bonsai = items.find(
-      (item): item is LocalPickerChoice =>
-        item.kind === "model" && item.provider === "local" && item.id === model.id,
-    )
-    expect(bonsai).toMatchObject({ downloaded: false, hasDownloadedPacking: true })
-    expect(bonsai?.availabilityLabel).toContain("· PQ2_0")
   })
 
   it("hides the hosted models the user hid, except the active one", async () => {
@@ -496,6 +450,21 @@ describe("model picker catalog", () => {
     expect(
       unselected.filter((item) => item.kind === "model" && item.provider === "together"),
     ).toHaveLength(1)
+  })
+
+  it("hides the local models the user hid, except the active one", async () => {
+    const options = { hardware: await macHardware(512), dataDirectory: await tempDir() }
+    const localIds = async (extra: Parameters<typeof listModelPickerItems>[0] = {}) =>
+      (await listModelPickerItems({ ...options, ...extra }))
+        .filter((item) => item.kind === "model" && item.provider === "local")
+        .map((item) => item.id)
+    const [first, second, ...rest] = await localIds()
+    if (!first || !second) throw new Error("expected local models on a 512 GB Mac")
+    const hiddenModels = new Set([modelKey("local", first), modelKey("local", second)])
+    expect(await localIds({ hiddenModels })).toEqual(rest)
+    expect(
+      await localIds({ hiddenModels, currentProvider: "local", currentModel: second }),
+    ).toEqual([second, ...rest])
   })
 
   it("greys out the last listed hosted catalog while offline, fetching nothing", async () => {
@@ -561,7 +530,6 @@ describe("model picker catalog", () => {
       QWEN,
       LFM_24B,
       SALUKI,
-      BONSAI,
       ORNITH,
       GEMMA,
       LFM,
@@ -892,6 +860,7 @@ describe("model picker catalog", () => {
       baseten: true,
       primeintellect: false,
       river: false,
+      openrouter: false,
     })
     expect(await hostedRows("fireworks", "shared/model")).toEqual({
       fireworks: true,
@@ -899,6 +868,7 @@ describe("model picker catalog", () => {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     })
     expect(await hostedRows("together", "other/model")).toEqual({
       fireworks: false,
@@ -906,6 +876,7 @@ describe("model picker catalog", () => {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     })
   })
 
@@ -1176,7 +1147,6 @@ describe("model picker catalog", () => {
       [GEMMA]: "Est. 256K",
       [LFM]: "Est. 128K",
       [QWEN]: "Est. 256K",
-      [BONSAI]: "Est. 256K",
       [SALUKI]: "Est. 256K",
       [FLASH]: "Est. 256K",
       [LFM_24B]: "Est. 128K",
@@ -1203,7 +1173,6 @@ describe("model picker catalog", () => {
       GEMMA,
       LFM,
       QWEN,
-      BONSAI,
       SALUKI,
       INKLING,
       GEMMA_31B,
@@ -1262,3 +1231,77 @@ function linuxHardware(ramGiB: number, gpuGiB?: number): HardwareProbe {
     gpuCount: 1,
   }
 }
+
+describe("model vendors", () => {
+  const vendor = (id: string | undefined, displayName: string) => modelVendor({ id, displayName })
+
+  it("reads a hosted model's vendor from its id's organization, closed models included", () => {
+    // Prime Intellect and OpenRouter list closed models under their makers' organizations.
+    expect(vendor("anthropic/claude-opus-5.5", "Claude Opus 5.5")).toEqual({
+      id: "anthropic",
+      name: "Anthropic",
+    })
+    expect(vendor("openai/gpt-6.2-sol", "GPT-6.2 Sol")?.id).toBe("openai")
+    expect(vendor("google/gemini-4-carbon", "Gemini 4 Carbon")?.id).toBe("google")
+    expect(vendor("x-ai/grok-4.7", "SpaceXSI: Grok 4.7")?.id).toBe("xai")
+    // Hugging Face organizations, in any case, as Together, Baseten and the local catalog use.
+    expect(vendor("moonshotai/Kimi-K3", "Kimi K3")?.id).toBe("moonshot")
+    expect(vendor("zai-org/GLM-5.3", "GLM-5.3")?.id).toBe("zai")
+    expect(vendor("Qwen/Qwen3.8-27B", "Qwen3.8 27B")?.id).toBe("qwen")
+    expect(vendor("deepseek-ai/DeepSeek-V4-Pro-0813", "DeepSeek V4 Pro")?.id).toBe("deepseek")
+    expect(vendor("meta-llama/Llama-3.3-70B", "Llama 3.3 70B")?.id).toBe("meta")
+    // xAI under its current name; the smaller labs OpenRouter and Baseten carry.
+    expect(vendor("x-ai/grok-4.7", "Grok 4.7")?.name).toBe("SpaceXSI")
+    expect(vendor("ricursiveai/ripple-65b-preview", "Ripple 65B Preview")?.id).toBe("ricursive")
+    expect(vendor("reflection/beam-1.0-501b-a23b", "Beam 1.0")?.id).toBe("reflection")
+    expect(vendor("baseten/joey-1", "Joey 1")?.id).toBe("baseten")
+    expect(vendor("aion-labs/aion-2.0", "Aion 2.0")?.id).toBe("aionlabs")
+    expect(vendor("prism-ml/bonsai-8b", "Bonsai 8B")?.name).toBe("PrismML")
+  })
+
+  it("falls back to the model family where the id names no organization, and to usage names", () => {
+    // Fireworks ids carry its own account, not the maker's.
+    expect(vendor("accounts/fireworks/models/kimi-k2p6", "Kimi K2.6")?.id).toBe("moonshot")
+    expect(vendor("accounts/fireworks/models/glm-5p3", "GLM-5.3")?.id).toBe("zai")
+    expect(vendor("accounts/fireworks/models/gpt-oss-120b", "gpt-oss 120B")?.id).toBe("openai")
+    // A local server's tag, and usage kept by display name alone.
+    expect(vendor("qwen3:32b", "qwen3:32b")?.id).toBe("qwen")
+    expect(vendor(undefined, "Claude Sonnet 5.5")?.id).toBe("anthropic")
+    expect(vendor(undefined, "Inkling 2 Mini")?.id).toBe("thinkingmachines")
+    expect(vendor(undefined, "Gemma 4 31B")?.id).toBe("google")
+    expect(vendor("accounts/fireworks/models/joey-1", "Joey 1")?.id).toBe("baseten")
+    // Fireworks serves its own Ember under its account, like every other model.
+    expect(vendor("accounts/fireworks/models/ember-1", "Ember 1")?.id).toBe("fireworks")
+    expect(vendor(undefined, "Ripple 65B")?.id).toBe("ricursive")
+    expect(vendor(undefined, "Palmyra X6")?.id).toBe("writer")
+  })
+
+  it("leaves a model of no known vendor unknown", () => {
+    expect(vendor("thedrummer/cydonia-24b", "Cydonia 24B")).toBeUndefined()
+    expect(vendor("someone/model-x", "Model X")).toBeUndefined()
+    // A family pattern starts a name; it does not match inside one.
+    expect(vendor(undefined, "Enterprise GPT helper")).toBeUndefined()
+  })
+
+  it("groups by vendor alphabetically, newest first, with unknown models last", () => {
+    const model = (id: string, displayName: string, releasedAt?: number) => ({
+      id,
+      displayName,
+      ...(releasedAt === undefined ? {} : { releasedAt }),
+    })
+    const groups = groupByVendor([
+      model("someone/model-x", "Model X"),
+      model("openai/gpt-6.1", "GPT-6.1", 1),
+      model("anthropic/claude-opus-5", "Claude Opus 5", 1),
+      model("openai/gpt-6.2", "GPT-6.2", 2),
+      model("accounts/fireworks/models/claude-x", "Claude X"),
+    ])
+    expect(
+      groups.map(({ vendor, rows }) => [vendor?.name, rows.map((row) => row.displayName)]),
+    ).toEqual([
+      ["Anthropic", ["Claude Opus 5", "Claude X"]],
+      ["OpenAI", ["GPT-6.2", "GPT-6.1"]],
+      [undefined, ["Model X"]],
+    ])
+  })
+})

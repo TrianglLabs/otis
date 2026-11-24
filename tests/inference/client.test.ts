@@ -517,6 +517,121 @@ describe("cached prompt tokens", () => {
   })
 })
 
+describe("OpenRouter reasoning details", () => {
+  it("joins streamed blocks by index and sends them back unmodified in place of plain reasoning", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([
+        {
+          choices: [
+            {
+              delta: {
+                reasoning: "Let me ",
+                reasoning_details: [
+                  {
+                    type: "reasoning.text",
+                    text: "Let me ",
+                    index: 0,
+                    format: "anthropic-claude-v1",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          choices: [
+            {
+              delta: {
+                reasoning: "check.",
+                reasoning_details: [
+                  { type: "reasoning.text", text: "check.", signature: null, index: 0 },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          choices: [
+            {
+              delta: {
+                reasoning_details: [
+                  { type: "reasoning.text", signature: "sig-abc", index: 0 },
+                  { type: "reasoning.encrypted", data: "opaque==", index: 1 },
+                ],
+                tool_calls: [
+                  { index: 0, id: "call_1", function: { name: "read", arguments: "{}" } },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+        },
+      ]),
+    )
+    const client = new HostedClient({
+      provider: "openrouter",
+      apiKey: "or-key",
+      model: "anthropic/claude-opus-5.5",
+      fetch: fetchMock as typeof fetch,
+    })
+    const events = await collect(client.streamChat({ messages: [{ role: "user", content: "hi" }] }))
+    const details = [
+      {
+        type: "reasoning.text",
+        text: "Let me check.",
+        index: 0,
+        format: "anthropic-claude-v1",
+        signature: "sig-abc",
+      },
+      { type: "reasoning.encrypted", data: "opaque==", index: 1 },
+    ]
+    expect(events).toEqual([
+      { type: "reasoning_delta", field: "reasoning", text: "Let me " },
+      { type: "reasoning_delta", field: "reasoning", text: "check." },
+      { type: "reasoning_details", details },
+      { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: "{}" } },
+      { type: "finish", reason: "tool_calls" },
+    ])
+
+    // The next turn: OpenRouter gets the blocks back exactly; another provider gets plain text.
+    const history = [
+      { role: "user" as const, content: "hi" },
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "reasoning" as const, field: "reasoning" as const, text: "Let me check." },
+          { type: "reasoning_details" as const, details },
+          {
+            type: "tool_call" as const,
+            toolCall: { id: "call_1", name: "read", arguments: "{}" },
+          },
+        ],
+      },
+      { role: "tool" as const, toolCallId: "call_1", content: "file contents" },
+    ]
+    const sent = async (provider: HostedProvider) => {
+      const replay = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        sseResponse([{ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] }]),
+      )
+      const next = new HostedClient({
+        provider,
+        apiKey: "key",
+        model: "m",
+        fetch: replay as typeof fetch,
+      })
+      await collect(next.streamChat({ messages: history }))
+      return JSON.parse(String(replay.mock.calls[0][1]?.body)).messages[2]
+    }
+    const openrouter = await sent("openrouter")
+    expect(openrouter.reasoning_details).toEqual(details)
+    expect(openrouter).not.toHaveProperty("reasoning")
+    expect(openrouter.tool_calls).toHaveLength(1)
+    const together = await sent("together")
+    expect(together).not.toHaveProperty("reasoning_details")
+    expect(together.reasoning).toBe("Let me check.")
+  })
+})
+
 describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
   const { name, inferenceURL } = HOSTED_PROVIDER_INFO[provider]
 
@@ -582,8 +697,22 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
       stream_options: { include_usage: true },
       tools: [{ type: "function", function: { name: "read" } }],
       ...(provider === "together" ? { prompt_cache_key: "session_20260716_abc" } : {}),
+      // OpenRouter routes by `session_id`, only to zero-data-retention endpoints, and asks for
+      // automatic prompt caching, which Anthropic's models need and the others ignore.
+      ...(provider === "openrouter"
+        ? {
+            session_id: "session_20260716_abc",
+            provider: { zdr: true },
+            cache_control: { type: "ephemeral" },
+          }
+        : {}),
     })
     if (provider !== "together") expect(body).not.toHaveProperty("prompt_cache_key")
+    if (provider !== "openrouter") {
+      expect(body).not.toHaveProperty("session_id")
+      expect(body).not.toHaveProperty("provider")
+      expect(body).not.toHaveProperty("cache_control")
+    }
     // Only Fireworks documents reasoning tiers and a priority tier; a model whose name would
     // earn `max` on Fireworks keeps this provider's defaults.
     expect(body).not.toHaveProperty("reasoning_effort")
@@ -614,9 +743,9 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
       client.complete([{ role: "user", content: "Name this." }], { onUsage }),
     ).resolves.toBe("A title")
     expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty("x-session-affinity")
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).not.toHaveProperty(
-      "prompt_cache_key",
-    )
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body).not.toHaveProperty("prompt_cache_key")
+    expect(body).not.toHaveProperty("session_id")
     expect(onUsage).toHaveBeenCalledTimes(1)
     expect(onUsage).toHaveBeenCalledWith({ promptTokens: 10, completionTokens: 2, totalTokens: 12 })
   })

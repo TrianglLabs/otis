@@ -438,7 +438,9 @@ describe("chat UI input", () => {
     expect(harness.childIds("input-area")).toEqual(["setup-box"])
     expect(harness.childIds("setup-box")).toEqual(["setup-why", "setup-local", "setup-button-box"])
     expect(harness.text("setup-button")).toContain("Set up Otis")
-    expect(harness.text("setup-why")).toBe("Your personal AI agent, powered by open models.")
+    expect(harness.text("setup-why")).toBe(
+      "Your personal AI agent, on your computer or in the cloud.",
+    )
     expect(harness.text("setup-local")).toBe(
       "Inspect files, edit code, run commands, and search the web.",
     )
@@ -480,7 +482,7 @@ describe("chat UI input", () => {
     )
     expect(harness.find("setup-choice-local-detail-2")).toBeUndefined()
     expect(harness.text("setup-choice-hosted-label")).toBe(
-      "Fireworks AI, Together AI, Baseten, Prime Intellect, River AI",
+      "OpenRouter, Fireworks AI, Together AI, Baseten, Prime Intellect, River AI",
     )
     expect(harness.text("setup-choice-hosted-description")).toBe(
       "Fast remote inference with no local hardware requirements.",
@@ -597,6 +599,7 @@ describe("chat UI input", () => {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     }
 
     harness.ui.showSetupHostedChoice({ ...none, fireworks: true })
@@ -608,25 +611,30 @@ describe("chat UI input", () => {
       "setup-hosted-row-2-box",
       "setup-hosted-row-3-box",
       "setup-hosted-row-4-box",
+      "setup-hosted-row-5-box",
     ])
-    expect(harness.text("setup-hosted-row-0")).toBe("› Fireworks AI")
-    expect(harness.text("setup-hosted-row-0-meta")).toBe("  API key saved")
-    expect(harness.get<TextRenderable>("setup-hosted-row-0-meta").visible).toBe(true)
-    expect(harness.text("setup-hosted-row-1")).toBe("  Together AI")
-    expect(harness.get<TextRenderable>("setup-hosted-row-1-meta").visible).toBe(false)
-    expect(harness.text("setup-hosted-row-2")).toBe("  Baseten")
-    expect(harness.text("setup-hosted-row-3")).toBe("  Prime Intellect")
-    expect(harness.text("setup-hosted-row-4")).toBe("  River AI")
+    // OpenRouter leads the list; the cursor starts on the provider that has a key.
+    expect(harness.text("setup-hosted-row-0")).toBe("  OpenRouter")
+    expect(harness.get<TextRenderable>("setup-hosted-row-0-meta").visible).toBe(false)
+    expect(harness.text("setup-hosted-row-1")).toBe("› Fireworks AI")
+    expect(harness.text("setup-hosted-row-1-meta")).toBe("  API key saved")
+    expect(harness.get<TextRenderable>("setup-hosted-row-1-meta").visible).toBe(true)
+    expect(harness.text("setup-hosted-row-2")).toBe("  Together AI")
+    expect(harness.text("setup-hosted-row-3")).toBe("  Baseten")
+    expect(harness.text("setup-hosted-row-4")).toBe("  Prime Intellect")
+    expect(harness.text("setup-hosted-row-5")).toBe("  River AI")
     expect(harness.text("setup-hosted-choice-hint")).toBe("[↑↓] move · [enter] select · [esc] back")
 
     harness.press("down")
-    expect(harness.text("setup-hosted-row-0")).toBe("  Fireworks AI")
-    expect(harness.text("setup-hosted-row-1")).toBe("› Together AI")
+    expect(harness.text("setup-hosted-row-1")).toBe("  Fireworks AI")
+    expect(harness.text("setup-hosted-row-2")).toBe("› Together AI")
     harness.press("up")
     harness.press("up")
-    expect(harness.text("setup-hosted-row-4")).toBe("› River AI")
+    expect(harness.text("setup-hosted-row-0")).toBe("› OpenRouter")
     harness.press("up")
-    expect(harness.text("setup-hosted-row-3")).toBe("› Prime Intellect")
+    expect(harness.text("setup-hosted-row-5")).toBe("› River AI")
+    harness.press("up")
+    expect(harness.text("setup-hosted-row-4")).toBe("› Prime Intellect")
     harness.press("return")
     expect(onSetupHostedChoice).toHaveBeenCalledExactlyOnceWith("primeintellect")
 
@@ -637,7 +645,7 @@ describe("chat UI input", () => {
     expect(harness.get<InputRenderable>("setup-input").focused).toBe(true)
     harness.press("escape")
     expect(harness.childIds("input-area")).toEqual(["setup-hosted-choice"])
-    expect(harness.text("setup-hosted-row-3")).toBe("› Prime Intellect")
+    expect(harness.text("setup-hosted-row-4")).toBe("› Prime Intellect")
     harness.press("escape")
     expect(harness.childIds("input-area")).toEqual(["setup-choice"])
     expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
@@ -822,8 +830,8 @@ describe("chat UI input", () => {
         .some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
     ).toBe(true)
     expect(frame).toContain("Private, on your devices")
-    expect(frame).toContain("Fireworks AI, Together AI,")
-    expect(frame).toContain("Baseten, Prime Intellect")
+    expect(frame).toContain("OpenRouter, Fireworks AI,")
+    expect(frame).toContain("Prime Intellect")
     expect(frame).toContain("[←→] move · [enter] select")
 
     harness.ui.showSetupLocalInferenceChoice()

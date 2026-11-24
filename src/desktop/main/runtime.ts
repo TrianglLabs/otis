@@ -22,6 +22,7 @@ import { listHostedModels } from "../../inference/catalog.js"
 import { describeError } from "../../inference/errors.js"
 import { discoverPairModels, type PairDiscovery } from "../../inference/pair.js"
 import {
+  type LocalPickerChoice,
   listModelPickerItems,
   type ModelPickerChoice,
   type ModelPickerItem,
@@ -31,7 +32,6 @@ import type { discoverServerModels } from "../../inference/servers.js"
 import {
   type AttachmentContentPart,
   HOSTED_PROVIDERS,
-  type HostedModel,
   type HostedProvider,
   SUPPORTED_IMAGE_EXTENSIONS,
   type UserChatMessage,
@@ -75,11 +75,13 @@ import {
 import {
   type ArtifactAssetResult,
   type ArtifactResult,
+  type CatalogProvider,
   type DesktopAttachmentInput,
   type DesktopEvent,
   type DesktopSnapshot,
   type DesktopStatus,
   MAX_PANES,
+  type ModelCatalogs,
   type ModelSelectResult,
   type PaneAxis,
   type PaneDrop,
@@ -1112,27 +1114,39 @@ export class DesktopRuntime {
   }
 
   /**
-   * Every keyed hosted provider's catalog, hidden models included, fetched together. One
-   * provider's failure empties its list without blanking the others.
+   * The local models this machine can run and every keyed hosted provider's catalog, hidden
+   * models included, fetched together. One provider's failure empties its list without blanking
+   * the others.
    */
-  async listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>> {
+  async listModelCatalogs(): Promise<ModelCatalogs> {
     const list = this.options.listHostedModels ?? listHostedModels
     const keyed = HOSTED_PROVIDERS.flatMap((provider) => {
       const apiKey = this.app.hostedApiKeys[provider]
       return apiKey ? [{ provider, apiKey }] : []
     })
-    const catalogs = await Promise.all(
-      keyed.map(({ provider, apiKey }) => list(provider, apiKey).catch(() => [])),
-    )
-    return Object.fromEntries(keyed.map(({ provider }, index) => [provider, catalogs[index]]))
+    const model = this.app.selection?.model
+    const [local, ...catalogs] = await Promise.all([
+      (this.options.listPickerItems ?? listModelPickerItems)({
+        currentModel: model?.id,
+        currentProvider: model?.provider,
+        includeDownloadedUnavailable: true,
+      }),
+      ...keyed.map(({ provider, apiKey }) => list(provider, apiKey).catch(() => [])),
+    ])
+    return {
+      local: local.filter(
+        (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local",
+      ),
+      ...Object.fromEntries(keyed.map(({ provider }, index) => [provider, catalogs[index]])),
+    }
   }
 
   /**
    * Persists a hosted model's picker visibility; the application's status notice carries it to
    * the renderer, and the next listing reflects it.
    */
-  async setModelHidden(provider: HostedProvider, id: string, hidden: boolean) {
-    await this.app.setModelHidden(provider, id, hidden)
+  async setModelsHidden(provider: CatalogProvider, ids: string[], hidden: boolean) {
+    await this.app.setModelsHidden(provider, ids, hidden)
     this.#lastPickerItems = undefined
   }
 

@@ -229,12 +229,13 @@ export function desktopCall(runtime: DesktopRuntime) {
       return runtime.writeProjectInstructions(dirName, text)
     },
     listModels: () => runtime.listModels(),
-    listHostedCatalogs: () => runtime.listHostedCatalogs(),
-    setModelHidden: (provider: unknown, id: unknown, hidden: unknown) => {
-      if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
-      if (typeof id !== "string" || !id) throw new Error("Invalid model id.")
+    listModelCatalogs: () => runtime.listModelCatalogs(),
+    setModelsHidden: (provider: unknown, ids: unknown, hidden: unknown) => {
+      if (provider !== "local" && !isHostedProvider(provider)) throw new Error("Invalid provider.")
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string" && id))
+        throw new Error("Invalid model ids.")
       if (typeof hidden !== "boolean") throw new Error("Invalid visibility flag.")
-      return runtime.setModelHidden(provider, id, hidden)
+      return runtime.setModelsHidden(provider, ids, hidden)
     },
     setModelFavorite: (key: unknown, favorite: unknown) => {
       if (typeof key !== "string" || !key || typeof favorite !== "boolean")

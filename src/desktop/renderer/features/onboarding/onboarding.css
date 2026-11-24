@@ -152,25 +152,25 @@
   max-width: 520px;
 }
 
-.onboarding-cards {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) auto;
-  grid-auto-rows: 1fr;
-  gap: 10px 14px;
+/*
+ * The choices are cards in the provider tiles' language: a hairline, no fill, and under the
+ * pointer the raised sheet a chosen tile wears, with the chevron leaning toward the next step.
+ */
+.onboarding-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
 }
 
-/* Choice surfaces use the same quiet fill and hairline as Settings. */
-.onboarding-card {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
+.onboarding-choice {
+  display: flex;
   align-items: center;
   gap: 14px;
   padding: 16px 18px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
+  background: none;
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -181,51 +181,74 @@
     box-shadow var(--motion);
 }
 
-/* The same card as the home screen's: its surface, inked a little under the pointer. */
-.onboarding-card:hover {
+.onboarding-choice:hover {
   border-color: var(--border);
-  background-color: var(--bg-elev);
-  box-shadow: var(--shadow-raised);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-soft);
 }
 
-.onboarding-cardChevron {
-  margin-left: auto;
-  color: var(--text-dim);
-  transition:
-    color var(--motion),
-    transform var(--motion);
-}
-
-.onboarding-card:hover .onboarding-cardChevron {
-  color: var(--text);
-  transform: translateX(2px);
-}
-
-.onboarding-cardIcon {
-  margin-top: 1px;
-  color: var(--text-dim);
-}
-
-.onboarding-cardMark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.onboarding-choiceMark {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
   width: 44px;
 }
 
-.onboarding-cardOtisMark {
+.onboarding-choiceIcon {
+  color: var(--text-dim);
+  transition: color var(--motion);
+}
+
+.onboarding-choiceOtisMark {
   display: block;
-  width: 40px;
+  width: 36px;
   height: auto;
   color: var(--text-dim);
   --accent: currentColor;
+}
+
+.onboarding-choice:hover .onboarding-choiceIcon,
+.onboarding-choice:hover .onboarding-choiceOtisMark {
+  color: var(--text);
 }
 
 .onboarding-providerMarks {
   display: grid;
   grid-template-columns: repeat(2, 20px);
   gap: 4px;
+  flex-shrink: 0;
   width: 44px;
+}
+
+.onboarding-choiceText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.onboarding-choiceTitle {
+  font-weight: 500;
+}
+
+.onboarding-choiceBody {
+  font-size: var(--text-meta);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.onboarding-choiceChevron {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition:
+    color var(--motion),
+    translate var(--motion);
+}
+
+.onboarding-choice:hover .onboarding-choiceChevron {
+  color: var(--text);
+  translate: 2px 0;
 }
 
 .onboarding-providerMark {
@@ -233,13 +256,6 @@
   width: 20px;
   height: 20px;
   border-radius: var(--radius-sm);
-}
-
-.onboarding-cardText {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
 }
 
 /* Inline text link (Get a free key). */
@@ -254,17 +270,6 @@
 
 .onboarding-link:hover {
   text-decoration: underline;
-}
-
-.onboarding-cardTitle {
-  font-size: var(--text-body);
-  font-weight: 600;
-}
-
-.onboarding-cardBody {
-  font-size: var(--text-body);
-  line-height: 1.5;
-  color: var(--text-dim);
 }
 
 .onboarding-panel {
@@ -292,7 +297,7 @@
   text-align: center;
 }
 
-/* Provider choice: the shared segmented control; keyed providers carry a check. */
+/* Provider and server choice: tiles with their logos; connected ones carry a check. */
 .onboarding-providers {
   margin: 0;
   padding: 0;
@@ -309,8 +314,55 @@
   white-space: nowrap;
 }
 
-.onboarding-providers .tabStrip {
-  margin: 0 auto;
+.onboarding-providerGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.onboarding-providerTile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color var(--motion),
+    border-color var(--motion),
+    background-color var(--motion);
+}
+
+.onboarding-providerTile:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* The chosen provider is a small raised sheet, as the segmented control's pill is. */
+.onboarding-providerTile[aria-pressed="true"] {
+  border-color: var(--border);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-soft);
+  color: var(--text);
+}
+
+.onboarding-providerName {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.onboarding-providerCheck {
+  flex: none;
+  margin-left: auto;
 }
 
 /* A form: the choice of provider or server across the top, its labeled fields below. */
@@ -367,6 +419,24 @@
   gap: 1px;
   max-height: 44vh;
   overflow-y: auto;
+}
+
+/* A vendor's logo and name over its models, the name set like the picker's section labels. */
+.onboarding-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 12px 4px;
+  color: var(--text);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.onboarding-group:first-child {
+  padding-top: 4px;
 }
 
 .onboarding-serverModels {
@@ -559,7 +629,7 @@
 
 .onboarding-welcome.onboarding-step-forward .onboarding-title,
 .onboarding-welcome.onboarding-step-forward .onboarding-sub,
-.onboarding-welcome.onboarding-step-forward .onboarding-card {
+.onboarding-welcome.onboarding-step-forward .onboarding-choice {
   animation: rise-in 450ms var(--ease) both;
 }
 
@@ -571,11 +641,11 @@
   animation-delay: 260ms;
 }
 
-.onboarding-welcome.onboarding-step-forward .onboarding-card:nth-child(1) {
+.onboarding-welcome.onboarding-step-forward .onboarding-choice:nth-child(1) {
   animation-delay: 440ms;
 }
 
-.onboarding-welcome.onboarding-step-forward .onboarding-card:nth-child(2) {
+.onboarding-welcome.onboarding-step-forward .onboarding-choice:nth-child(2) {
   animation-delay: 520ms;
 }
 
@@ -593,7 +663,7 @@
   .onboarding-welcome.onboarding-step-forward .onboarding-logo,
   .onboarding-welcome.onboarding-step-forward .onboarding-title,
   .onboarding-welcome.onboarding-step-forward .onboarding-sub,
-  .onboarding-welcome.onboarding-step-forward .onboarding-card,
+  .onboarding-welcome.onboarding-step-forward .onboarding-choice,
   .onboarding-localPick,
   .onboarding-specs {
     animation: none;

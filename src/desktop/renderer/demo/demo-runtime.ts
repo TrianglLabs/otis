@@ -16,6 +16,7 @@ import {
 } from "../../../inference/local-thinking.js"
 import type {
   HostedPickerChoice,
+  LocalPickerChoice,
   ModelPickerChoice,
   ModelPickerItem,
   ModelPickerStatus,
@@ -24,7 +25,6 @@ import { modelKey, pickerItemKey } from "../../../inference/picker-filter.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
-  type HostedModel,
   type HostedProvider,
   isHostedProvider,
 } from "../../../inference/types.js"
@@ -35,6 +35,7 @@ import {
   type AppIcon,
   type ArtifactAssetResult,
   type ArtifactResult,
+  type CatalogProvider,
   type DesktopApi,
   type DesktopAttachmentInput,
   type DesktopEvent,
@@ -43,6 +44,7 @@ import {
   MAX_PANES,
   type MemoryEntry,
   type MemoryScope,
+  type ModelCatalogs,
   type ModelSelectResult,
   type OtherAgentId,
   type OtherAgentImport,
@@ -229,6 +231,7 @@ const NO_HOSTED_KEYS: DesktopStatus["hostedConfigured"] = {
   baseten: false,
   primeintellect: false,
   river: false,
+  openrouter: false,
 }
 
 const SAMPLE_DIFF = `--- a/src/desktop/renderer/shell/AppShell.tsx
@@ -783,29 +786,12 @@ const DEMO_MODELS: ModelPickerChoice[] = [
   {
     kind: "model",
     provider: "local",
-    id: "prism-ml/Ternary-Bonsai-2-27B-gguf",
-    displayName: "Bonsai 2 27B",
-    contextLength: 65_536,
-    supportsImageInput: true,
-    available: true,
-    recommended: true,
-    availabilityLabel: "Est. 64K · PQ2_0 · 7.2 GB",
-    quant: "PQ2_0",
-    memoryBytes: 7730941132,
-    hasDownloadedPacking: true,
-    cpuOffload: false,
-    downloaded: true,
-    active: false,
-  },
-  {
-    kind: "model",
-    provider: "local",
     id: "Qwen/Qwen3.8-27B",
     displayName: "Qwen3.8 27B",
     contextLength: 65_536,
     supportsImageInput: true,
     available: true,
-    recommended: false,
+    recommended: true,
     availabilityLabel: "Est. 64K · Q4_K_M · 19 GB",
     quant: "Q4_K_M",
     memoryBytes: 20401094656,
@@ -1068,6 +1054,94 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     available: true,
     active: false,
   },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "anthropic/claude-opus-5.5",
+    displayName: "Claude Opus 5.5",
+    contextLength: 1_000_000,
+    supportsImageInput: true,
+    releasedAt: 1_792_000_000,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "anthropic/claude-sonnet-5.5",
+    displayName: "Claude Sonnet 5.5",
+    contextLength: 1_000_000,
+    supportsImageInput: true,
+    releasedAt: 1_791_900_000,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "anthropic/claude-haiku-5.5",
+    displayName: "Claude Haiku 5.5",
+    contextLength: 400_000,
+    supportsImageInput: true,
+    releasedAt: 1_791_800_000,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "google/gemini-4-carbon",
+    displayName: "Gemini 4 Carbon",
+    contextLength: 1_048_576,
+    supportsImageInput: true,
+    releasedAt: 1_793_000_000,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "moonshotai/kimi-k3",
+    displayName: "Kimi K3",
+    contextLength: 262_144,
+    supportsImageInput: false,
+    releasedAt: 1_788_000_000,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "openai/gpt-6.2-sol",
+    displayName: "GPT-6.2 Sol",
+    contextLength: 1_048_576,
+    supportsImageInput: true,
+    releasedAt: 1_794_000_000,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "openai/gpt-6.1-terra",
+    displayName: "GPT-6.1 Terra",
+    contextLength: 1_048_576,
+    supportsImageInput: true,
+    releasedAt: 1_789_000_000,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "openrouter",
+    id: "thinkingmachines/inkling-2-mini",
+    displayName: "Inkling 2 Mini",
+    contextLength: 1_048_576,
+    supportsImageInput: true,
+    releasedAt: 1_795_000_000,
+    available: true,
+    active: false,
+  },
 ]
 
 const DEMO_ACTIVITY_TOKENS = [
@@ -1093,7 +1167,7 @@ function demoDay(tokens: number, index: number): Omit<LocalUsageDay, "date" | "t
       "Qwen3.8 27B": 0.25,
       "Kimi K3": 0.15,
       "Gemma 4 31B": 0.06,
-      "Bonsai 2 27B": 0.04,
+      "Underdog Saluki 27B": 0.04,
     }),
     tools: demoSpread(tokens / 1_600, {
       file_read: 0.3,
@@ -1276,10 +1350,10 @@ class DemoRuntime implements DesktopApi {
     } else if (start === "local") {
       // A managed model after a turn: the tok/s readout and the thinking control join the composer.
       this.#state.model = {
-        id: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+        id: "Qwen/Qwen3.8-27B",
         provider: "local",
-        displayName: "Bonsai 2 27B",
-        supportsImageInput: false,
+        displayName: "Qwen3.8 27B",
+        supportsImageInput: true,
       }
       this.#state.speed = { tokensPerSecond: 38.4, prefillMs: 1420, exact: true }
     } else if (start === "offline") {
@@ -1648,7 +1722,7 @@ class DemoRuntime implements DesktopApi {
           cachedPromptTokens: 3_650_000,
           cacheReportedPromptTokens: 5_380_000,
         },
-        "Bonsai 2 27B": {
+        "Underdog Saluki 27B": {
           hosted: false,
           promptTokens: 2_210_000,
           completionTokens: 690_000,
@@ -3055,7 +3129,8 @@ class DemoRuntime implements DesktopApi {
       ...rows.filter(
         (item) =>
           item.provider === "local" &&
-          (item.available || !("downloaded" in item) || item.downloaded),
+          (item.available || !("downloaded" in item) || item.downloaded) &&
+          (item.active || !this.#state.hiddenModels.includes(modelKey("local", item.id))),
       ),
       { kind: "header", id: "header-omlx", displayName: "oMLX" },
       ...rows.filter((item) => item.provider === "omlx"),
@@ -3081,16 +3156,21 @@ class DemoRuntime implements DesktopApi {
     ]
   }
 
-  async listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>> {
+  async listModelCatalogs(): Promise<ModelCatalogs> {
     if (this.#catalogDelay) await new Promise((resolve) => setTimeout(resolve, this.#catalogDelay))
-    return Object.fromEntries(
-      HOSTED_PROVIDERS.filter((provider) => this.#state.hostedConfigured[provider]).map(
-        (provider) => [
-          provider,
-          DEMO_MODELS.filter((item): item is HostedPickerChoice => item.provider === provider),
-        ],
+    return {
+      local: DEMO_MODELS.filter(
+        (item): item is LocalPickerChoice => item.provider === "local" && item.available,
       ),
-    )
+      ...Object.fromEntries(
+        HOSTED_PROVIDERS.filter((provider) => this.#state.hostedConfigured[provider]).map(
+          (provider) => [
+            provider,
+            DEMO_MODELS.filter((item): item is HostedPickerChoice => item.provider === provider),
+          ],
+        ),
+      ),
+    }
   }
 
   async setPrimeTeamId(teamId: string): Promise<void> {
@@ -3098,10 +3178,10 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
   }
 
-  async setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void> {
-    const key = modelKey(provider, id)
-    const hiddenModels = this.#state.hiddenModels.filter((entry) => entry !== key)
-    if (hidden) hiddenModels.push(key)
+  async setModelsHidden(provider: CatalogProvider, ids: string[], hidden: boolean): Promise<void> {
+    const keys = new Set(ids.map((id) => modelKey(provider, id)))
+    const hiddenModels = this.#state.hiddenModels.filter((entry) => !keys.has(entry))
+    if (hidden) hiddenModels.push(...keys)
     this.#state = { ...this.#state, hiddenModels }
     this.#emitStatus()
   }

@@ -54,10 +54,10 @@ describe("local model fit", () => {
     expect(fit.memoryRequiredBytes).toBe(footprint)
     expect(footprint).toBeLessThanOrEqual(fit.memoryAvailableBytes)
     expect(footprint + 16 * 4 * 256 * 4 * 1_024).toBeGreaterThan(fit.memoryAvailableBytes)
-    // Bonsai 2 shares Qwen3.8's KV geometry.
-    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    if (!bonsai) throw new Error("missing catalog entry")
-    expect(kvCacheBytes(bonsai, fit.contextLength)).toBe(16 * 4 * 256 * 4 * fit.contextLength)
+    // Underdog Saluki shares Qwen3.8's KV geometry.
+    const saluki = findLocalModel("ConwayResearch/Underdog-Saluki-27B-1.0")
+    if (!saluki) throw new Error("missing catalog entry")
+    expect(kvCacheBytes(saluki, fit.contextLength)).toBe(16 * 4 * 256 * 4 * fit.contextLength)
   })
 
   it("keeps a weights-only fit selectable with CPU offload at 64K", () => {
@@ -174,78 +174,6 @@ describe("local model fit", () => {
     expect(fit.contextLength).toBeGreaterThanOrEqual(65_536)
     expect(fit.contextLength).toBeLessThan(gemma.nativeContextLength)
     expect(fit.memoryRequiredBytes).toBeLessThanOrEqual(fit.memoryAvailableBytes)
-  })
-
-  it("keeps Bonsai 2 selectable with CPU offload on a 16 GB Mac", () => {
-    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    if (!bonsai) throw new Error("missing catalog entry")
-    const fit = fitLocalModel(bonsai, apple16)
-    expect(fit.model.quant).toBe("PTQ1_0")
-    // 64K of Qwen3-geometry KV cache does not fit the GPU working set beside the weights.
-    expect(fit).toMatchObject({
-      available: true,
-      requiresCpuOffload: true,
-      contextLength: 65_536,
-      memoryAvailableBytes: 13 * 1024 ** 3,
-    })
-  })
-
-  it("prefers Bonsai PQ2_0 above the compact-memory tier", () => {
-    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    if (!bonsai) throw new Error("missing catalog entry")
-    const apple24 = { ...apple16, totalMemoryBytes: 24 * 1024 ** 3, gpuMemoryBytes: 24 * 1024 ** 3 }
-    expect(fitLocalModel(bonsai, apple24).model.quant).toBe("PQ2_0")
-
-    const linux = {
-      ...apple128,
-      platform: "linux" as const,
-      backend: "vulkan" as const,
-      unifiedMemory: false,
-    }
-    expect(fitLocalModel(bonsai, { ...linux, gpuMemoryBytes: 8 * 1024 ** 3 }).model.quant).toBe(
-      "PTQ1_0",
-    )
-    expect(fitLocalModel(bonsai, { ...linux, gpuMemoryBytes: 16 * 1024 ** 3 }).model.quant).toBe(
-      "PTQ1_0",
-    )
-    expect(fitLocalModel(bonsai, { ...linux, gpuMemoryBytes: 24 * 1024 ** 3 }).model.quant).toBe(
-      "PTQ1_0",
-    )
-    expect(fitLocalModel(bonsai, { ...linux, backend: "cpu" }).model.quant).toBe("PQ2_0")
-  })
-
-  it.each([
-    ["A100", [8.0], 80, "PQ2_0"],
-    ["H100", [9.0], 80, "PQ2_0"],
-    ["RTX 5090", [12.0], 32, "PQ2_0"],
-    ["RTX 4090", [8.9], 24, "PTQ1_0"],
-    ["L4", [8.9], 24, "PTQ1_0"],
-    ["multiple Ada GPUs", [8.9, 8.9], 48, "PTQ1_0"],
-    ["mixed architectures", [8.9, 12.0], 56, "PQ2_0"],
-    ["unknown architecture", undefined, 24, "PQ2_0"],
-    ["empty architecture list", [], 24, "PQ2_0"],
-    ["compact Blackwell", [12.0], 8, "PTQ1_0"],
-  ] as const)("selects Bonsai packing for %s", (_name, capabilities, vram, quant) => {
-    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    if (!bonsai) throw new Error("missing catalog entry")
-    const cuda: HardwareProbe = {
-      ...apple128,
-      platform: "linux",
-      arch: "x64",
-      backend: "cuda",
-      cudaVersion: "13.4",
-      unifiedMemory: false,
-      gpuMemoryBytes: vram * 1024 ** 3,
-      gpuCount: capabilities?.length || 1,
-      cudaComputeCapabilities: capabilities,
-    }
-    const fit = fitLocalModel(bonsai, cuda)
-    expect(fit.available).toBe(true)
-    expect(fit.model.quant).toBe(quant)
-    expect(fit.memoryRequiredBytes).toBe(memoryRequiredFor(fit.model, fit.contextLength))
-    // The actual Prism backend on ARM Linux is Vulkan, which requires PTQ1.
-    expect(fitLocalModel(bonsai, { ...cuda, arch: "arm64" }).model.quant).toBe("PTQ1_0")
-    expect(fitLocalModel(fit.model, { ...cuda, backend: "vulkan" }).model.quant).toBe("PTQ1_0")
   })
 
   it("uses the largest context that fits instead of a 32K cap", () => {

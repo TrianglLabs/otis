@@ -12,7 +12,7 @@ User terminal or server process
       -> agent loop, tools, permissions, sessions, and inference
       -> local Agent Skills
       -> local JSONL sessions and usage
-      -> Fireworks AI, Together AI, Baseten, Prime Intellect, or River AI with the user's key for that provider
+      -> Fireworks AI, Together AI, Baseten, Prime Intellect, River AI, or OpenRouter with the user's key for that provider
       -> llama-server on 127.0.0.1
       -> NVIDIA PAIR proxy on loopback -> one eligible Ollama or LM Studio engine
       -> Parallel Search MCP
@@ -76,20 +76,27 @@ Keep network transport, persistence, and tool execution outside the UI layer. Ke
 
 ## Hosted provider boundary
 
-Otis knows five hosted providers — Fireworks AI, Together AI, Baseten, Prime Intellect, and River AI — described by one table
+Otis knows six hosted providers — Fireworks AI, Together AI, Baseten, Prime Intellect, River AI, and OpenRouter — described by one table
 (`HOSTED_PROVIDER_INFO`: name, key environment variable, key page, chat completions and model-list URLs). The user
 supplies a key per provider. Otis sends each key only to its own provider in a bearer header and never writes it to a
 session or transcript. Prime Intellect bills the key owner's personal wallet unless a request names a team, so an
 optional team id (`primeintellectTeamId`, env `PRIME_TEAM_ID`, settable in Settings and onboarding) is sent as
-`X-Prime-Team-ID` on Prime inference requests. One `HostedClient` serves all five through OpenAI-compatible
+`X-Prime-Team-ID` on Prime inference requests. One `HostedClient` serves all six through OpenAI-compatible
 streaming chat completions; only Fireworks gets its documented `reasoning_effort` tiers and `service_tier`, the
 others keep provider defaults. Fireworks and Baseten cache prompts per replica and route requests by an
 `x-session-affinity` header, and Together by a `prompt_cache_key` request field, so every request to those three
 carries the session id; without it, consecutive turns land on different replicas and report zero cached tokens.
+OpenRouter receives it as `session_id`, which keeps a conversation on the backend provider holding its cache. Every
+OpenRouter request also carries `provider: { zdr: true }`, so OpenRouter routes it only to zero-data-retention
+endpoints, and no attribution headers. OpenRouter's closed models return structured reasoning (`reasoning_details`:
+text, summaries, and signed or encrypted blocks); the stream parser joins the pieces of each block, the agent stores
+them as a `reasoning_details` assistant part, and later OpenRouter requests send them back unmodified and in order in
+place of the plain reasoning text. Other providers never receive them.
 
 Model selection comes from each provider's live model list, filtered to tool-capable models: Fireworks' serverless
-catalog flags `supportsTools`; Prime Intellect lists `tools` among a model's `supported_parameters`; every Baseten Model
-API supports tools; Together's and River AI's lists have no flag, so Otis keeps a curated allowlist of the models each
+catalog flags `supportsTools`; Prime Intellect and OpenRouter list `tools` among a model's `supported_parameters`
+(OpenRouter's list is requested with `supported_parameters=tools&zdr=true`, and batch-only variants are dropped); Baseten lists
+`tools` among a model's `supported_features`; Together's and River AI's lists have no flag, so Otis keeps a curated allowlist of the models each
 documents for function calling and offers those its live list confirms. Unverified model IDs are not accepted
 through the normal UI. Requests retain text, reasoning content, structured tool calls, tool results, and final token
 usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
@@ -288,16 +295,14 @@ and labels it `loaded`.
 Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, CUDA on compatible Linux
 and Windows NVIDIA systems, Vulkan on other Linux and Windows GPU systems, otherwise CPU) and the selected GGUF into the
 platform local-data directory. Normal models use upstream llama.cpp `b12600` (v1.0.0), except that CUDA 13.4
-machines keep `b11438`, upstream's last 13.4 build. Bonsai 2 uses Prism's
-`prism-b10685-7dffb15` fork because its ternary formats require Prism's
-loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
-pinned bundles may coexist. macOS and Linux on arm64 and x64 and Windows on x64 and arm64 are supported; other targets
+machines keep `b11438`, upstream's last 13.4 build. macOS and Linux on arm64 and x64 and Windows on x64 and arm64 are supported; other targets
 are disabled before selection. Windows bundles are the official zip archives (`llama-server.exe` with its DLLs),
 read in-process rather than through Windows' tar, whose arguments pass through the system code page and so cannot name a
 path with a Cyrillic or CJK user name, and the CPU build installs beside the GPU builds as on Linux. Runtime asset sizes and SHA-256 digests are pinned with each release, and the archive is verified while
-streaming to disk. Updating either runtime requires an explicit Otis source change. Existing compatible manifest-v1
+streaming to disk. Updating the runtime requires an explicit Otis source change. Existing compatible manifest-v1
 and pre-manifest bundles remain usable for released installations; newly installed bundles record the artifact digest,
-and obsolete known runtime directories are removed after a pinned runtime is available.
+and obsolete known runtime directories, including those of Prism's retired llama.cpp fork, are removed after a
+pinned runtime is available.
 
 Linux CUDA compatibility checks use glibc, NVIDIA driver version, and every detected GPU's compute capability. The
 official Ubuntu 24.04 CUDA archives require glibc 2.39; CUDA 12.8 (x64) requires driver 570.211.01 and SM 50–120, while
@@ -331,25 +336,13 @@ case-insensitively); Hugging Face tokens and provider keys are never forwarded. 
 environment, driver installation, or system CUDA toolkit. Windows needs no loader path: DLLs beside the executable
 come first in its search order. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
 
-On Linux x64, Bonsai uses Prism's official CUDA 12.8/13.3 binaries with the matching NVIDIA libraries
-from upstream's companion archives; a machine qualified for CUDA 13.4 or 13.5 runs Prism's 13.3 build with the 13.3 companion
-from the last upstream release that shipped one. Its llama/ggml libraries come exclusively from Prism. The pinned Prism
-release has no Linux arm64 CUDA binary, so that target stays on Vulkan.
-
-Bonsai's packing is selected from the same hardware probe used for fit. Otis uses the compact 5.95 GB `PTQ1_0` file
-on systems with at most 8 GiB of dedicated GPU memory or 16 GiB of unified/system memory, and the faster-prompt 7.21 GB
-`PQ2_0` file above those limits when supported by the backend. CUDA machines with all detected GPUs at compute
-capability 8.9 prefer PTQ1 for Ada decode performance; other CUDA machines prefer PQ2 above the compact-memory tier.
-The hardware probe retains per-device compute capabilities only when every device reports one. Mixed or unknown
-architectures use the PQ2 default. The pinned Prism Vulkan runtime lacks PQ2 kernels, so Vulkan always selects PTQ1,
-including ARM Linux where no Prism CUDA binary is available.
-Both files are pinned independently, with each artifact defined once. Runtime reuse includes the requested packing,
-repository revision, and file identities. After device validation, and again after a CUDA startup failure, the managed
-runtime resolves packing and fit against the actual backend before ensuring its verified weights. Vulkan fallback may
-download PTQ1 while retaining PQ2. The original selection key keeps the live fallback reusable on subsequent turns.
+A model with several packings (Qwen3.8 Flash Next) picks one from the same hardware probe used for fit: the first
+whose memory rule matches, otherwise the last. Each packing's files are pinned independently. Runtime reuse includes the
+requested packing, repository revision, and file identities. After device validation, and again after a CUDA startup
+failure, the managed runtime resolves packing and fit against the actual backend before ensuring its verified weights.
 The picker shows the hardware-preferred packing; a saved model identity is resolved again for the current hardware.
-Cache discovery recognizes either packing, and deleting Bonsai removes both so a packing selected on another machine
-configuration cannot become orphaned.
+Cache discovery recognizes any packing, and deleting the model removes all of them. Weights of models the catalog no
+longer offers (Bonsai 2 27B) are deleted once at startup, since nothing else would list them.
 
 Recommendations use curated preference orders with fit-based fallback, not fixed RAM tiers. Each candidate resolves
 its backend-compatible packing and must pass the same fit used by the picker. The full footprint is the selected GGUF

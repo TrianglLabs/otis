@@ -465,6 +465,8 @@ export async function* runAgent(
             }
             reasoning.text += event.text
             yield { type: "reasoning", phase: "delta", reasoningId: reasoning.id, text: event.text }
+          } else if (event.type === "reasoning_details") {
+            content.push({ type: "reasoning_details", details: event.details })
           } else if (event.type === "tool_call") {
             yield* endReasoning()
             toolCalls.push(event.toolCall)

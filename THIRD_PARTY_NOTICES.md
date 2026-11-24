@@ -7,6 +7,48 @@ The `src/desktop/renderer/assets/omlx.svg` asset is the light app icon from
 License 2.0, with an accessible title added and the outer margin and shadow removed to match the other provider icons.
 The complete license text is reproduced in the Apache License 2.0 section below.
 
+## Model vendor logos
+
+The model vendor logos in `src/desktop/renderer/assets/vendors/` are unmodified icons from
+[LobeHub Icons](https://github.com/lobehub/lobe-icons) 1.106.0 (`@lobehub/icons-static-svg`), except
+these, which the set lacks or carries in an older form:
+
+- `amazon.svg`: AWS's 2025 logo, from
+  [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Amazon_Web_Services_2025.svg), its dark ink
+  set to follow the theme.
+- `conway.svg`: Conway Research's mark, from its website, in the theme's ink.
+- `moondream.svg`: Moondream's logo, from its website, in the theme's ink.
+- `openrouter.svg`: OpenRouter's glyph, from its brand assets (see below).
+- `ornith.webp` and `ricursive.webp`: the companies' Hugging Face avatars.
+- `thinkingmachines.svg`: drawn after Thinking Machines' own mark.
+- `writer.svg`: Writer's logo, from its website, wrapped to take the theme's ink.
+
+Each logo is a trademark of its company and identifies whose model a row lists; no endorsement is
+implied. LobeHub Icons is distributed under the MIT License:
+
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## OpenRouter logo
+
+The `src/desktop/renderer/assets/openrouter.svg` provider icon places OpenRouter's official glyph, unmodified, from
+[openrouter.ai/brand](https://openrouter.ai/brand) on a white tile, as the other provider icons do. OpenRouter and its
+logo are trademarks of OpenRouter, Inc.
+
 ## Thinking Orbs and Border Beam
 
 The desktop app's thinking indicator is [`thinking-orbs`](https://github.com/Jakubantalik/Libraries.dev) and the
@@ -805,12 +847,10 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ## llama.cpp
 
 Otis downloads [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` binaries from the pinned upstream
-`b11057` GitHub Release for local inference. On compatible Linux NVIDIA systems, Otis also downloads that release's
-matching CUDA runtime and cuBLAS companion archive. Those NVIDIA libraries are covered by the
+`b12600` GitHub Release for local inference (`b11438` on CUDA 13.4 machines). On compatible NVIDIA systems, Otis also
+downloads that release's matching CUDA runtime and cuBLAS companion archive. Those NVIDIA libraries are covered by the
 [NVIDIA CUDA Toolkit license](https://docs.nvidia.com/cuda/eula/index.html).
-Bonsai 2 uses binaries from Prism's pinned
-[llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp) release `prism-b10685-7dffb15`. Both are distributed under
-the MIT License:
+llama.cpp is distributed under the MIT License:
 
 MIT License
 

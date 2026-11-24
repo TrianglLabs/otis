@@ -55,6 +55,7 @@ describe("interactive CLI setup", () => {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     })
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
@@ -481,6 +482,7 @@ describe("interactive CLI setup", () => {
       baseten: false,
       primeintellect: false,
       river: false,
+      openrouter: false,
     })
     mocks.uiOptions?.onSetupHostedChoice?.("together")
     expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "hosted", "together")
@@ -566,6 +568,11 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
         {
+          name: "OpenRouter",
+          description: "Add API key",
+          submission: "/settings hosted openrouter",
+        },
+        {
           name: "Fireworks AI",
           description: "Replace API key",
           submission: "/settings hosted fireworks",
@@ -608,6 +615,11 @@ describe("interactive CLI setup", () => {
     expect(mocks.openURL).not.toHaveBeenCalled()
     expect(mocks.ui.showCommandSubmenu).toHaveBeenCalledExactlyOnceWith(
       [
+        {
+          name: "OpenRouter",
+          description: "Add API key",
+          submission: "/settings hosted openrouter",
+        },
         {
           name: "Fireworks AI",
           description: "Replace API key",

@@ -18,12 +18,8 @@ const NVIDIA_SMI_DETAIL_FIELDS = ["driver_version", "compute_cap", "mig.mode.cur
 const PCI_VENDORS: Record<string, GpuVendor> = { "10DE": "nvidia", "1002": "amd", "8086": "intel" }
 
 export type HardwareBackend = "metal" | "cuda" | "vulkan" | "cpu"
-/**
- * Upstream's CUDA builds: 12.8, 13.4 and 13.5 on Linux, 12.4, 13.4 and 13.5 on Windows, plus 13.3,
- * which only `llamaRuntimeTarget` produces, for Prism's newest x64 CUDA build on a machine
- * qualified for 13.4 or 13.5.
- */
-export type CudaVersion = "12.4" | "12.8" | "13.3" | "13.4" | "13.5"
+/** Upstream's CUDA builds: 12.8, 13.4 and 13.5 on Linux, 12.4, 13.4 and 13.5 on Windows. */
+export type CudaVersion = "12.4" | "12.8" | "13.4" | "13.5"
 export type GpuVendor = "nvidia" | "amd" | "intel"
 
 export type HardwareProbe = {
@@ -41,8 +37,6 @@ export type HardwareProbe = {
   gpuMemoryBytes?: number
   backend: HardwareBackend
   cudaVersion?: CudaVersion
-  /** Per-GPU compute capabilities; omitted unless all NVIDIA devices report them. */
-  cudaComputeCapabilities?: readonly number[]
   /** The vendor shared by the budgeted GPUs; Intel integrated graphics keep the CPU order. */
   gpuVendor?: GpuVendor
   unifiedMemory: boolean
@@ -218,7 +212,6 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
       else if (arch === "x64" && qualifies("551.61", 5, 9)) cudaVersion = "12.4"
     }
     const knownMemory = devices.every(({ memory }) => Number.isFinite(memory) && memory > 0)
-    const knownCompute = devices.every(({ compute }) => Number.isFinite(compute) && compute > 0)
     return {
       ...host,
       gpuCount: devices.length,
@@ -227,7 +220,6 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
         : undefined,
       backend: cudaVersion ? "cuda" : "vulkan",
       ...(cudaVersion ? { cudaVersion } : {}),
-      ...(knownCompute ? { cudaComputeCapabilities: devices.map(({ compute }) => compute) } : {}),
       gpuVendor: "nvidia",
       ...(notes.length ? { notes } : {}),
     }
