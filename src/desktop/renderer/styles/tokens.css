@@ -132,6 +132,11 @@
     color-mix(in srgb, var(--bg-elev) 25%, #fff),
     color-mix(in srgb, var(--bg-elev) 86%, var(--text))
   );
+  /* The raised pill's edge and shadow: on paper a white pill on a white rail shows only by its
+     outline, as a segmented control draws it; in the dark its lighter fill is enough. */
+  --shadow-control:
+    0 0 0 1px light-dark(color-mix(in srgb, var(--text) 11%, transparent), transparent),
+    var(--shadow-soft);
   --bg-track: light-dark(
     color-mix(in srgb, var(--text) 8%, transparent),
     color-mix(in srgb, var(--text) 5%, transparent)

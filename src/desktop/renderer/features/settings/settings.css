@@ -88,7 +88,7 @@
 .settingsSidebar-tabActive:hover {
   color: var(--text);
   background: var(--bg-control);
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--shadow-control);
 }
 
 .settingsSidebar-tabActive .lucide {
