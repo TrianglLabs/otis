@@ -2,7 +2,7 @@
   "name": "@triangllabs/otis",
   "productName": "Otis",
   "desktopName": "ai.triangllabs.otis.desktop",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AI agent for open and frontier models, on your computer or in the cloud",
   "private": true,
   "license": "MIT",
