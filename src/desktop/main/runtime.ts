@@ -73,6 +73,8 @@ import {
   registerWorkspacePath,
 } from "../../storage/workspace-registry.js"
 import {
+  type AnswerAddress,
+  type AnswerLevel,
   type ArtifactAssetResult,
   type ArtifactResult,
   type CatalogProvider,
@@ -515,6 +517,22 @@ export class DesktopRuntime {
   /** The artifact store of an open session; undefined once the session closed. */
   #storeOf(runtime: number) {
     return this.app.runtimes.find((entry) => entry.id === runtime)?.artifacts
+  }
+
+  addNote(runtime: number, answer: AnswerAddress, quote: string) {
+    return this.app.addNote(runtime, answer, quote)
+  }
+
+  writeNote(runtime: number, noteId: string) {
+    return this.app.writeNote(runtime, noteId)
+  }
+
+  removeNote(runtime: number, noteId: string) {
+    return this.app.removeNote(runtime, noteId)
+  }
+
+  setAnswerLength(runtime: number, answer: AnswerAddress, level: AnswerLevel) {
+    return this.app.setAnswerLength(runtime, answer, level)
   }
 
   async getArtifact(runtime: number, id: string, revision: number): Promise<ArtifactResult> {

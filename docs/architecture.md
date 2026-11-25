@@ -294,7 +294,7 @@ and labels it `loaded`.
 
 Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, CUDA on compatible Linux
 and Windows NVIDIA systems, Vulkan on other Linux and Windows GPU systems, otherwise CPU) and the selected GGUF into the
-platform local-data directory. Normal models use upstream llama.cpp `b12600` (v1.0.0), except that CUDA 13.4
+platform local-data directory. Normal models use upstream llama.cpp `b12728` (v1.0.0), except that CUDA 13.4
 machines keep `b11438`, upstream's last 13.4 build. macOS and Linux on arm64 and x64 and Windows on x64 and arm64 are supported; other targets
 are disabled before selection. Windows bundles are the official zip archives (`llama-server.exe` with its DLLs),
 read in-process rather than through Windows' tar, whose arguments pass through the system code page and so cannot name a

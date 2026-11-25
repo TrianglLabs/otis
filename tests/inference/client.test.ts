@@ -729,7 +729,7 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([
         { choices: [{ delta: { content: "A " }, finish_reason: null }], usage: running(1) },
-        { choices: [{ delta: { content: "title" }, finish_reason: "stop" }], usage: running(2) },
+        { choices: [{ delta: { content: "title \n" }, finish_reason: "stop" }], usage: running(2) },
       ]),
     )
     const client = new HostedClient({
@@ -748,6 +748,11 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
     expect(body).not.toHaveProperty("session_id")
     expect(onUsage).toHaveBeenCalledTimes(1)
     expect(onUsage).toHaveBeenCalledWith({ promptTokens: 10, completionTokens: 2, totalTokens: 12 })
+    // Without instructions of its own, a completion carries the agent's; with them, only those.
+    expect(body.messages[0].content).toContain("Otis")
+    await client.complete([{ role: "user", content: "Note this." }], { systemPrompt: "Be brief." })
+    const own = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    expect(own.messages[0]).toEqual({ role: "system", content: "Be brief." })
   })
 
   it("names the provider in request failures and silent streams", async () => {

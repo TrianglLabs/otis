@@ -1294,13 +1294,14 @@ async function runDesktopUiChecks() {
         kind: "tool",
         speaker: "Tool",
         text: "Edit resume.md",
+        activityKind: "file_edit",
         diff: "@@ -1 +1 @@\n-old\n+new",
       },
       { id: 12, kind: "tool", speaker: "Tool", text: "Read resume.md", activityKind: "file_read" },
     ],
   })
   await until(
-    () => !!document.querySelector('[data-entry-id="12"]'),
+    () => !!document.querySelector('[data-run-id="11"]'),
     "Activity spacing fixture did not mount",
   )
   await pause(250)
@@ -1327,11 +1328,11 @@ async function runDesktopUiChecks() {
   assertEntryGap('[data-entry-id="6"] .reasoning-header', '[data-entry-id="8"] .artifactCard', 14)
   assertEntryGap('[data-entry-id="8"] .artifactCard', '[data-entry-id="9"] .reasoning-header', 14)
   assertEntryGap('[data-entry-id="9"] .reasoning-header', '[data-entry-id="10"] .md', 14)
-  // A diff stays folded to its header until opened.
-  assertEntryGap(
-    '[data-entry-id="11"] .toolCard-header',
-    '[data-entry-id="12"] .toolCard-header',
-    14,
+  // An edit joins the run after it, which sums it up with the lines it changed.
+  assertEntryGap('[data-entry-id="10"] .md', '[data-run-id="11"] .toolCard-header', 14)
+  assert(
+    element('[data-run-id="11"] .toolCard-label').textContent?.includes("1 change+1−1") ?? false,
+    "The run does not sum up its edit",
   )
   element<HTMLButtonElement>('[data-run-id="3"] .toolRun-header').click()
   await until(

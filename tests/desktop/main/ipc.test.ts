@@ -174,6 +174,38 @@ it("validates the model favorite call", async () => {
   expect(setModelFavorite).toHaveBeenCalledOnce()
 })
 
+it("validates note and length calls and forwards them to the pane's session", async () => {
+  const answer = { turnSeq: 4, index: 0 }
+  const addNote = vi.fn(async () => {})
+  const writeNote = vi.fn(async () => {})
+  const removeNote = vi.fn(async () => {})
+  const setAnswerLength = vi.fn(async () => {})
+  const runtime = { addNote, writeNote, removeNote, setAnswerLength }
+  await handlerFor(DESKTOP_CHANNELS.addNote, runtime)(3, { ...answer, extra: 1 }, "the lock")
+  expect(addNote).toHaveBeenCalledWith(3, answer, "the lock")
+  await handlerFor(DESKTOP_CHANNELS.writeNote, runtime)(3, "note_a")
+  expect(writeNote).toHaveBeenCalledWith(3, "note_a")
+  await handlerFor(DESKTOP_CHANNELS.removeNote, runtime)(3, "note_a")
+  expect(removeNote).toHaveBeenCalledWith(3, "note_a")
+  await handlerFor(DESKTOP_CHANNELS.setAnswerLength, runtime)(3, answer, -2)
+  expect(setAnswerLength).toHaveBeenCalledWith(3, answer, -2)
+
+  const add = handlerFor(DESKTOP_CHANNELS.addNote, runtime)
+  await expect(add("3", answer, "q")).rejects.toThrow("numeric runtime id")
+  await expect(add(3, answer, " ")).rejects.toThrow("expects a quote")
+  await expect(add(3, { turnSeq: 0, index: 0 }, "q")).rejects.toThrow("turn and index")
+  await expect(add(3, { turnSeq: 4, index: -1 }, "q")).rejects.toThrow("turn and index")
+  await expect(handlerFor(DESKTOP_CHANNELS.writeNote, runtime)(3, "")).rejects.toThrow(
+    "expects a note id",
+  )
+  await expect(handlerFor(DESKTOP_CHANNELS.removeNote, runtime)(3, 7)).rejects.toThrow(
+    "expects a note id",
+  )
+  const length = handlerFor(DESKTOP_CHANNELS.setAnswerLength, runtime)
+  await expect(length(3, answer, 3)).rejects.toThrow("level from -2 to 2")
+  await expect(length(3, "answer", 1)).rejects.toThrow("turn and index")
+})
+
 it("validates the model visibility call and forwards the catalog listing", async () => {
   const setModelsHidden = vi.fn(async () => {})
   const handler = handlerFor(DESKTOP_CHANNELS.setModelsHidden, { setModelsHidden })

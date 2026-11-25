@@ -1855,19 +1855,10 @@ button.composer-model-offline {
 
 .home-logo {
   display: block;
-  width: 52px;
+  width: 64px;
   height: auto;
   color: var(--text-dim);
   user-select: none;
-}
-
-.home-greeting {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 560;
-  line-height: 1.2;
-  letter-spacing: -0.028em;
-  color: var(--text);
 }
 
 .home-setup {
@@ -1897,11 +1888,7 @@ button.composer-model-offline {
   }
 
   .home-logo {
-    width: 44px;
-  }
-
-  .home-greeting {
-    font-size: 24px;
+    width: 52px;
   }
 
   .home-heading {
@@ -1951,4 +1938,281 @@ body > .dragGhost {
   background: var(--bg-elev);
   color: var(--text);
   box-shadow: var(--shadow-soft);
+}
+
+/*
+ * Margin notes. A selected phrase's Explain button floats just above it. Notes sit under their
+ * answer, or beside the column, level with their phrases, where the view has room for a margin.
+ */
+.transcriptEntry:has(> .marginNote-add, > .marginNotes, > .answerLength) {
+  position: relative;
+}
+
+/* Floats just above the middle of the selection's first line, like a highlighter's toolbar. */
+.marginNote-add {
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-meta);
+  font-weight: 560;
+  white-space: nowrap;
+  box-shadow: var(--shadow-raised);
+  transform: translate(-50%, calc(-100% - 6px));
+  cursor: pointer;
+  animation: marginNote-pop var(--motion);
+}
+
+.marginNote-add:hover {
+  color: var(--text);
+}
+
+.marginNotes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.marginNote {
+  position: relative;
+  padding: 1px 26px 1px 12px;
+  border-left: 2px solid var(--note-mark);
+  font-size: var(--text-meta);
+  line-height: 1.55;
+  color: var(--text-dim);
+  animation: marginNote-in var(--motion);
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+/* A note reads as Markdown, as answers do, at the note's own size and color. */
+.marginNote-text .md {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.marginNote-text .md > :first-child {
+  margin-top: 0;
+}
+
+.marginNote-text .md > :last-child {
+  margin-bottom: 0;
+}
+
+.marginNote-text .md p,
+.marginNote-text .md ul,
+.marginNote-text .md ol {
+  margin: 0 0 6px;
+}
+
+.marginNote-text .md strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Folded to four lines whatever blocks the note holds, fading out where the fold cuts it. */
+.marginNote-folded {
+  max-height: 4lh;
+  overflow: hidden;
+}
+
+.marginNote-cut {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1lh), transparent);
+}
+
+.marginNote-writing .marginNote-text {
+  animation: marginNote-writing 1.4s ease-in-out infinite;
+}
+
+/* A depth that failed to write, under the text the note keeps. */
+.marginNote-error {
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Under a note: Show all for a folded one, or Try again for one that failed. */
+.marginNote-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 3px;
+}
+
+.marginNote-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.marginNote-link:hover:not(:disabled) {
+  color: var(--text);
+  opacity: 1;
+}
+
+.marginNote-link:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* The way out stays out of the reading until the note is hovered or focused. */
+.marginNote-remove {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.marginNote:hover .marginNote-remove,
+.marginNote:focus-within .marginNote-remove {
+  opacity: 1;
+}
+
+::highlight(otis-note) {
+  background: var(--note-mark);
+}
+
+/*
+ * The phrase and the note the pointer is on, either one, are marked together: the phrase in a
+ * firmer mark, its note at full contrast with a firmer edge, and the other notes step back.
+ */
+::highlight(otis-note-active) {
+  background: var(--note-mark-active);
+}
+
+.marginNote-active {
+  border-left-color: var(--note-mark-active);
+  color: var(--text);
+}
+
+.transcriptViewport:has(.marginNote-active) .marginNote:not(.marginNote-active) {
+  opacity: 0.45;
+}
+
+/* While a zoom step is written, the text it replaces blurs in place. */
+.transcriptEntry-zooming .assistantMessage .md,
+/*
+ * An answer's length in the column's left margin, beside its first line, so it takes no room in
+ * the reading: longer above shorter, there while the answer is hovered or focused and faint while
+ * it shows another length than its own. Hidden, the buttons still take the pointer, and the group
+ * reaches across to the text, so moving from the answer into the margin keeps them in view.
+ */
+.answerLength {
+  position: absolute;
+  top: 0;
+  left: -28px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 8px 0 0;
+  border: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.answerLength-zoomed {
+  opacity: 0.5;
+}
+
+.transcriptEntry:hover > .answerLength,
+.answerLength:hover,
+.answerLength:focus-within {
+  opacity: 1;
+}
+
+.answerLength-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.answerLength-caption button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.answerLength-caption button:hover {
+  text-decoration: underline;
+}
+
+.answerZoom-error {
+  margin: 6px 0 0;
+  font-size: var(--text-meta);
+  color: var(--danger);
+}
+
+@keyframes marginNote-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 2px));
+  }
+}
+
+@keyframes marginNote-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+@keyframes marginNote-writing {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Room for a margin: past the column's padding, each note level with its phrase. */
+@container (width >= 1280px) {
+  .marginNotes {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 40px);
+    width: 220px;
+    margin: 0;
+  }
+
+  .marginNote {
+    position: absolute;
+    top: var(--note-top, 0);
+    width: 100%;
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+/* A run's summary: what it did kind by kind, the edits with their lines changed. */
+/* A run's summary keeps to one line as every tool row does, cut short where the pane is narrow. */
+.toolRun-part + .toolRun-part,
+.toolRun-part .headerDiff {
+  margin-left: 6px;
+}
+
+.toolRun-dot {
+  margin-right: 6px;
+  color: var(--text-faint);
 }

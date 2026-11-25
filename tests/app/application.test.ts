@@ -1366,6 +1366,107 @@ describe("Application model transactions", () => {
     await app.shutdown()
   })
 
+  // Past where a prompt once cut an answer short.
+  const LONG_TAIL = `${"More detail follows here. ".repeat(400)}The tail end.`
+
+  it("writes notes and other lengths of an answer through the session's model and keeps them with the session", async () => {
+    const app = await Application.create({ cwd: await isolate("otis-app-notes-"), env: {} })
+    const saved = await createSession({ cwd: app.cwd })
+    const admission = await saved.admitPrompt("Which version opens?")
+    await saved.startTurn(admission)
+    const ended = await saved.completeTurn(admission, [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: `Canvas opens on the latest version. ${LONG_TAIL}` }],
+      },
+    ])
+    expect(await app.openSession(saved.id)).toBe("opened")
+    const answer = { turnSeq: ended.seq, index: 0 }
+    const usage = { promptTokens: 40, completionTokens: 12, totalTokens: 52 }
+    let writes = 0
+    const complete = vi.fn<InferenceClient["complete"]>(async (_messages, options) => {
+      await options?.onUsage?.(usage)
+      return `Written ${++writes}.`
+    })
+    serve(app, { model: "fake", streamChat: vi.fn(), complete })
+    const current = app.sessions.current
+    if (!current) throw new Error("expected the opened session")
+    const record = vi.spyOn(current, "recordUsage")
+    const history = app.transcript.history.length
+    const entry = () => app.transcript.answerAt(answer)
+    const prompt = (call: number) => String(complete.mock.calls[call]?.[0][0]?.content)
+
+    // A note whose write fails shows why and is not kept; written again, it is.
+    complete.mockRejectedValueOnce(new Error("provider is down"))
+    await app.addNote(app.focused.id, answer, "the latest")
+    const [note] = entry()?.notes ?? []
+    expect(note).toMatchObject({ answer, quote: "the latest", error: "provider is down" })
+    expect(note.text).toBeUndefined()
+    expect(current.annotations().notes).toEqual([])
+    await app.writeNote(app.focused.id, note.id)
+    expect(entry()?.notes).toEqual([
+      { id: note.id, answer, quote: "the latest", text: "Written 1." },
+    ])
+    expect(prompt(1)).toContain("Which version opens?")
+    expect(prompt(1)).toContain("Canvas opens on the latest version.")
+    expect(prompt(1)).toContain('Highlighted phrase: "the latest"')
+    expect(complete.mock.calls[1]?.[1]?.sessionId).toBe(saved.id)
+    // The whole answer, however long, under a few lines of instructions of its own rather than
+    // the working agent's.
+    expect(prompt(1)).toContain("The tail end.")
+    expect(complete.mock.calls[1]?.[1]?.systemPrompt).toContain("margin note")
+    // A written note asks for nothing more.
+    await app.writeNote(app.focused.id, note.id)
+    expect(complete).toHaveBeenCalledTimes(2)
+
+    // The answer at another length, then back to its own, which asks for nothing.
+    await app.setAnswerLength(app.focused.id, answer, -2)
+    expect(prompt(2)).toContain("Rewrite this answer as a single sentence")
+    expect(entry()?.zoom).toEqual({ level: -2, texts: { [-2]: "Written 2." } })
+    await app.setAnswerLength(app.focused.id, answer, 0)
+    expect(entry()?.zoom).toEqual({ level: 0, texts: { [-2]: "Written 2." } })
+    expect(complete).toHaveBeenCalledTimes(3)
+    // Usage counts toward the session as zoom; the conversation neither sees nor keeps any of it.
+    expect(record).toHaveBeenCalledWith(usage, "zoom")
+    expect(app.transcript.history).toHaveLength(history)
+    // The session keeps the version once, as it was written, and the way back without it.
+    expect(
+      current.events.flatMap((event) =>
+        event.type === "answer_zoomed" ? [[event.level, Object.keys(event.texts)]] : [],
+      ),
+    ).toEqual([
+      [-2, ["-2"]],
+      [0, []],
+    ])
+
+    // A length written after another was asked for keeps its text without taking the answer back.
+    let finish!: (text: string) => void
+    complete.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    const longer = app.setAnswerLength(app.focused.id, answer, 1)
+    expect(entry()?.zoom?.writing).toBe(1)
+    await app.setAnswerLength(app.focused.id, answer, -2)
+    finish("Longer.")
+    await longer
+    expect(entry()?.zoom).toEqual({ level: -2, texts: { [-2]: "Written 2.", 1: "Longer." } })
+
+    // A note removed while it is written is not kept once the write lands.
+    complete.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    const adding = app.addNote(app.focused.id, answer, "Canvas")
+    const removed = entry()?.notes?.find((each) => each.quote === "Canvas")
+    if (!removed) throw new Error("expected the second note")
+    await app.removeNote(app.focused.id, removed.id)
+    finish("Too late.")
+    await adding
+    // Reopened, the session shows the note and the length as they were left.
+    expect(app.openNew()).toBe(app.focused)
+    expect(await app.openSession(saved.id)).toBe("opened")
+    expect(entry()?.notes).toEqual([
+      { id: note.id, answer, quote: "the latest", text: "Written 1." },
+    ])
+    expect(entry()?.zoom).toEqual({ level: -2, texts: { [-2]: "Written 2.", 1: "Longer." } })
+    await app.shutdown()
+  })
+
   it("reports a failed first selection as a failed host and a PAIR failure on its engine row", async () => {
     const app = await Application.create({ cwd: await isolate("otis-app-first-"), env: {} })
     vi.spyOn(app.models, "prepare").mockRejectedValue(new Error("out of memory"))

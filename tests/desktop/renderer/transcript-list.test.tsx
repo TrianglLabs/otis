@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react"
 import type { ReactNode, UIEvent } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
@@ -93,6 +93,189 @@ function rows(container: HTMLElement) {
 }
 
 afterEach(cleanup)
+
+/** Selects `from` to `to` of the first text node in `root` containing `text`, as a drag would. */
+function select(root: Element, text: string, from: number, to: number) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode() as Text | null
+  while (node && !node.data.includes(text)) node = walker.nextNode() as Text | null
+  if (!node) throw new Error(`no text "${text}"`)
+  const at = node.data.indexOf(text)
+  const range = document.createRange()
+  range.setStart(node, at + from)
+  range.setEnd(node, at + to)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+/** A list whose answers take notes and lengths, the app's calls recorded. */
+function renderAnnotated(entries: TranscriptEntry[], runtimeId: number | null = 7) {
+  const calls = {
+    addNote: vi.fn(async () => {}),
+    writeNote: vi.fn(async () => {}),
+    removeNote: vi.fn(async () => {}),
+    setAnswerLength: vi.fn(async () => {}),
+  }
+  const api = calls as unknown as DesktopApi
+  const list = (next: TranscriptEntry[]) => (
+    <DesktopProvider value={{ api, store: runtime.store }}>
+      <TranscriptList
+        entries={next}
+        thinkingVisible={false}
+        runtime={runtimeId === null ? undefined : runtimeId}
+      />
+    </DesktopProvider>
+  )
+  const view = render(list(entries))
+  return { ...view, ...calls, show: (next: TranscriptEntry[]) => view.rerender(list(next)) }
+}
+
+/**
+ * Turns the wheel over `target` with ⌘ held: negative for longer, positive for shorter. The test
+ * DOM's wheel events carry no modifier keys, so the event gets its own.
+ */
+function zoomWheel(target: Element, deltaY: number) {
+  const event = new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })
+  Object.defineProperty(event, "metaKey", { value: true })
+  act(() => {
+    target.dispatchEvent(event)
+  })
+}
+
+const ADDRESS = { turnSeq: 4, index: 0 }
+const settled = (partial: Partial<TranscriptEntry> = {}) =>
+  message({ text: "Canvas opens on the latest version.", answer: ADDRESS, ...partial })
+
+describe("margin notes", () => {
+  it("offers a note on a phrase selected in a settled answer, snapped to whole words", () => {
+    const question = message({ speaker: "You", text: "Which version opens?" })
+    const unsettled = message({ text: "Still being worked out." })
+    const view = renderAnnotated([question, settled(), unsettled])
+    const viewport = view.container.querySelector(".transcriptViewport") as HTMLElement
+    const add = () => view.queryByRole("button", { name: "Explain" })
+    // Neither the user's own words nor an answer whose turn has not ended take a note.
+    select(view.container.querySelector(".userMessage") as Element, "Which version", 0, 5)
+    fireEvent.mouseUp(viewport)
+    expect(add()).toBeNull()
+    select(view.container.querySelectorAll(".assistantMessage")[1], "being worked", 0, 5)
+    fireEvent.mouseUp(viewport)
+    expect(add()).toBeNull()
+    // "atest versi" in the settled answer takes the whole words; the app writes and keeps it.
+    select(view.container.querySelector(".assistantMessage") as Element, "latest version", 1, 12)
+    fireEvent.mouseUp(viewport)
+    fireEvent.click(add() as HTMLElement)
+    expect(view.addNote).toHaveBeenCalledExactlyOnceWith(7, ADDRESS, "latest version")
+    expect(add()).toBeNull()
+  })
+
+  it("shows an answer's notes as the app reports them, and retries and removes them through it", () => {
+    const note = { id: "note_a", answer: ADDRESS, quote: "latest" }
+    const view = renderAnnotated([settled({ notes: [note] })])
+    const card = () => within(view.container.querySelector(".marginNote") as HTMLElement)
+    expect(card().getByText("Writing a note…")).toBeTruthy()
+    expect(card().queryByRole("button", { name: "Try again" })).toBeNull()
+    // Written: the text as Markdown, with nothing to step through.
+    view.show([settled({ notes: [{ ...note, text: "The **newest** copy." }] })])
+    expect(card().getByText("newest").tagName).toBe("STRONG")
+    expect(card().queryByRole("button", { name: "Longer" })).toBeNull()
+    // A failed write says why and can be tried again.
+    view.show([settled({ notes: [{ ...note, error: "No model." }] })])
+    expect(view.container.querySelector(".marginNote-error")?.textContent).toContain("No model.")
+    fireEvent.click(card().getByRole("button", { name: "Try again" }))
+    expect(view.writeNote).toHaveBeenLastCalledWith(7, "note_a")
+    fireEvent.click(card().getByRole("button", { name: "Remove note" }))
+    expect(view.removeNote).toHaveBeenCalledWith(7, "note_a")
+  })
+
+  it("marks the note the pointer is on, and lets it go when the pointer leaves", () => {
+    const notes = [
+      { id: "note_a", answer: ADDRESS, quote: "latest", text: "About latest." },
+      { id: "note_b", answer: ADDRESS, quote: "version", text: "About version." },
+    ]
+    const view = renderAnnotated([settled({ notes })])
+    const card = (id: string) =>
+      view.container.querySelector(`.marginNote[data-note-id="${id}"]`) as HTMLElement
+    const activeIds = () =>
+      [...view.container.querySelectorAll(".marginNote-active")].map(
+        (element) => (element as HTMLElement).dataset.noteId,
+      )
+    fireEvent.pointerMove(within(card("note_b")).getByText("About version."))
+    expect(activeIds()).toEqual(["note_b"])
+    fireEvent.pointerMove(card("note_a"))
+    expect(activeIds()).toEqual(["note_a"])
+    fireEvent.pointerLeave(view.container.querySelector(".transcriptViewport") as HTMLElement)
+    expect(activeIds()).toEqual([])
+  })
+
+  it("offers nothing without a session", () => {
+    const view = renderAnnotated([settled()], null)
+    select(view.container.querySelector(".assistantMessage") as Element, "latest", 0, 6)
+    fireEvent.mouseUp(view.container.querySelector(".transcriptViewport") as HTMLElement)
+    expect(view.queryByRole("button", { name: "Explain" })).toBeNull()
+    expect(view.queryByRole("group", { name: "Answer length" })).toBeNull()
+  })
+})
+
+describe("answer length", () => {
+  it("asks for a length from the margin, shows the version the app reports, and goes back", () => {
+    const view = renderAnnotated([settled()])
+    const answer = () => view.container.querySelector(".assistantMessage") as HTMLElement
+    const length = () => within(view.getByRole("group", { name: "Answer length" }))
+    expect(view.queryByRole("button", { name: "Show original" })).toBeNull()
+    fireEvent.click(length().getByRole("button", { name: "Shorter" }))
+    expect(view.setAnswerLength).toHaveBeenLastCalledWith(7, ADDRESS, -1)
+    // While it is written the answer blurs under the caption of the version asked for.
+    view.show([settled({ zoom: { level: 0, texts: {}, writing: -1 } })])
+    expect(view.container.querySelector(".transcriptEntry-zooming")).toBeTruthy()
+    expect(view.getByText("Short version")).toBeTruthy()
+    // Written: the version shows in place of the answer, which keeps its own words in the app.
+    view.show([settled({ zoom: { level: -1, texts: { [-1]: "Short." } } })])
+    expect(answer().textContent).toBe("Short.")
+    expect(view.container.querySelector(".transcriptEntry-zooming")).toBeNull()
+    fireEvent.click(length().getByRole("button", { name: "Shorter" }))
+    expect(view.setAnswerLength).toHaveBeenLastCalledWith(7, ADDRESS, -2)
+    fireEvent.click(view.getByRole("button", { name: "Show original" }))
+    expect(view.setAnswerLength).toHaveBeenLastCalledWith(7, ADDRESS, 0)
+    view.show([settled({ zoom: { level: -2, texts: { [-2]: "Opens latest." } } })])
+    expect((length().getByRole("button", { name: "Shorter" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    // A failed length says why.
+    view.show([settled({ zoom: { level: 0, texts: {}, error: "Busy." } })])
+    expect(view.getByText("Busy.")).toBeTruthy()
+  })
+
+  it("offers no length to an answer still streaming or whose turn has not ended", () => {
+    const view = renderAnnotated([
+      message({ text: "Still writing", streaming: true }),
+      message({ text: "Not ended." }),
+    ])
+    expect(view.queryByRole("group", { name: "Answer length" })).toBeNull()
+  })
+
+  it("previews a length a stretch of ⌘-scrolling at a time and asks once the wheel rests", async () => {
+    vi.useFakeTimers()
+    try {
+      const view = renderAnnotated([settled()])
+      const answer = () => view.container.querySelector(".assistantMessage") as HTMLElement
+      // Without ⌘ the wheel scrolls; a short turn with it takes no step.
+      fireEvent.wheel(answer(), { deltaY: -500 })
+      zoomWheel(answer(), -20)
+      expect(view.queryByText("Longer version")).toBeNull()
+      // Two steps longer: previewed and blurred, but only the step it rests on is asked for.
+      zoomWheel(answer(), -60)
+      zoomWheel(answer(), -60)
+      expect(view.getByText("Thorough version")).toBeTruthy()
+      expect(view.container.querySelector(".transcriptEntry-zooming")).toBeTruthy()
+      expect(view.setAnswerLength).not.toHaveBeenCalled()
+      await act(async () => vi.advanceTimersByTime(400))
+      expect(view.setAnswerLength).toHaveBeenCalledExactlyOnceWith(7, ADDRESS, 2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
 
 describe("TranscriptList", () => {
   it("keeps the scrollbar thumb steadily visible while a turn is busy, not only while scrolling", () => {
@@ -299,14 +482,17 @@ describe("tool runs", () => {
     expect(rows(renderList([only]).container)).toEqual([String(only.id)])
   })
 
-  it("a tool entry with a diff stays standalone and breaks the run", () => {
+  it("folds edits into the run, so a session of many changes stays one line per stretch", () => {
     const [a, b] = [tool(), tool()]
     const edit = tool({ diff: "@@ -1 +1 @@\n-old\n+new" })
     const [c, d] = [tool(), tool()]
-    expect(rows(renderList([a, b, edit, c, d]).container)).toEqual([
+    const view = renderList([a, b, edit, c, d])
+    expect(rows(view.container)).toEqual([`run:${a.id}`])
+    // Opening the run lists every action, the edit among them with its patch a click away.
+    fireEvent.click(view.container.querySelector(".toolRun-header") as HTMLElement)
+    expect(rows(view.container)).toEqual([
       `run:${a.id}`,
-      String(edit.id),
-      `run:${c.id}`,
+      ...[a, b, edit, c, d].map((item) => String(item.id)),
     ])
   })
 
@@ -442,7 +628,14 @@ describe("branching", () => {
       message({ speaker: "You", text: "queued", delivery: "queued", turnSeq: 9 }),
     ]
     const { getAllByRole } = render(
-      <TranscriptList entries={entries} thinkingVisible={false} busy={false} onBranch={onBranch} />,
+      <DesktopProvider value={runtime}>
+        <TranscriptList
+          entries={entries}
+          thinkingVisible={false}
+          busy={false}
+          onBranch={onBranch}
+        />
+      </DesktopProvider>,
     )
     // Only the finished, delivered turn can be branched from.
     const buttons = getAllByRole("button", { name: "New session from here" })

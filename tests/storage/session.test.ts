@@ -37,6 +37,7 @@ describe("JsonlSession", () => {
       modelName: "gpt-oss 20B",
     })
     await session.recordUsage(usage, "title")
+    await session.recordUsage(usage, "zoom")
     const reopened = await openSession(options)
     expect(reopened.events.slice(2)).toMatchObject([
       {
@@ -48,6 +49,7 @@ describe("JsonlSession", () => {
         usage: { ...usage, cachedPromptTokens: 2 },
       },
       { type: "usage_recorded", purpose: "title", usage },
+      { type: "usage_recorded", purpose: "zoom", usage },
     ])
     expect(reopened.events[3]).not.toHaveProperty("model")
     expect(reopened.events[3]).not.toHaveProperty("modelName")
@@ -510,6 +512,45 @@ describe("JsonlSession", () => {
     ])
   })
 
+  it("keeps margin notes and answer lengths as they last stood, and rejects malformed ones", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await createSession(options)
+    const answer = { turnSeq: 4, index: 0 }
+    const note = { id: "note_a", answer, quote: "the lock", text: "First." }
+    await session.saveNote(note)
+    // A later save stands in for the note; a removed note is gone.
+    await session.saveNote({ ...note, text: "Second." })
+    await session.saveNote({ ...note, id: "note_b", quote: "other" })
+    await session.removeNote("note_b")
+    await session.saveZoom({ answer, level: 1, texts: { 1: "Longer." } })
+    // Each change carries only the version written for it; the versions add up.
+    await session.saveZoom({ answer, level: -1, texts: { [-1]: "Short." } })
+    await session.saveZoom({ answer, level: 0, texts: {} })
+    const reopened = await openSession({ ...options, sessionId: session.id })
+    expect(reopened.annotations()).toEqual({
+      notes: [{ ...note, text: "Second." }],
+      zooms: [{ answer, level: 0, texts: { 1: "Longer.", [-1]: "Short." } }],
+    })
+
+    const file = join(options.directory, `${session.id}.jsonl`)
+    const base = { seq: 99, sessionId: session.id, at: new Date().toISOString() }
+    for (const bad of [
+      { type: "note_saved", noteId: "x", answer: { turnSeq: 0, index: 0 }, quote: "q", text: "t" },
+      { type: "note_saved", noteId: "x", answer: { turnSeq: 4 }, quote: "q", text: "t" },
+      { type: "note_saved", noteId: "x", answer, quote: "", text: "t" },
+      { type: "note_saved", noteId: "x", answer, quote: "q", text: "" },
+      { type: "answer_zoomed", answer: { turnSeq: 4, index: 0.5 }, level: 1, texts: {} },
+      { type: "answer_zoomed", answer, level: 3, texts: {} },
+      { type: "answer_zoomed", answer, level: 1, texts: { 0: "its own" } },
+    ]) {
+      const original = await readFile(file, "utf8")
+      await appendFile(file, `${JSON.stringify({ ...base, ...bad })}\n`)
+      await expect(readSessionEvents(file)).rejects.toThrow("Invalid session event")
+      await writeFile(file, original)
+    }
+  })
+
   it("rejects malformed JSONL with a line number", async () => {
     const cwd = await trackedTempDir()
     const path = join(cwd, "bad.jsonl")
@@ -904,6 +945,48 @@ describe("forkSession", () => {
     if (firstTurnEnd === undefined) throw new Error("expected a completed turn")
     return { options, parent, firstTurnEnd }
   }
+
+  it("carries the notes and lengths of the answers it keeps, at their renumbered places", async () => {
+    const { options, parent } = await parentWithTwoTurns()
+    const [firstEnd, secondEnd] = parent.events
+      .filter((event) => event.type === "turn_completed")
+      .map((event) => event.seq)
+    const note = (id: string, turnSeq: number) => ({
+      id,
+      answer: { turnSeq, index: 0 },
+      quote: "answer",
+      text: `About ${id}.`,
+    })
+    // Made after both turns: notes on each answer, one later removed, and the first's length.
+    await parent.saveNote(note("first", firstEnd))
+    await parent.saveNote(note("second", secondEnd))
+    await parent.saveNote(note("gone", secondEnd))
+    await parent.removeNote("gone")
+    await parent.saveZoom({
+      answer: { turnSeq: firstEnd, index: 0 },
+      level: -1,
+      texts: { [-1]: "S." },
+    })
+    // Through the second turn: the usage before it is dropped, so its end moves up by one.
+    const branch = await openSession({
+      ...options,
+      sessionId: await forkSession({ ...options, sessionId: parent.id }, secondEnd),
+    })
+    const moved = branch.events.find(
+      (event, index) => event.type === "turn_completed" && index > 3,
+    )?.seq
+    expect(moved).toBe(secondEnd - 1)
+    expect(branch.annotations()).toEqual({
+      notes: [note("first", firstEnd), note("second", secondEnd - 1)],
+      zooms: [{ answer: { turnSeq: firstEnd, index: 0 }, level: -1, texts: { [-1]: "S." } }],
+    })
+    // Through the first turn only: the second answer's notes stay behind.
+    const early = await openSession({
+      ...options,
+      sessionId: await forkSession({ ...options, sessionId: parent.id }, firstEnd),
+    })
+    expect(early.annotations().notes).toEqual([note("first", firstEnd)])
+  })
 
   it("copies the parent through a turn, renumbered, with its artifacts and a provenance event", async () => {
     const { options, parent, firstTurnEnd } = await parentWithTwoTurns()

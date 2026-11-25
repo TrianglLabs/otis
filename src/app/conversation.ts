@@ -732,7 +732,7 @@ export class Conversation {
         const ended = result.status === "complete" ? "completeTurn" : "interruptTurn"
         try {
           const saved = await session[ended](admission, result.messages, result.details)
-          transcript.markTurnEnded(userEntryId, saved.seq)
+          transcript.markTurnEnded(userEntryId, saved.seq, result.messages)
         } catch (error) {
           const what = result.status === "complete" ? "turn" : "interrupted turn"
           transcript.addAssistantMessage(`Could not save the ${what}: ${describeError(error)}`)

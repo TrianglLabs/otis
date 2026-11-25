@@ -32,6 +32,8 @@ import type { LocalUsageDay } from "../../../local/stats.js"
 import type { ManagedSkillSource } from "../../../skills/catalog.js"
 import { describeToolAction, type ToolAction } from "../../../tools/activity.js"
 import {
+  type AnswerAddress,
+  type AnswerLevel,
   type AppIcon,
   type ArtifactAssetResult,
   type ArtifactResult,
@@ -217,6 +219,82 @@ const DEMO_ROUTINES: RoutineStatus[] = [
     time: "11:30",
   }),
 ]
+
+/**
+ * `?demo=work`, the website's hero: a product lead's morning before a launch. Three other
+ * conversations are open, two still working, and the launch plan waits to be updated.
+ */
+const WORK_FOLDER = { label: "Launch", path: "/Users/you/Documents/Launch" }
+const workRuntime = (
+  runtime: number,
+  id: string,
+  title: string,
+  over: Partial<RuntimeSummary> = {},
+): RuntimeSummary => ({
+  runtime,
+  session: { id, title, dirName: "launch-demo" },
+  focused: false,
+  busy: false,
+  unseen: false,
+  failed: false,
+  diffs: { added: 0, removed: 0 },
+  workspace: WORK_FOLDER,
+  contextTokens: 9_400,
+  ...over,
+})
+const workSession = (id: string, title: string, detail: string) => ({
+  id,
+  title,
+  detail,
+  dirName: "launch-demo",
+  workspaceLabel: WORK_FOLDER.label,
+  workspacePath: WORK_FOLDER.path,
+})
+const WORK_ROUTINES: RoutineStatus[] = [
+  {
+    ...DEMO_ROUTINE,
+    id: "routine_brief",
+    name: "Morning brief",
+    prompt:
+      "Summarize overnight news about our competitors, and flag anything in my inbox that needs a reply today.",
+    cwd: WORK_FOLDER.path,
+    folder: WORK_FOLDER.label,
+    lastRun: {
+      startedAt: new Date(new Date().setHours(7, 30, 0, 0)).toISOString(),
+      finishedAt: new Date(new Date().setHours(7, 31, 20, 0)).toISOString(),
+      status: "complete",
+      sessionId: "work_brief",
+      dirName: "launch-demo",
+    },
+  },
+  demoRoutine(
+    "routine_watch",
+    "Competitor watch",
+    "Check competitors' pricing pages and changelogs, and tell me what changed.",
+    { kind: "daily", time: "12:00" },
+    { cwd: WORK_FOLDER.path, folder: WORK_FOLDER.label },
+  ),
+  demoRoutine(
+    "routine_metrics",
+    "Weekly metrics",
+    "Pull signups, activation, and churn from metrics.xlsx into a one-page summary.",
+    { kind: "daily", time: "17:00" },
+    { cwd: WORK_FOLDER.path, folder: WORK_FOLDER.label },
+  ),
+]
+/** The answers the two working conversations stream once they are opened beside the plan. */
+const WORK_ANSWERS: Record<string, string> = {
+  work_announce: `Otis Canvas is here. Starting October 19, every Otis user can open documents, spreadsheets, and slides right beside the conversation. Ask for a change and watch it land in the file, with every saved version one click away.
+
+Canvas works with the files you already have, on your own computer. Nothing is uploaded.`,
+  work_pricing: `| | Team plan | Per seat | Annual discount |
+|---|---|---|---|
+| Northwind | $24 | Yes | 15% |
+| Halden | $30 | Yes | 20% |
+| Brightline | $199 flat | No | 10% |
+
+Northwind cut its European prices 8% last month. Halden is the only one that still charges for SSO.`,
+}
 
 /** The demo keeps one Canvas document, reported as the first session's tab. */
 /** The demo's Canvas tabs all belong to its first session. */
@@ -1401,6 +1479,34 @@ class DemoRuntime implements DesktopApi {
       // a poor network, so the model lists show their loader.
       this.#catalogDelay = 1600
       setTimeout(() => this.#playDropout(), 1200)
+    } else if (start === "work") {
+      this.#state = {
+        ...this.#state,
+        session: null,
+        entries: [],
+        tabs: [],
+        workspace: WORK_FOLDER,
+        diffs: { added: 0, removed: 0 },
+        freshAchievements: [],
+        agentsPanelVisible: false,
+        subagents: [],
+        routines: WORK_ROUTINES,
+        sessions: [
+          workSession("work_announce", "Draft the launch announcement", "now"),
+          workSession("work_pricing", "Compare competitor pricing", "now"),
+          workSession("work_interviews", "Customer interview themes", "1h ago"),
+          workSession("work_brief", "Morning brief", "7:30 AM"),
+          workSession("work_board", "Q3 board memo", "Yesterday"),
+          workSession("work_hiring", "Hiring plan for design", "2d ago"),
+        ],
+        runtimes: [
+          { ...workRuntime(1, "", ""), session: null, focused: true, contextTokens: 0 },
+          workRuntime(2, "work_announce", "Draft the launch announcement", { busy: true }),
+          workRuntime(3, "work_pricing", "Compare competitor pricing", { busy: true }),
+          workRuntime(4, "work_interviews", "Customer interview themes", { unseen: true }),
+        ],
+        panes: [1],
+      }
     } else if (start === "update") {
       // The home screen, as an update starts downloading in the background.
       void this.startNewSession()
@@ -1786,7 +1892,13 @@ class DemoRuntime implements DesktopApi {
     cli: { status: "current", path: "~/.local/bin/otis", version: "0.1.35" },
     localThinking: null,
     permissionMode: "auto",
-    hostedConfigured: { ...NO_HOSTED_KEYS, fireworks: true, together: true, baseten: true },
+    hostedConfigured: {
+      ...NO_HOSTED_KEYS,
+      openrouter: true,
+      fireworks: true,
+      together: true,
+      baseten: true,
+    },
     hiddenModels: [],
     favoriteModels: [],
     primeTeamId: null,
@@ -2299,6 +2411,81 @@ class DemoRuntime implements DesktopApi {
     }
   }
 
+  #noteSeq = 0
+
+  #answer(address: AnswerAddress) {
+    return this.#state.entries.find(
+      (entry) => entry.answer?.turnSeq === address.turnSeq && entry.answer.index === address.index,
+    )
+  }
+
+  /** Changes the on-screen entry with id `id` from its latest state. */
+  #revise(id: number, change: (entry: TranscriptEntry) => Partial<TranscriptEntry>) {
+    const entry = this.#state.entries.find((candidate) => candidate.id === id)
+    if (entry) this.#patch(id, change(entry))
+  }
+
+  async addNote(runtime: number, answer: AnswerAddress, quote: string): Promise<void> {
+    const entry = this.#answer(answer)
+    if (!entry) return
+    const id = `note_${++this.#noteSeq}`
+    this.#revise(entry.id, (current) => ({
+      notes: [...(current.notes ?? []), { id, answer, quote }],
+    }))
+    await this.writeNote(runtime, id)
+  }
+
+  /** A canned note after a model-like pause, so notes can be tried without a key. */
+  async writeNote(_runtime: number, noteId: string): Promise<void> {
+    const entry = this.#state.entries.find((row) => row.notes?.some(({ id }) => id === noteId))
+    const note = entry?.notes?.find(({ id }) => id === noteId)
+    if (!entry || !note || note.text !== undefined) return
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    const text = `The answer asserts "${note.quote}" without showing what backs it. Worth confirming with a **test or a source** before relying on it.`
+    this.#revise(entry.id, (current) => ({
+      notes: current.notes?.map((each) => (each.id === noteId ? { ...each, text } : each)),
+    }))
+  }
+
+  async removeNote(_runtime: number, noteId: string): Promise<void> {
+    const entry = this.#state.entries.find((row) => row.notes?.some(({ id }) => id === noteId))
+    if (entry)
+      this.#revise(entry.id, (current) => ({
+        notes: current.notes?.filter(({ id }) => id !== noteId),
+      }))
+  }
+
+  /** Canned lengths after a model-like pause: the first sentence or two, or stock detail added. */
+  async setAnswerLength(
+    _runtime: number,
+    answer: AnswerAddress,
+    level: AnswerLevel,
+  ): Promise<void> {
+    const entry = this.#answer(answer)
+    if (!entry) return
+    const zoom = (current: TranscriptEntry) => current.zoom ?? { level: 0 as const, texts: {} }
+    if (level !== 0 && zoom(entry).texts[level] === undefined) {
+      this.#revise(entry.id, (current) => ({ zoom: { ...zoom(current), writing: level } }))
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      const sentences = entry.text.split(/(?<=[.!?])\s/)
+      const more =
+        "It works this way so the version you see is always the one you can act on, while the earlier ones stay available for comparison. Nothing is lost when a newer version is saved."
+      const text = {
+        [-2]: sentences[0] ?? entry.text,
+        [-1]: sentences.slice(0, Math.max(1, sentences.length - 1)).join(" "),
+        1: `${entry.text}\n\n${more}`,
+        2: `${entry.text}\n\n${more}\n\nTo go back, open the version you want from the selector and save it again as the newest; the history keeps every step.`,
+      }[level]
+      this.#revise(entry.id, (current) => ({
+        zoom: { ...zoom(current), texts: { ...zoom(current).texts, [level]: text } },
+      }))
+    }
+    this.#revise(entry.id, (current) => {
+      const { writing: _, ...rest } = zoom(current)
+      return { zoom: { ...rest, level } }
+    })
+  }
+
   async getArtifact(_runtime: number, id: string, revision: number): Promise<ArtifactResult> {
     const artifact = this.#state.tabs.find((tab) => tab.artifact.id === id)?.artifact
     if (!artifact || artifact.revision !== revision)
@@ -2584,6 +2771,36 @@ class DemoRuntime implements DesktopApi {
         ? [{ runtime, ops: [{ op: "reset", entries: this.#transcripts.get(runtime) ?? [] }] }]
         : [],
     )
+    // A working conversation opened beside the focused one streams its answer there.
+    const summary = this.#state.runtimes.find((entry) => entry.runtime === runtime)
+    const text = WORK_ANSWERS[summary?.session?.id ?? ""]
+    if (!fresh || !summary?.busy || !text) return
+    const answer: TranscriptEntry = {
+      id: this.#nextId++,
+      kind: "message",
+      speaker: "Otis",
+      text: "",
+      streaming: true,
+    }
+    let index = 0
+    const step = () => {
+      const entries = this.#transcripts.get(runtime)
+      if (!entries) return
+      index = Math.min(text.length, index + 9)
+      const entry = { ...answer, text: text.slice(0, index), streaming: index < text.length }
+      this.#transcripts.set(runtime, [...entries.filter((other) => other.id !== answer.id), entry])
+      this.#emit({
+        type: "transcript",
+        revision: ++this.#revision,
+        panes: [{ runtime, ops: [{ op: "upsert", entry }] }],
+      })
+      if (index < text.length) return void setTimeout(step, 40)
+      this.#state.runtimes = this.#state.runtimes.map((other) =>
+        other.runtime === runtime ? { ...other, busy: false } : other,
+      )
+      this.#emitStatus()
+    }
+    setTimeout(step, 700)
   }
 
   /** Whether the active card holds neither a session nor a word: a fresh session already. */
@@ -2795,7 +3012,7 @@ class DemoRuntime implements DesktopApi {
             runtime: Math.max(...runtimes.map((entry) => entry.runtime)) + 1,
             session: null,
             diffs: { added: 0, removed: 0 },
-            workspace: DEMO_WORKSPACE,
+            workspace: focused.workspace,
             contextTokens: 0,
           }
       if (!empty) this.#transcripts.set(focused.runtime, this.#state.entries)
@@ -2805,7 +3022,7 @@ class DemoRuntime implements DesktopApi {
         session: null,
         tabs: [],
         diffs: { added: 0, removed: 0 },
-        workspace: DEMO_WORKSPACE,
+        workspace: focused.workspace,
         contextTokens: 0,
         subagents: [],
         agentsPanelVisible,
@@ -3298,6 +3515,101 @@ class DemoRuntime implements DesktopApi {
   }
 
   #runTurn(prompt: string, generation: number) {
+    if (/^update the launch plan/i.test(prompt)) {
+      // The website's hero, played when a prompt asks to update the launch plan: Otis reads the
+      // meeting notes and the plan, edits the document, and saves it as its third version, which
+      // Canvas opens. The saved versions are the demo's own Word fixtures, so the page is real.
+      if (!this.#state.session) {
+        const session = { id: "work_launch", title: "Update the launch plan" }
+        this.#state = {
+          ...this.#state,
+          session,
+          runtimes: this.#state.runtimes.map((entry) =>
+            entry.focused ? { ...entry, session: { ...session, dirName: "launch-demo" } } : entry,
+          ),
+        }
+      }
+      this.#setBusy(true, "thinking")
+      this.#emitStatus()
+      const steps: [number, ToolAction, string][] = [
+        [350, "read", "meeting-notes.md"],
+        [450, "read", "launch-plan.docx"],
+        [700, "edit_document", "launch-plan.docx"],
+        [700, "publish_artifact", "launch-plan.docx"],
+      ]
+      const step = (index: number) => {
+        const [delay, action, subject] = steps[index]
+        this.#after(generation, delay, () => {
+          const { kind, label } = describeToolAction(action, subject)
+          const publish = action === "publish_artifact"
+          this.#push({
+            id: this.#nextId++,
+            kind: "tool",
+            speaker: "Tool",
+            text: label,
+            activityKind: kind,
+            activityAction: action,
+            activitySubject: subject,
+            toolCallId: `call_${generation}_${index + 1}`,
+            ...(publish
+              ? {
+                  artifact: DEMO_LATEST_WORD.metadata.publication.reference,
+                  artifactDisplay: "ready",
+                }
+              : {}),
+          })
+          if (!publish) return step(index + 1)
+          this.#take({
+            ...DEMO_LATEST_WORD.metadata,
+            publication: { ...DEMO_LATEST_WORD.metadata.publication, followingLatest: true },
+          })
+          this.#emitStatus()
+          this.#after(generation, 900, () =>
+            this.#finishTurn(
+              generation,
+              "Done. The launch is now October 19, it’s open to all users, and the plan is approved. I saved it as version 3, so the earlier drafts are still there in Canvas.",
+            ),
+          )
+        })
+      }
+      this.#after(generation, 500, () => {
+        const thoughtAt = Date.now()
+        const reasoning = this.#push({
+          id: this.#nextId++,
+          kind: "reasoning",
+          speaker: "Thinking",
+          text: "",
+          streaming: true,
+          reasoningId: `demo-${generation}`,
+          startedAt: new Date().toISOString(),
+        })
+        this.#streamText(
+          reasoning.id,
+          "The notes change three things: the date, the audience, and the status. I'll read the notes and the current plan, update those rows, and save a new version so the old drafts stay available.",
+          generation,
+          () => {
+            this.#patch(reasoning.id, {
+              streaming: false,
+              endedAt: new Date().toISOString(),
+              durationMs: Date.now() - thoughtAt,
+            })
+            this.#after(generation, 250, () => {
+              this.#streamText(
+                this.#pushAssistant("", true).id,
+                "I’ll read the notes and the current plan first.",
+                generation,
+                () => {
+                  this.#state = { ...this.#state, phase: "working" }
+                  this.#emitStatus()
+                  step(0)
+                },
+              )
+            })
+          },
+        )
+      })
+      return
+    }
     this.#setBusy(true, "thinking")
     // A new request: the speed readout starts over, as the real runtime clears it.
     this.#state = { ...this.#state, speed: null }
@@ -3517,7 +3829,9 @@ class DemoRuntime implements DesktopApi {
         (entry) => entry.kind === "message" && entry.speaker === "You" && !entry.turnSeq,
       )
       if (opened) this.#patch(opened.id, { turnSeq: opened.id })
-      this.#state.contextTokens = (this.#state.contextTokens ?? 0) + 3_800
+      this.#state.runtimes = this.#state.runtimes.map((entry) =>
+        entry.focused ? { ...entry, contextTokens: (entry.contextTokens ?? 0) + 3_800 } : entry,
+      )
       // Usage settles the estimate into the exact figure, with the time to the first token.
       this.#state.speed = { tokensPerSecond: 38.4, prefillMs: 1420, exact: true }
       this.#earnNext()
@@ -3623,9 +3937,12 @@ class DemoRuntime implements DesktopApi {
     const { entries: _entries, tabs, ...status } = this.#state
     const model = status.model
     const capability = model?.provider === "local" ? localThinkingCapability(model.id) : undefined
-    const focused = status.runtimes.find((entry) => entry.focused)?.session
+    const focusedRuntime = status.runtimes.find((entry) => entry.focused)
+    const focused = focusedRuntime?.session
     return {
       ...status,
+      // The composer's ring reads the focused session's context, as the real status does.
+      contextTokens: focusedRuntime?.contextTokens ?? status.contextTokens,
       sessions: this.#sessions(),
       // A session from a folder no workspace registered is read until its folder is located.
       needsWorkspace:
@@ -3675,11 +3992,19 @@ class DemoRuntime implements DesktopApi {
 type CannedReply = { reasoning: string; intro: string; denied: string; final: string }
 
 let fixtureId = 1
-// Every fixture user turn has ended, so each carries a turn seq a branch can be cut at.
+// Every fixture user turn has ended, so each carries a turn seq a branch can be cut at, and each
+// settled answer its place in the session, so it takes notes and other lengths.
 const fixture = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => {
   const id = fixtureId++
-  const ended = entry.kind === "message" && entry.speaker === "You" && !entry.delivery
-  return { id, ...entry, ...(ended ? { turnSeq: id } : {}) }
+  const message = entry.kind === "message"
+  const ended = message && entry.speaker === "You" && !entry.delivery
+  const answer = message && entry.speaker === "Otis" && !entry.streaming
+  return {
+    id,
+    ...entry,
+    ...(ended ? { turnSeq: id } : {}),
+    ...(answer ? { answer: { turnSeq: 1, index: id } } : {}),
+  }
 }
 /** Transcripts of sessions branched during the demo, by the branch's id. */
 const forkedTranscripts = new Map<string, TranscriptEntry[]>()
@@ -3728,7 +4053,6 @@ function savedVersionsTranscript(): TranscriptEntry[] {
   ]
 }
 
-/** Each demo session's conversation matches its title; the Canvas showcase sessions share one. */
 function sessionTranscript(id: string | undefined): TranscriptEntry[] {
   fixtureId = 1
   switch (id) {
@@ -3748,6 +4072,44 @@ function sessionTranscript(id: string | undefined): TranscriptEntry[] {
       return releaseNotesTranscript()
     case "session_old":
       return legacyImportTranscript()
+    case "work_announce":
+      return [
+        fixture({
+          kind: "message",
+          speaker: "You",
+          text: "Draft the launch announcement for the blog. Keep it short, and use the new date from the plan.",
+        }),
+        tool("read", "launch-plan.docx", "w1"),
+      ]
+    case "work_pricing":
+      return [
+        fixture({
+          kind: "message",
+          speaker: "You",
+          text: "Compare how our three competitors price their team plans, in a table.",
+        }),
+        tool("web_search", "Northwind Halden Brightline team plan pricing", "w2"),
+        tool("web_read", "northwind.com/pricing", "w3"),
+        tool("web_read", "halden.io/pricing", "w4"),
+      ]
+    case "work_interviews":
+      return [
+        fixture({
+          kind: "message",
+          speaker: "You",
+          text: "Pull the main themes from last week's customer interviews.",
+        }),
+        tool("read", "interviews/", "w5"),
+        fixture({
+          kind: "message",
+          speaker: "Otis",
+          text: `Across the 12 interviews, three themes came up again and again:
+
+- **Setup takes too long.** Seven people mentioned the first-week onboarding.
+- **Sharing is the main reason to upgrade.** Teams want to hand a document to someone outside.
+- **Pricing feels fair**, but annual billing is hard to approve without a quote.`,
+        }),
+      ]
     default:
       if (id !== undefined && forkedTranscripts.has(id)) return forkedTranscripts.get(id) ?? []
       return id !== undefined && DEMO_ARTIFACTS_BY_SESSION.has(id) ? demoTranscript() : []

@@ -18,6 +18,11 @@ function listen<T>(channel: string, listener: (payload: T) => void) {
 
 const api: DesktopApi = {
   getSnapshot: () => invoke(DESKTOP_CHANNELS.getSnapshot),
+  addNote: (runtime, answer, quote) => invoke(DESKTOP_CHANNELS.addNote, runtime, answer, quote),
+  writeNote: (runtime, noteId) => invoke(DESKTOP_CHANNELS.writeNote, runtime, noteId),
+  removeNote: (runtime, noteId) => invoke(DESKTOP_CHANNELS.removeNote, runtime, noteId),
+  setAnswerLength: (runtime, answer, level) =>
+    invoke(DESKTOP_CHANNELS.setAnswerLength, runtime, answer, level),
   getArtifact: (runtime, id, revision) =>
     invoke(DESKTOP_CHANNELS.getArtifact, runtime, id, revision),
   getArtifactAsset: (runtime, id, revision, src) =>

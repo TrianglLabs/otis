@@ -463,6 +463,7 @@ function baseSession() {
     usage: vi.fn(() => ({ last: null, total: emptyUsage() })),
     renameTitle: vi.fn(async () => undefined),
     replay: vi.fn<() => SessionReplay>(() => ({ messages: [], toolActivities: [], subagents: [] })),
+    annotations: vi.fn(() => ({ notes: [], zooms: [] })),
     replayTranscript: vi.fn<() => SessionTranscriptReplay>(() => ({
       messages: [],
       toolActivities: [],

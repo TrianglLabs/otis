@@ -55,9 +55,11 @@ const words = (text: string) =>
 
 /**
  * The rows matching `query`, each under its section header; headers without a match are
- * dropped. Every word typed must begin a word of the row's name, the last segment of its id, or
- * its provider, so "glm 5" finds GLM-5.3 and "fire" the Fireworks rows, while "model" no longer
- * finds every `accounts/fireworks/models/…` id and "ai" every `-ai` organization.
+ * dropped. Every word typed must begin a word of the row's name, the last segment of its id, its
+ * provider, or its vendor, or run on across the words that follow, so "glm 5" and "glm5" find
+ * GLM-5.3, "fire" the Fireworks rows, and "anthropic" the Claude rows listed under that vendor,
+ * while "model" no longer finds every `accounts/fireworks/models/…` id and "ai" every `-ai`
+ * organization.
  */
 export function filterModelPickerItems<T extends ModelPickerItem>(
   items: readonly T[],
@@ -73,9 +75,13 @@ export function filterModelPickerItems<T extends ModelPickerItem>(
       continue
     }
     const haystack = words(
-      `${item.displayName} ${item.id.split("/").at(-1)} ${providerLabel(item.provider)}`,
+      `${item.displayName} ${item.id.split("/").at(-1)} ${providerLabel(item.provider)} ${
+        modelVendor(item)?.name ?? ""
+      }`,
     )
-    if (!needles.every((needle) => haystack.some((word) => word.startsWith(needle)))) continue
+    const begins = (needle: string) =>
+      haystack.some((_, index) => haystack.slice(index).join("").startsWith(needle))
+    if (!needles.every(begins)) continue
     if (header) result.push(header)
     header = undefined
     result.push(item)

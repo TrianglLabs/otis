@@ -84,7 +84,26 @@ export type ReplayTurnSegment = SessionTurnSegment & { throughSeq?: number }
 /** Human scrollback retains admitted turn boundaries even through steering and compaction. */
 export type SessionTranscriptReplay = SessionReplay & { turns: ReplayTurnSegment[] }
 
-export type UsagePurpose = "agent" | "compaction" | "title"
+/** What a request was for; a zoom rewrites an answer's length or notes a phrase of it. */
+export type UsagePurpose = "agent" | "compaction" | "title" | "zoom"
+
+/**
+ * Where an answer sits in a session: the seq of the event that ended its turn, and its place
+ * among that turn's answer texts, in order.
+ */
+export type AnswerAddress = { turnSeq: number; index: number }
+/** An answer's length, from one sentence (-2) through its own (0) to a thorough account (2). */
+export type AnswerLevel = -2 | -1 | 0 | 1 | 2
+
+/** A margin note: the phrase it is on and what the model wrote about it. */
+export type SavedNote = { id: string; answer: AnswerAddress; quote: string; text: string }
+
+/** An answer's length as last chosen, and every other length written for it. */
+export type SavedZoom = {
+  answer: AnswerAddress
+  level: AnswerLevel
+  texts: Partial<Record<Exclude<AnswerLevel, 0>, string>>
+}
 
 export type NewSessionEvent =
   | { type: "session_started"; version: 1; cwd?: string }
@@ -114,6 +133,13 @@ export type NewSessionEvent =
     }
   | { type: "title_renamed"; title: string }
   | ({ type: "view_arranged" } & SessionView)
+  | ({ type: "note_saved"; noteId: string } & Omit<SavedNote, "id">)
+  | { type: "note_removed"; noteId: string }
+  /**
+   * An answer's length changed, with any version written for the change; the latest length
+   * stands and the versions add up.
+   */
+  | ({ type: "answer_zoomed" } & SavedZoom)
   /** This session began as a copy of another's events through `throughSeq` of that session. */
   | { type: "session_forked"; from: { id: string; dirName: string }; throughSeq: number }
 
@@ -484,7 +510,12 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
   }
   if (type === "usage_recorded") {
     const { purpose, usage } = value
-    if (purpose !== "agent" && purpose !== "compaction" && purpose !== "title") {
+    if (
+      purpose !== "agent" &&
+      purpose !== "compaction" &&
+      purpose !== "title" &&
+      purpose !== "zoom"
+    ) {
       throw invalidEvent(line, "usage purpose was invalid")
     }
     if (promptId !== undefined && (typeof promptId !== "string" || !promptId)) {
@@ -561,6 +592,36 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       members: members.map((member) => ({ id: member.id, dirName: member.dirName })),
       axis,
     }
+  }
+  if (type === "note_saved") {
+    const { noteId, quote, text } = value
+    const answer = answerAddress(value.answer)
+    if (typeof noteId !== "string" || !noteId) throw invalidEvent(line, "noteId must be a string")
+    if (!answer) throw invalidEvent(line, "answer must name a turn and an index")
+    if (typeof quote !== "string" || !quote) throw invalidEvent(line, "quote must be a string")
+    if (typeof text !== "string" || !text) throw invalidEvent(line, "text must be a string")
+    return { ...base, type, noteId, answer, quote, text }
+  }
+  if (type === "note_removed") {
+    if (typeof value.noteId !== "string" || !value.noteId)
+      throw invalidEvent(line, "noteId must be a string")
+    return { ...base, type, noteId: value.noteId }
+  }
+  if (type === "answer_zoomed") {
+    const { level } = value
+    const answer = answerAddress(value.answer)
+    if (!answer) throw invalidEvent(line, "answer must name a turn and an index")
+    if (level !== -2 && level !== -1 && level !== 0 && level !== 1 && level !== 2)
+      throw invalidEvent(line, "level must be -2 to 2")
+    if (!isRecord(value.texts)) throw invalidEvent(line, "texts must be an object")
+    const texts: SavedZoom["texts"] = {}
+    for (const [key, text] of Object.entries(value.texts)) {
+      const step = ([-2, -1, 1, 2] as const).find((candidate) => String(candidate) === key)
+      if (step === undefined || typeof text !== "string" || !text)
+        throw invalidEvent(line, "texts must hold text by length")
+      texts[step] = text
+    }
+    return { ...base, type, answer, level, texts }
   }
   if (type === "session_forked") {
     const { from, throughSeq } = value
@@ -809,6 +870,37 @@ function isAssistantContentPart(value: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * `value` as an answer's address, copied so nothing else it carries is kept, or undefined when
+ * it is not one: a positive turn seq and an index from 0. Saved events and the desktop's calls
+ * are checked alike.
+ */
+export function answerAddress(value: unknown): AnswerAddress | undefined {
+  if (!isRecord(value)) return undefined
+  const { turnSeq, index } = value
+  if (typeof turnSeq !== "number" || !Number.isInteger(turnSeq) || turnSeq < 1) return undefined
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0) return undefined
+  return { turnSeq, index }
+}
+
+/** The session's margin notes and answer lengths as they stand after every change to them. */
+export function sessionAnnotations(events: readonly SessionEvent[]) {
+  const notes = new Map<string, SavedNote>()
+  const zooms = new Map<string, SavedZoom>()
+  for (const event of events) {
+    if (event.type === "note_saved") {
+      const { noteId: id, answer, quote, text } = event
+      notes.set(id, { id, answer, quote, text })
+    } else if (event.type === "note_removed") notes.delete(event.noteId)
+    else if (event.type === "answer_zoomed") {
+      const { answer, level, texts } = event
+      const key = `${answer.turnSeq}:${answer.index}`
+      zooms.set(key, { answer, level, texts: { ...zooms.get(key)?.texts, ...texts } })
+    }
+  }
+  return { notes: [...notes.values()], zooms: [...zooms.values()] }
 }
 
 function invalidEvent(line: number, reason: string) {

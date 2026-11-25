@@ -1092,3 +1092,96 @@ img.vendorMark {
   letter-spacing: 0;
   text-transform: none;
 }
+
+/*
+ * The context ring: a hairline circle that closes, clockwise from twelve, on the point where the
+ * conversation compacts, with the share beside it. Quiet while there is room; amber as compaction
+ * nears, red once it is close. The breakdown opens on hover or focus, above it in the composer
+ * and below it in a card's header.
+ */
+.contextRing {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.contextRing-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px 0 6px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.contextRing:hover .contextRing-button,
+.contextRing-button:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.contextRing-dial {
+  width: 14px;
+  height: 14px;
+  transform: rotate(-90deg);
+}
+
+.contextRing-track,
+.contextRing-fill {
+  fill: none;
+  stroke-width: 2;
+}
+
+.contextRing-track {
+  stroke: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.contextRing-fill {
+  stroke: var(--text-dim);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.contextRing-near .contextRing-fill {
+  stroke: var(--warning);
+}
+
+.contextRing-full .contextRing-fill {
+  stroke: var(--danger);
+}
+
+.contextRing-near .contextRing-value {
+  color: var(--warning);
+}
+
+.contextRing-full .contextRing-value {
+  color: var(--danger);
+}
+
+.contextRing-above .contextRing-popover {
+  top: auto;
+  right: 0;
+  bottom: calc(100% + 8px);
+}
+
+.contextRing-above .contextRing-popover::before {
+  top: auto;
+  bottom: -8px;
+}
+
+/* The pointer opens it, and keyboard focus does; a click's focus does not hold it open. */
+.contextRing:hover .contextRing-popover,
+.contextRing-button:focus-visible + .contextRing-popover {
+  display: block;
+}

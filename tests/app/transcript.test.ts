@@ -922,11 +922,84 @@ describe("TranscriptStore turn ends", () => {
     const prompt = transcript.addUserMessage("live")
     const changes: TranscriptChange[] = []
     transcript.subscribe((change) => changes.push(change))
-    transcript.markTurnEnded(prompt.id, 12)
+    transcript.markTurnEnded(prompt.id, 12, [])
     expect(transcript.entries[0]).toMatchObject({ text: "live", turnSeq: 12 })
     expect(changes).toEqual([{ op: "upsert", id: prompt.id }])
     // An unknown id is ignored rather than inventing an entry.
-    transcript.markTurnEnded(99, 13)
+    transcript.markTurnEnded(99, 13, [])
     expect(transcript.entries).toHaveLength(1)
+  })
+
+  it("gives a turn's answers the same places live as when the session is replayed", () => {
+    const reply = (...texts: string[]) => ({
+      role: "assistant" as const,
+      content: texts.map((text) => ({ type: "text" as const, text })),
+    })
+    const messages = [reply("Looking."), reply("Found it.", "Fixed.")]
+    // Live: the answers streamed, an error line among them, then the turn was saved.
+    const live = new TranscriptStore("/work")
+    const prompt = live.addUserMessage("fix it")
+    live.addAssistantMessage("Looking.")
+    live.addAssistantMessage("Error: a tool failed")
+    live.addAssistantMessage("Found it.")
+    live.addAssistantMessage("Fixed.")
+    live.markTurnEnded(prompt.id, 7, [{ role: "user", content: "fix it" }, ...messages])
+    const places = (store: TranscriptStore) =>
+      store.entries
+        .filter((entry) => entry.speaker === "Otis")
+        .map((entry) => [entry.text, entry.answer])
+    expect(places(live)).toEqual([
+      ["Looking.", { turnSeq: 7, index: 0 }],
+      ["Error: a tool failed", undefined],
+      ["Found it.", { turnSeq: 7, index: 1 }],
+      ["Fixed.", { turnSeq: 7, index: 2 }],
+    ])
+    // Replayed: the same places, and none for a turn that has not ended.
+    const replayed = new TranscriptStore("/work")
+    replayed.replaceMessages(
+      [],
+      [
+        { messages: [{ role: "user", content: "fix it" }, ...messages], throughSeq: 7 },
+        { messages: [{ role: "user", content: "next" }, reply("Working.")] },
+      ],
+    )
+    expect(places(replayed)).toEqual([
+      ["Looking.", { turnSeq: 7, index: 0 }],
+      ["Found it.", { turnSeq: 7, index: 1 }],
+      ["Fixed.", { turnSeq: 7, index: 2 }],
+      ["Working.", undefined],
+    ])
+  })
+
+  it("lays saved notes and lengths over their answers and tells listeners", () => {
+    const transcript = new TranscriptStore("/work")
+    transcript.replaceMessages(
+      [],
+      [
+        {
+          messages: [
+            { role: "user", content: "q" },
+            { role: "assistant", content: [{ type: "text", text: "An answer." }] },
+          ],
+          throughSeq: 3,
+        },
+      ],
+    )
+    const changes: TranscriptChange[] = []
+    transcript.subscribe((change) => changes.push(change))
+    const answer = { turnSeq: 3, index: 0 }
+    const note = { id: "note_1", answer, quote: "answer", text: "A note." }
+    transcript.annotate({
+      // A note on an answer no longer on screen is skipped.
+      notes: [note, { ...note, id: "note_2", answer: { turnSeq: 9, index: 0 } }],
+      zooms: [{ answer, level: -1, texts: { [-1]: "Short." } }],
+    })
+    const entry = transcript.answerAt(answer)
+    expect(entry?.notes).toEqual([note])
+    expect(entry?.zoom).toEqual({ level: -1, texts: { [-1]: "Short." } })
+    expect(changes).toEqual([
+      { op: "upsert", id: entry?.id },
+      { op: "upsert", id: entry?.id },
+    ])
   })
 })
