@@ -350,8 +350,8 @@
 .transcriptFooter {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding-left: 28px;
-  padding-right: 28px;
+  padding-left: var(--column-pad);
+  padding-right: var(--column-pad);
 }
 
 /* Spacing is part of each measured item; collapsing margins and flex gaps break virtual list measurements. */
@@ -994,7 +994,7 @@ button.reasoning-header:hover {
 /* Composer */
 
 .composer {
-  padding: 10px 28px 16px;
+  padding: 10px var(--column-pad) 16px;
   max-width: var(--content-max);
   margin: 0 auto;
   width: 100%;
@@ -2106,26 +2106,43 @@ body > .dragGhost {
 }
 
 /* While a zoom step is written, the text it replaces blurs in place. */
-.transcriptEntry-zooming .assistantMessage .md,
+.transcriptEntry-zooming .assistantMessage .md {
+  filter: blur(3px);
+  opacity: 0.55;
+  transition:
+    filter var(--motion),
+    opacity var(--motion);
+}
+
 /*
- * An answer's length in the column's left margin, beside its first line, so it takes no room in
- * the reading: longer above shorter, there while the answer is hovered or focused and faint while
- * it shows another length than its own. Hidden, the buttons still take the pointer, and the group
- * reaches across to the text, so moving from the answer into the margin keeps them in view.
+ * An answer's length in the column's left margin, so it takes no room in the reading: longer above
+ * shorter, there while the answer is hovered or focused and faint while it shows another length
+ * than its own. The margin strip runs the answer's height and the buttons stick to its top, so they
+ * stay in view down a long answer. Only the buttons take the pointer; their group reaches across to
+ * the text, so moving from the answer into the margin keeps them in view.
  */
 .answerLength {
   position: absolute;
   top: 0;
+  bottom: 0;
   left: -28px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.answerLength-buttons {
+  position: sticky;
+  top: 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
-  margin: 0;
   padding: 0 8px 0 0;
-  border: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
+  pointer-events: auto;
 }
 
 .answerLength-zoomed {

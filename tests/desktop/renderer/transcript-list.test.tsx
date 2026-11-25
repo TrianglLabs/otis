@@ -178,7 +178,7 @@ describe("margin notes", () => {
     // Written: the text as Markdown, with nothing to step through.
     view.show([settled({ notes: [{ ...note, text: "The **newest** copy." }] })])
     expect(card().getByText("newest").tagName).toBe("STRONG")
-    expect(card().queryByRole("button", { name: "Longer" })).toBeNull()
+    expect(card().queryByRole("button", { name: "Rewrite longer" })).toBeNull()
     // A failed write says why and can be tried again.
     view.show([settled({ notes: [{ ...note, error: "No model." }] })])
     expect(view.container.querySelector(".marginNote-error")?.textContent).toContain("No model.")
@@ -223,24 +223,27 @@ describe("answer length", () => {
     const answer = () => view.container.querySelector(".assistantMessage") as HTMLElement
     const length = () => within(view.getByRole("group", { name: "Answer length" }))
     expect(view.queryByRole("button", { name: "Show original" })).toBeNull()
-    fireEvent.click(length().getByRole("button", { name: "Shorter" }))
+    fireEvent.click(length().getByRole("button", { name: "Rewrite shorter" }))
     expect(view.setAnswerLength).toHaveBeenLastCalledWith(7, ADDRESS, -1)
-    // While it is written the answer blurs under the caption of the version asked for.
+    // While it is written the answer blurs under a caption saying so, with no way back to an
+    // original that is still showing.
     view.show([settled({ zoom: { level: 0, texts: {}, writing: -1 } })])
     expect(view.container.querySelector(".transcriptEntry-zooming")).toBeTruthy()
-    expect(view.getByText("Short version")).toBeTruthy()
+    expect(view.getByRole("status").textContent).toBe("Rewriting…")
+    expect(view.queryByText("Short version")).toBeNull()
+    expect(view.queryByRole("button", { name: "Show original" })).toBeNull()
     // Written: the version shows in place of the answer, which keeps its own words in the app.
     view.show([settled({ zoom: { level: -1, texts: { [-1]: "Short." } } })])
     expect(answer().textContent).toBe("Short.")
     expect(view.container.querySelector(".transcriptEntry-zooming")).toBeNull()
-    fireEvent.click(length().getByRole("button", { name: "Shorter" }))
+    fireEvent.click(length().getByRole("button", { name: "Rewrite shorter" }))
     expect(view.setAnswerLength).toHaveBeenLastCalledWith(7, ADDRESS, -2)
     fireEvent.click(view.getByRole("button", { name: "Show original" }))
     expect(view.setAnswerLength).toHaveBeenLastCalledWith(7, ADDRESS, 0)
     view.show([settled({ zoom: { level: -2, texts: { [-2]: "Opens latest." } } })])
-    expect((length().getByRole("button", { name: "Shorter" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(
+      (length().getByRole("button", { name: "Rewrite shorter" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     // A failed length says why.
     view.show([settled({ zoom: { level: 0, texts: {}, error: "Busy." } })])
     expect(view.getByText("Busy.")).toBeTruthy()
