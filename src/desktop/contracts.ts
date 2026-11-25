@@ -38,6 +38,7 @@ import type {
 import type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 import type { PermissionMode } from "../permissions/policy.js"
 import type { SkillsSummary } from "../skills/catalog.js"
+import type { AnswerAddress, AnswerLevel } from "../storage/session-events.js"
 
 export type { RuntimeSummary, ServerStatus, SubagentSummary } from "../app/application.js"
 export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
@@ -59,6 +60,10 @@ import type { AchievementId, LocalStats } from "../local/stats.js"
 export const DESKTOP_CHANNELS = {
   getSnapshot: "desktop:get-snapshot",
   getArtifact: "desktop:get-artifact",
+  addNote: "desktop:add-note",
+  writeNote: "desktop:write-note",
+  removeNote: "desktop:remove-note",
+  setAnswerLength: "desktop:set-answer-length",
   getArtifactAsset: "desktop:get-artifact-asset",
   openArtifact: "desktop:open-artifact",
   openPublishedArtifact: "desktop:open-published-artifact",
@@ -404,6 +409,7 @@ export type { OtherAgentFact, OtherAgentImport, OtherAgentPicks } from "../app/o
 export type { RoutineStatus } from "../app/routines.js"
 export type { OtherAgentId } from "../core/context.js"
 export type { ModelPickerItem } from "../inference/picker-catalog.js"
+export type { AnswerAddress, AnswerLevel } from "../storage/session-events.js"
 
 /** The providers whose models Settings can hide from the picker. */
 export type CatalogProvider = HostedProvider | "local"
@@ -436,6 +442,16 @@ export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
   /** A tab's payload at the given revision; stale once the tab moved on. */
   getArtifact(runtime: number, id: string, revision: number): Promise<ArtifactResult>
+  /**
+   * A margin note on a phrase of an answer in `runtime`'s session, written by its model and kept
+   * with the session; the answer's transcript entry carries it, with its progress.
+   */
+  addNote(runtime: number, answer: AnswerAddress, quote: string): Promise<void>
+  /** Writes a note that has no text yet, as one whose first write failed. */
+  writeNote(runtime: number, noteId: string): Promise<void>
+  removeNote(runtime: number, noteId: string): Promise<void>
+  /** Shows an answer at another length, writing that length first when it has not been. */
+  setAnswerLength(runtime: number, answer: AnswerAddress, level: AnswerLevel): Promise<void>
   /** An image a Markdown working file references relative to itself, at the given revision. */
   getArtifactAsset(
     runtime: number,

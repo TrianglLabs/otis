@@ -21,10 +21,11 @@ import {
 } from "../../../../inference/types.js"
 import type { SkillSummary } from "../../../../skills/catalog.js"
 import type { DesktopAttachmentInput } from "../../../contracts.js"
+import { ContextRing } from "../../components/ContextRing.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
-import { LIGHT_THEMES, useDesktop, useDesktopState } from "../../runtime.js"
+import { LIGHT_THEMES, useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
 import { ThinkingControl } from "./ThinkingControl.js"
 
@@ -130,7 +131,11 @@ export const Composer = memo(function Composer({
     "workspace",
     "speed",
     "offline",
+    "contextTokens",
+    "contextLimit",
+    "usage",
   )
+  const hasEntries = useDesktopSelector((snapshot) => (snapshot?.entries.length ?? 0) > 0)
   const speed = state?.speed ?? null
   // The dial reads against the fastest rate this session has seen, so it climbs and settles
   // like a speedometer instead of sitting pinned at full.
@@ -701,6 +706,14 @@ export const Composer = memo(function Composer({
               ) : null}
             </span>
             <span className="composer-actions">
+              {hasEntries && state?.contextTokens !== undefined ? (
+                <ContextRing
+                  tokens={state.contextTokens}
+                  limit={state.contextLimit}
+                  usage={state.usage ?? undefined}
+                  placement="above"
+                />
+              ) : null}
               {busy ? (
                 <button
                   type="button"

@@ -1035,6 +1035,15 @@ describe("model picker catalog", () => {
     expect(ids(filterModelPickerItems(items, "glm-5p3"))).toEqual([
       "fireworks:accounts/fireworks/models/glm-5p3",
     ])
+    // A word may run on across the ones after it, as "glm5p3" for glm-5p3.
+    expect(ids(filterModelPickerItems(items, "glm5p3"))).toEqual([
+      "fireworks:accounts/fireworks/models/glm-5p3",
+    ])
+    // The vendor a row is listed under matches it, though its id may not carry the vendor.
+    expect(ids(filterModelPickerItems(items, "moonshot"))).toEqual([
+      "fireworks:accounts/fireworks/models/kimi-k3",
+      "together:moonshotai/Kimi-K3",
+    ])
 
     // The provider label matches every row of that provider, under its header.
     const together = filterModelPickerItems(items, "together")

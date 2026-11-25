@@ -141,8 +141,7 @@
 
 /* Cap-height digits have no descender, so their box centre sits half a pixel above their ink;
    the nudge puts them on the row's optical centre beside the text and icons. */
-.headerDiff,
-.contextMeter-text {
+.headerDiff {
   position: relative;
   top: 0.5px;
 }
@@ -208,15 +207,7 @@
   color: var(--pink);
 }
 
-.contextMeter {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  outline: none;
-}
-
-/* Hover or keyboard focus opens the token breakdown under the meter, flush with its right edge. */
+/* The context ring's token breakdown, opened by hover or keyboard focus (see ContextRing). */
 .contextMeter-popover {
   display: none;
   position: absolute;
@@ -237,12 +228,7 @@
   animation: overlay-fade var(--motion);
 }
 
-.contextMeter:hover .contextMeter-popover,
-.contextMeter:focus-visible .contextMeter-popover {
-  display: block;
-}
-
-/* Bridges the gap to the meter so the pointer can travel down into the popover. */
+/* Bridges the gap to the ring so the pointer can travel into the popover. */
 .contextMeter-popover::before {
   content: "";
   position: absolute;
@@ -283,36 +269,6 @@
   color: var(--text);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-}
-
-/* The same borderless capsule as the app's progress bars, with a quiet grey fill. */
-.contextMeter-track {
-  width: 64px;
-  height: 4px;
-  background: color-mix(in srgb, var(--text) 12%, transparent);
-  display: inline-block;
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-}
-
-.contextMeter-fill {
-  display: block;
-  height: 100%;
-  background: var(--text-dim);
-  border-radius: var(--radius-pill);
-}
-
-/* A narrow header shortens the bar, so the title keeps its room. */
-@container (max-width: 960px) {
-  .contextMeter-track {
-    width: 28px;
-  }
-}
-
-.contextMeter-text {
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  color: var(--text-dim);
 }
 
 .noDrag {

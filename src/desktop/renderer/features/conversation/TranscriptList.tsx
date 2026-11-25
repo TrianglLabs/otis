@@ -1,4 +1,4 @@
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, ChevronsDownUp, ChevronsUpDown, Sparkles, X } from "lucide-react"
 import {
   type ComponentProps,
   type CSSProperties,
@@ -8,14 +8,19 @@ import {
   type UIEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react"
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
-import type { TranscriptEntry } from "../../../../app/transcript.js"
+import type { TranscriptEntry, TranscriptNote } from "../../../../app/transcript.js"
+import type { AnswerLevel } from "../../../contracts.js"
+import { IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { Markdown } from "../../components/Markdown.js"
 import { useI18n } from "../../i18n/index.js"
+import { useDesktop } from "../../runtime.js"
 import {
   clearHighlights,
   type FindRequest,
@@ -51,17 +56,19 @@ function visibleEntries(entries: TranscriptEntry[], thinkingVisible: boolean): T
 }
 
 /**
- * A tool entry carrying a diff or a ready artifact stands on its own: the edit's row shows its
- * file and line counts, the artifact its card. The rest is condensable activity.
+ * A ready Canvas artifact stands on its own as its card; every other tool entry, edits included,
+ * is activity that condenses into a run.
  */
 function isActivity(entry: TranscriptEntry): boolean {
-  return entry.kind === "tool" && !entry.diff && !shownArtifact(entry)
+  return entry.kind === "tool" && !shownArtifact(entry)
 }
 
 /**
- * Consecutive tool cards collapse into one run row: a burst of reads, searches, and commands is
- * noise once it scrolls by. A tool entry carrying a diff stays standalone and breaks the run —
- * edited code is content, not a summary. Single tools render as they always have.
+ * Consecutive tool cards collapse into one run row: the reads, searches, edits and commands
+ * between two of Otis's messages become one line that sums them up, edits with their lines
+ * changed, so a session of many changes stays readable. Opening the run lists every action, an
+ * edit's patch a click away, and the Changes tab keeps every patch of the session. Single tools
+ * render as they always have.
  */
 function groupToolRuns(entries: TranscriptEntry[]): TranscriptItem[] {
   const items: TranscriptItem[] = []
@@ -140,6 +147,169 @@ const isActivityRow = (item: TranscriptItem | undefined) =>
  */
 const NO_MATCHES: number[] = []
 
+/** Scrolling this far with ⌘ held takes one length step. */
+const ZOOM_STEP = 60
+
+const VERSION_LABELS = {
+  2: "zoom.thoroughVersion",
+  1: "zoom.longerVersion",
+  [-1]: "zoom.shortVersion",
+  [-2]: "zoom.oneSentenceVersion",
+} as const
+
+/**
+ * An answer's length, picked in the column's left margin beside its first line: Shorter and
+ * Longer, there while the answer is hovered or focused and faintly while it shows another length
+ * than its own. Only then does a caption under it take a line, saying which version shows, with
+ * the way back.
+ */
+function AnswerLength({
+  level,
+  onPick,
+}: {
+  level: AnswerLevel
+  onPick: (level: AnswerLevel) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <>
+      <fieldset
+        aria-label={t("zoom.length")}
+        className={`answerLength${level === 0 ? "" : " answerLength-zoomed"}`}
+      >
+        <IconButton
+          icon={ChevronsUpDown}
+          label={t("zoom.longer")}
+          size={20}
+          disabled={level === 2}
+          onClick={() => onPick((level + 1) as AnswerLevel)}
+        />
+        <IconButton
+          icon={ChevronsDownUp}
+          label={t("zoom.shorter")}
+          size={20}
+          disabled={level === -2}
+          onClick={() => onPick((level - 1) as AnswerLevel)}
+        />
+      </fieldset>
+      {level !== 0 ? (
+        <p className="answerLength-caption">
+          <span>{t(VERSION_LABELS[level])}</span>
+          <span aria-hidden>·</span>
+          <button type="button" onClick={() => onPick(0)}>
+            {t("zoom.showOriginal")}
+          </button>
+        </p>
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * A phrase selected in an answer, waiting for its Explain button: the row, and where the
+ * selection's first line starts and centers in it.
+ */
+type NotePick = { entry: number; quote: string; top: number; left: number }
+
+const NOTE_HIGHLIGHT = "otis-note"
+const noteOwners = new Map<object, Range[]>()
+
+/** Paints every transcript's noted phrases; an empty list removes an owner's. */
+function paintNotes(owner: object, ranges: Range[]) {
+  if (ranges.length === 0) noteOwners.delete(owner)
+  else noteOwners.set(owner, ranges)
+  const registry = (CSS as { highlights?: HighlightRegistry }).highlights
+  registry?.set(NOTE_HIGHLIGHT, new Highlight(...[...noteOwners.values()].flat()))
+}
+
+/** Marks the noted phrase whose note the pointer is on, over its plain mark, or none. */
+function paintActive(range: Range | undefined) {
+  const registry = (CSS as { highlights?: HighlightRegistry }).highlights
+  if (range) registry?.set("otis-note-active", new Highlight(range))
+  else registry?.delete("otis-note-active")
+}
+
+/**
+ * A note, folded to a few lines with Show all, as the margin has little room; one that failed to
+ * be written says why and can be tried again.
+ */
+function MarginNoteCard({
+  note,
+  top,
+  active,
+  onRemove,
+  onResize,
+  onRetry,
+}: {
+  note: TranscriptNote
+  top?: number
+  active: boolean
+  onRemove: () => void
+  /** Called when the card's height changes, so the notes below it move down or up. */
+  onResize: () => void
+  onRetry: () => void
+}) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  // Show all appears only for a note the fold actually cuts, which depends on its column.
+  const text = useRef<HTMLDivElement>(null)
+  const card = useRef<HTMLElement>(null)
+  const height = useRef(0)
+  const [cut, setCut] = useState(false)
+  useLayoutEffect(() => {
+    const element = text.current
+    if (element && !open) setCut(element.scrollHeight > element.clientHeight + 1)
+    const next = card.current?.offsetHeight ?? 0
+    if (next === height.current) return
+    height.current = next
+    onResize()
+  })
+  return (
+    <aside
+      ref={card}
+      data-note-id={note.id}
+      className={`marginNote${note.error ? " marginNote-error" : ""}${
+        note.text === undefined && !note.error ? " marginNote-writing" : ""
+      }${active ? " marginNote-active" : ""}`}
+      style={top === undefined ? undefined : ({ "--note-top": `${top}px` } as CSSProperties)}
+    >
+      <div
+        ref={text}
+        className={`marginNote-text${
+          open ? "" : ` marginNote-folded${cut ? " marginNote-cut" : ""}`
+        }`}
+      >
+        {note.text === undefined ? (
+          (note.error ?? t("notes.writing"))
+        ) : (
+          <Markdown text={note.text} />
+        )}
+      </div>
+      {note.error ? (
+        <div className="marginNote-footer">
+          <button type="button" className="marginNote-link" onClick={onRetry}>
+            {t("notes.retry")}
+          </button>
+        </div>
+      ) : null}
+      {note.text !== undefined && (cut || open) ? (
+        <div className="marginNote-footer">
+          <button type="button" className="marginNote-link" onClick={() => setOpen(!open)}>
+            {t(open ? "notes.showLess" : "notes.showAll")}
+          </button>
+        </div>
+      ) : null}
+      <IconButton
+        icon={X}
+        label={t("notes.remove")}
+        size={20}
+        className="marginNote-remove"
+        onClick={onRemove}
+      />
+    </aside>
+  )
+}
+
 export const TranscriptList = memo(function TranscriptList({
   entries,
   thinkingVisible,
@@ -149,6 +319,7 @@ export const TranscriptList = memo(function TranscriptList({
   onFindCount,
   rail = false,
   onBranch,
+  runtime,
 }: {
   entries: TranscriptEntry[]
   thinkingVisible: boolean
@@ -161,8 +332,11 @@ export const TranscriptList = memo(function TranscriptList({
   rail?: boolean
   /** Branches the pane's session at a finished turn; absent where branching is not offered. */
   onBranch?: (turnSeq: number) => void
+  /** The pane's session, which writes margin notes on its answers; absent, none are offered. */
+  runtime?: number
 }) {
   const { t } = useI18n()
+  const { api } = useDesktop()
   const visible = useMemo(
     () => visibleEntries(entries, thinkingVisible),
     [entries, thinkingVisible],
@@ -329,8 +503,260 @@ export const TranscriptList = memo(function TranscriptList({
     }
   }, [scroll.scroller])
 
+  // Selecting a phrase inside a settled answer offers an Explain button just above it. Otis writes
+  // the note and keeps it with the session; the answer's entry carries it here, as it does the
+  // answer's other lengths.
+  const [pick, setPick] = useState<NotePick>()
+  const [noteTops, setNoteTops] = useState<ReadonlyMap<string, number>>(() => new Map())
+  const [noteLayout, setNoteLayout] = useState(0)
+  const relayoutNotes = useCallback(() => setNoteLayout((tick) => tick + 1), [])
+  const answerOf = useCallback(
+    (id: number) => visible.find((entry) => entry.id === id)?.answer,
+    [visible],
+  )
+  const onMouseUp = useCallback(() => {
+    if (runtime === undefined) return
+    const selection = window.getSelection()
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined
+    // A drag that starts or ends inside a word takes the whole word, as a highlighter would.
+    const word = /[\p{L}\p{N}]/u
+    if (range && !range.collapsed) {
+      const { startContainer: start, endContainer: end } = range
+      if (start instanceof Text) {
+        let offset = range.startOffset
+        while (offset > 0 && word.test(start.data[offset - 1])) offset--
+        range.setStart(start, offset)
+      }
+      if (end instanceof Text) {
+        let offset = range.endOffset
+        while (offset < end.data.length && word.test(end.data[offset])) offset++
+        range.setEnd(end, offset)
+      }
+    }
+    const quote = range?.toString().trim() ?? ""
+    const container = range?.commonAncestorContainer
+    const message = (container instanceof Element ? container : container?.parentElement)?.closest(
+      ".assistantMessage",
+    )
+    const row = message?.closest<HTMLElement>(".transcriptEntry[data-entry-id]")
+    const entry = Number(row?.dataset.entryId)
+    if (!range || !row || !answerOf(entry) || !quote || quote.length > 1_000) {
+      setPick(undefined)
+      return
+    }
+    // Above the middle of the selection's first line, where the eye already is.
+    const line = range.getClientRects()[0] ?? range.getBoundingClientRect()
+    const box = row.getBoundingClientRect()
+    setPick({ entry, quote, top: line.top - box.top, left: line.left + line.width / 2 - box.left })
+  }, [runtime, answerOf])
+  useEffect(() => {
+    const root = viewport.current
+    root?.addEventListener("mouseup", onMouseUp)
+    return () => root?.removeEventListener("mouseup", onMouseUp)
+  }, [onMouseUp])
+  const addNote = useCallback(
+    (picked: NotePick) => {
+      const answer = answerOf(picked.entry)
+      if (runtime === undefined || !answer) return
+      setPick(undefined)
+      window.getSelection()?.removeAllRanges()
+      void api.addNote(runtime, answer, picked.quote)
+    },
+    [api, runtime, answerOf],
+  )
+  const writeNote = useCallback(
+    (id: string) => {
+      if (runtime !== undefined) void api.writeNote(runtime, id)
+    },
+    [api, runtime],
+  )
+  const removeNote = useCallback(
+    (id: string) => {
+      if (runtime !== undefined) void api.removeNote(runtime, id)
+    },
+    [api, runtime],
+  )
+  const setAnswerLength = useCallback(
+    (entry: number, level: AnswerLevel) => {
+      const answer = answerOf(entry)
+      if (runtime !== undefined && answer) void api.setAnswerLength(runtime, answer, level)
+    },
+    [api, runtime, answerOf],
+  )
+  // ⌘ with the wheel over an answer previews its length a step per stretch of scrolling, up for
+  // longer and down for shorter; the length the wheel rests on is the one asked for, so passing
+  // through the others writes nothing.
+  const [preview, setPreview] = useState<{ entry: number; level: AnswerLevel }>()
+  const wheel = useRef<{
+    preview?: { entry: number; level: AnswerLevel }
+    delta: number
+    timer?: ReturnType<typeof setTimeout>
+  }>({ delta: 0 })
+  useEffect(() => {
+    const root = viewport.current
+    if (!root || runtime === undefined) return
+    const onWheel = (event: WheelEvent) => {
+      if (!event.metaKey && !event.ctrlKey) return
+      const target = event.target instanceof Element ? event.target : null
+      const row = target
+        ?.closest(".assistantMessage")
+        ?.closest<HTMLElement>(".transcriptEntry[data-entry-id]")
+      const entry = visible.find((each) => each.id === Number(row?.dataset.entryId))
+      if (!entry?.answer) return
+      event.preventDefault()
+      const state = wheel.current
+      if (state.preview?.entry !== entry.id) {
+        state.preview = undefined
+        state.delta = 0
+      }
+      state.delta += event.deltaY
+      if (Math.abs(state.delta) < ZOOM_STEP) return
+      const from = state.preview?.level ?? entry.zoom?.writing ?? entry.zoom?.level ?? 0
+      const level = Math.min(2, Math.max(-2, from + (state.delta < 0 ? 1 : -1))) as AnswerLevel
+      state.delta = 0
+      state.preview = { entry: entry.id, level }
+      setPreview(state.preview)
+      clearTimeout(state.timer)
+      state.timer = setTimeout(() => {
+        state.preview = undefined
+        setPreview(undefined)
+        setAnswerLength(entry.id, level)
+      }, 350)
+    }
+    root.addEventListener("wheel", onWheel, { passive: false })
+    return () => root.removeEventListener("wheel", onWheel)
+  }, [runtime, visible, setAnswerLength])
+  // Pointing at a noted phrase or at its note marks both, so notes side by side are told apart.
+  // A highlight is no element, so the phrase under the pointer is found from its measured lines.
+  const [activeNote, setActiveNote] = useState<string>()
+  const active = useRef<string>(undefined)
+  const noteRanges = useRef(new Map<string, Range>())
+  // Noted phrases are found again in the mounted rows after each change, since rows remount as
+  // they scroll in, and each note sits level with its phrase's first line. A note belongs to its
+  // answer's own text, so it waits while the answer shows another length.
+  useEffect(() => {
+    const root = scroll.scroller.current
+    if (!root) return
+    const frame = requestAnimationFrame(() => {
+      const ranges = new Map<string, Range>()
+      const tops = new Map<string, number>()
+      // In the margin a note that would overlap the one above it, of this answer or an earlier
+      // one, starts below it; positions are compared on screen and kept relative to each row.
+      let bottom = -Infinity
+      for (const entry of visible) {
+        if (!entry.notes?.length || (entry.zoom?.level ?? 0) !== 0) continue
+        const row = root.querySelector<HTMLElement>(`.transcriptEntry[data-entry-id="${entry.id}"]`)
+        const message = row?.querySelector(".assistantMessage")
+        if (!row || !message) continue
+        const rowTop = row.getBoundingClientRect().top
+        const placed: { id: string; top: number }[] = []
+        for (const note of entry.notes) {
+          // The phrase's range in the answer, across inline formatting and between blocks, as a
+          // selection reads it: runs of whitespace count as one space, and a new block starts
+          // with one.
+          const needle = note.quote.replace(/\s+/g, " ").trim()
+          if (!needle) continue
+          const walker = document.createTreeWalker(message, NodeFilter.SHOW_TEXT)
+          const at: { node: Text; offset: number }[] = []
+          let text = ""
+          let block: Element | null = null
+          for (
+            let node = walker.nextNode() as Text | null;
+            node;
+            node = walker.nextNode() as Text | null
+          ) {
+            const parent =
+              node.parentElement?.closest("p, li, h1, h2, h3, h4, h5, h6, pre, td, th") ?? null
+            if (block && parent !== block && !text.endsWith(" ")) {
+              text += " "
+              at.push({ node, offset: 0 })
+            }
+            block = parent
+            for (let offset = 0; offset < node.data.length; offset++) {
+              const space = /\s/.test(node.data[offset])
+              if (space && (text === "" || text.endsWith(" "))) continue
+              text += space ? " " : node.data[offset]
+              at.push({ node, offset })
+            }
+          }
+          const start = text.indexOf(needle)
+          if (start < 0) continue
+          const first = at[start]
+          const last = at[start + needle.length - 1]
+          const range = new Range()
+          range.setStart(first.node, first.offset)
+          range.setEnd(last.node, last.offset + 1)
+          ranges.set(note.id, range)
+          placed.push({ id: note.id, top: range.getBoundingClientRect().top })
+        }
+        for (const { id, top } of placed.sort((a, b) => a.top - b.top)) {
+          const at = Math.max(top, bottom + 10)
+          tops.set(id, at - rowTop)
+          const card = root.querySelector<HTMLElement>(`.marginNote[data-note-id="${id}"]`)
+          bottom = at + (card?.offsetHeight ?? 0)
+        }
+      }
+      noteRanges.current = ranges
+      paintNotes(root, [...ranges.values()])
+      // Rows remount as they scroll; a pointed-at phrase is marked again where it now is.
+      if (active.current !== undefined) paintActive(ranges.get(active.current))
+      setNoteTops((previous) =>
+        previous.size === tops.size && [...tops].every(([id, top]) => previous.get(id) === top)
+          ? previous
+          : tops,
+      )
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [visible, items, scroll.scrolling, scroll.scroller, noteLayout])
+  useEffect(() => {
+    const root = scroll.scroller.current
+    return () => {
+      if (root) paintNotes(root, [])
+      if (active.current !== undefined) paintActive(undefined)
+    }
+  }, [scroll.scroller])
+  useEffect(() => {
+    const root = viewport.current
+    if (!root || runtime === undefined) return
+    const point = (id: string | undefined) => {
+      if (id === active.current) return
+      active.current = id
+      setActiveNote(id)
+      paintActive(id === undefined ? undefined : noteRanges.current.get(id))
+    }
+    const onMove = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      const card = target?.closest<HTMLElement>(".marginNote")
+      if (card) return point(card.dataset.noteId)
+      const under = ({ left, right, top, bottom }: DOMRect) =>
+        event.clientX >= left &&
+        event.clientX <= right &&
+        event.clientY >= top &&
+        event.clientY <= bottom
+      const phrase = target?.closest(".assistantMessage")
+        ? [...noteRanges.current].find(([, range]) => [...range.getClientRects()].some(under))
+        : undefined
+      point(phrase?.[0])
+    }
+    const onLeave = () => point(undefined)
+    root.addEventListener("pointermove", onMove)
+    root.addEventListener("pointerleave", onLeave)
+    return () => {
+      root.removeEventListener("pointermove", onMove)
+      root.removeEventListener("pointerleave", onLeave)
+    }
+  }, [runtime])
+
   const renderEntry = useCallback(
     (index: number, item: TranscriptItem) => {
+      const zoom = item.kind === "toolRun" ? undefined : item.zoom
+      const shownLevel = zoom?.level ?? 0
+      // The length asked for: the wheel's while it turns, else the one being written, else shown.
+      const target =
+        item.kind !== "toolRun" && preview?.entry === item.id
+          ? preview.level
+          : (zoom?.writing ?? shownLevel)
+      const zoomed = zoom && shownLevel !== 0 ? zoom.texts[shownLevel] : undefined
       // Neighbor-aware spacing belongs inside each measured row, including flattened run entries.
       const activity = isActivityRow(item) && isActivityRow(items[index + 1])
       const className = `transcriptEntry${activity ? " transcriptEntry-activity" : ""}`
@@ -346,23 +772,80 @@ export const TranscriptList = memo(function TranscriptList({
         </div>
       ) : (
         <div
-          className={`${className}${expandedEntries.has(item.id) ? " transcriptEntry-inRun" : ""}`}
+          className={`${className}${expandedEntries.has(item.id) ? " transcriptEntry-inRun" : ""}${
+            target !== shownLevel ? " transcriptEntry-zooming" : ""
+          }`}
           data-entry-id={item.id}
           data-index={index}
           aria-current={found}
         >
           <EntryView
-            entry={item}
+            entry={zoomed === undefined ? item : { ...item, text: zoomed }}
             active={busy && index === items.length - 1}
             thinkingVisible={thinkingVisible}
             expanded={expanded.has(item.id)}
             onExpandedChange={setEntryExpanded}
             onBranch={onBranch}
           />
+          {runtime !== undefined && item.answer ? (
+            <AnswerLength level={target} onPick={(level) => setAnswerLength(item.id, level)} />
+          ) : null}
+          {zoom?.error ? <p className="answerZoom-error">{zoom.error}</p> : null}
+          {/* A selected phrase's Explain button just above it, and the answer's notes: beside the
+              column where the view is wide enough, each level with its phrase, else under it. */}
+          {runtime !== undefined && item.answer && shownLevel === 0 && pick?.entry === item.id ? (
+            <button
+              type="button"
+              className="marginNote-add"
+              style={{ top: pick.top, left: pick.left }}
+              title={t("notes.explainTitle")}
+              // Pressing must not clear the selection before the click reads it.
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => addNote(pick)}
+            >
+              <Icon icon={Sparkles} size={13} />
+              {t("notes.explain")}
+            </button>
+          ) : null}
+          {runtime !== undefined && item.answer && shownLevel === 0 && item.notes?.length ? (
+            <div className="marginNotes">
+              {item.notes.map((note) => (
+                <MarginNoteCard
+                  key={note.id}
+                  note={note}
+                  top={noteTops.get(note.id)}
+                  active={note.id === activeNote}
+                  onRemove={() => removeNote(note.id)}
+                  onResize={relayoutNotes}
+                  onRetry={() => writeNote(note.id)}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       )
     },
-    [busy, items, thinkingVisible, expanded, expandedEntries, setEntryExpanded, current, onBranch],
+    [
+      busy,
+      items,
+      thinkingVisible,
+      expanded,
+      expandedEntries,
+      setEntryExpanded,
+      current,
+      onBranch,
+      runtime,
+      noteTops,
+      pick,
+      preview,
+      addNote,
+      removeNote,
+      relayoutNotes,
+      writeNote,
+      setAnswerLength,
+      activeNote,
+      t,
+    ],
   )
 
   return (

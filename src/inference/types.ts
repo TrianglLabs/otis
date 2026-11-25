@@ -368,6 +368,7 @@ export type InferenceClient = {
    */
   countTokens?(options: StreamChatOptions): Promise<number>
   streamChat(options: StreamChatOptions): AsyncGenerator<ChatStreamEvent>
+  /** One reply without tools, as its text with surrounding whitespace trimmed. */
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>
 }
 
@@ -402,12 +403,10 @@ export type StreamChatOptions = {
   sessionId?: string
 }
 
-export type CompleteOptions = {
-  projectContext?: ContextFile[]
-  signal?: AbortSignal
-  sessionId?: string
-  onUsage?: (usage: TokenUsage) => void | Promise<void>
-}
+export type CompleteOptions = Pick<
+  StreamChatOptions,
+  "systemPrompt" | "projectContext" | "signal" | "sessionId"
+> & { onUsage?: (usage: TokenUsage) => void | Promise<void> }
 
 export type HostedClientConfig = {
   provider: HostedProvider

@@ -124,6 +124,12 @@
      stronger for control outlines, a hairline for separators and resting cards. */
   --border: color-mix(in srgb, var(--text) 13%, transparent);
   --hairline: color-mix(in srgb, var(--text) 7.5%, transparent);
+  /* A highlighter's mark on a phrase that carries a margin note, and the note's edge. */
+  --note-mark: light-dark(
+    color-mix(in srgb, #d4ef2f 62%, transparent),
+    color-mix(in srgb, #d4ef2f 32%, transparent)
+  );
+  --note-mark-active: light-dark(#d4ef2f, color-mix(in srgb, #d4ef2f 62%, transparent));
   /* A control lifted off its track, such as a segmented control's chosen pill: on paper a step
      toward white, since some light themes elevate darker than their page; a lighter step of the
      elevated surface in the dark. The track under it is a firmer tint on paper for the same

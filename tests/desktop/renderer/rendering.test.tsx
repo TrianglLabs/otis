@@ -225,7 +225,7 @@ describe("stable message rendering", () => {
       entries: [
         entry(1, "file_read", "read", "a.ts"),
         entry(2, "file_read", "read", "b.ts"),
-        entry(3, "file_edit", "edit", "a.ts"),
+        { ...entry(3, "file_edit", "edit", "a.ts"), diff: "@@ -1,2 +1,2 @@\n-old\n-older\n+new" },
         entry(4, "shell", "command", "bun test"),
       ],
     }
@@ -235,9 +235,10 @@ describe("stable message rendering", () => {
       </DesktopProvider>
     )
     const view = render(card(false))
-    expect(view.container.querySelector(".toolCard-label")?.textContent).toBe(
-      "2 files read · 1 change · 1 command",
-    )
+    // Kind by kind, the edits with the lines they changed.
+    expect(
+      [...view.container.querySelectorAll(".toolRun-part")].map((part) => part.textContent),
+    ).toEqual(["2 files read", "·1 change+1−2", "·1 command"])
     view.rerender(card(true))
     expect(view.container.querySelector(".toolCard-verb")?.textContent).toBe("Running")
     expect(view.container.querySelector(".toolCard-subject")?.textContent).toBe("bun test")

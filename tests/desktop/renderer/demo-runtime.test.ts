@@ -245,8 +245,15 @@ describe("demo runtime model lifecycle", () => {
   it("lists the hosted catalog for the visibility switches and hides models from the picker", async () => {
     const api = createDemoRuntime()
     const catalogs = await api.listModelCatalogs()
-    // The local catalog, then the three keyed providers, each with its own picker section.
-    expect(Object.keys(catalogs)).toEqual(["local", "fireworks", "together", "baseten"])
+    // The local catalog, then the four keyed providers, OpenRouter first, each with its own
+    // picker section.
+    expect(Object.keys(catalogs)).toEqual([
+      "local",
+      "openrouter",
+      "fireworks",
+      "together",
+      "baseten",
+    ])
     expect(catalogs.fireworks?.map((model) => model.id)).toEqual([
       "accounts/fireworks/models/glm-5p3",
       "accounts/fireworks/models/kimi-k3",
@@ -256,6 +263,7 @@ describe("demo runtime model lifecycle", () => {
     expect(headers.map((item) => item.id)).toEqual([
       "header-local",
       "header-omlx",
+      "header-openrouter",
       "header-fireworks",
       "header-together",
       "header-baseten",

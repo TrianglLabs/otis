@@ -3166,22 +3166,6 @@ describe("Home's next steps", () => {
     expect(document.activeElement).toBe(composer)
   })
 
-  it.each([
-    { hour: 9, lines: ["Good morning. What's first?", "Morning. Where should we start?"] },
-    { hour: 14, lines: ["What are we working on?", "What's next on the list?"] },
-    { hour: 20, lines: ["Good evening. What's left?", "Evening. What should we wrap up?"] },
-    { hour: 2, lines: ["Working late? Let's make it count.", "Still at it. What do you need?"] },
-  ])("heads Home by the part of the day at $hour:00", async ({ hour, lines }) => {
-    vi.useFakeTimers({ toFake: ["Date"] })
-    try {
-      vi.setSystemTime(new Date(2026, 10, 20, hour, 30))
-      await renderApp(fakeApi())
-      expect(lines).toContain(screen.getByRole("heading", { level: 1 }).textContent)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
   it("fills spare rows with more recent sessions before the starters", async () => {
     const sessions = ["One", "Two", "Three", "Four"].map((title, i) =>
       sessionItem({ id: `s${i}`, title, detail: `${i + 1}h ago` }),
@@ -3569,7 +3553,7 @@ describe("working on a daemon", () => {
   })
 })
 
-describe("header context meter", () => {
+describe("context ring", () => {
   it("labels the external-server guard as the auto-compaction threshold", async () => {
     await renderApp(
       fakeApi({
@@ -3587,7 +3571,13 @@ describe("header context meter", () => {
     )
     expect(document.querySelector(".contextMeter-section")?.textContent).toBe("Context50% used")
     expect(rows).toEqual(["Used", "26.2k", "Auto-compact at", "52.4k"])
-    expect((document.querySelector(".contextMeter-fill") as HTMLElement).style.width).toBe("50%")
+    // The ring sits in the composer beside the model, not in the header, and turns amber near the
+    // compaction point.
+    const ring = document.querySelector(".composer-footer .contextRing") as HTMLElement
+    expect(ring.querySelector(".contextRing-value")?.textContent).toBe("50%")
+    expect(ring.classList.contains("contextRing-near")).toBe(false)
+    expect(screen.getByRole("button", { name: "50% used" })).toBeTruthy()
+    expect(document.querySelector(".workspaceHeader .contextRing")).toBeNull()
   })
 
   it("swings the speed needle against the session's peak and settles on the exact figure", async () => {
@@ -3719,7 +3709,7 @@ describe("header context meter", () => {
   it("stays hidden on the home screen and appears once a conversation exists", async () => {
     const withTokens: DesktopSnapshot = { ...SNAPSHOT, contextTokens: 12_400 }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withTokens) }))
-    expect(document.body.querySelector(".contextMeter")).toBeNull()
+    expect(document.body.querySelector(".contextRing")).toBeNull()
     cleanup()
 
     const inConversation: DesktopSnapshot = {
@@ -3727,7 +3717,7 @@ describe("header context meter", () => {
       entries: [{ id: 1, kind: "message", speaker: "You", text: "hello" }],
     }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => inConversation) }))
-    expect(document.body.querySelector(".contextMeter")).toBeTruthy()
+    expect(document.body.querySelector(".contextRing")).toBeTruthy()
   })
 })
 
@@ -3906,22 +3896,35 @@ describe("tool run condensing", () => {
   it("condenses consecutive tool activity behind one row that expands into list rows on click", async () => {
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries })) }))
 
-    // Collapsed: user message, run row, standalone diff card, answer — the run's actions mount
-    // nothing.
-    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(4)
+    // Collapsed: user message, one run row, answer — the edit joins the run, and the run's
+    // actions mount nothing.
+    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(3)
     const run = screen.getByRole("button", {
-      name: "3 tool actions, latest: Running command: bun test",
+      name: "4 tool actions, latest: Editing file: AppShell.tsx",
     })
-    // A settled run sums up what it did instead of naming its last action.
-    expect(run.textContent).toBe("1 search · 1 file read · 1 command")
+    // A settled run sums up what it did kind by kind, the edit with the lines it changed, each
+    // part after the first led by its dot.
+    expect([...run.querySelectorAll(".toolRun-part")].map((part) => part.textContent)).toEqual([
+      "1 search",
+      "·1 file read",
+      "·1 command",
+      "·1 change+1−1",
+    ])
     expect(screen.queryByText("Searching files: keydown")).toBeNull()
     expect(screen.queryByText("Reading files: AppShell.tsx")).toBeNull()
 
-    // The edit stays standalone outside the run as a row with its line counts; its patch unfolds
-    // on click. The side panel's Changes tab names the file too; the row is the one in the
-    // transcript.
+    fireEvent.click(run)
+    // Expanding flattens the actions into ordinary virtualized rows beside the run's row, indented
+    // as its.
+    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(7)
+    expect(document.querySelectorAll(".transcriptEntry-inRun")).toHaveLength(4)
+    expect(screen.getByText("Searching files: keydown")).toBeTruthy()
+    expect(screen.getByText("Reading files: AppShell.tsx")).toBeTruthy()
+    expect(screen.getAllByText("Running command: bun test")).toHaveLength(1)
+    // The edit's row keeps its line counts, and its patch unfolds on click.
     const transcript = document.querySelector(".conversation") as HTMLElement
-    const edit = within(transcript).getByRole("button", { name: /Editing file: AppShell.tsx/ })
+    const edit = transcript.querySelector(".toolCard-toggle") as HTMLElement
+    expect(edit.title).toBe("Editing file: AppShell.tsx")
     expect(edit.querySelector(".headerDiff")?.textContent).toBe("+1−1")
     expect(transcript.querySelector(".diffLine")).toBeNull()
     fireEvent.click(edit)
@@ -3930,17 +3933,7 @@ describe("tool run condensing", () => {
     expect(transcript.querySelector(".diffLine")).toBeNull()
 
     fireEvent.click(run)
-    // Expanding flattens the actions into ordinary virtualized rows beside the run's row, indented
-    // as its.
-    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(7)
-    expect(document.querySelectorAll(".transcriptEntry-inRun")).toHaveLength(3)
-    expect(screen.getByText("Searching files: keydown")).toBeTruthy()
-    expect(screen.getByText("Reading files: AppShell.tsx")).toBeTruthy()
-    // The flattened action is the only place the last action is named.
-    expect(screen.getAllByText("Running command: bun test")).toHaveLength(1)
-
-    fireEvent.click(run)
-    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(4)
+    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(3)
     expect(screen.queryByText("Searching files: keydown")).toBeNull()
   })
 })

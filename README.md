@@ -94,16 +94,17 @@ PowerShell.
       typing. <code>⌘K</code> searches every session by title and content. The switcher at the top flips to your
       projects and routines.
     </td>
-    <td><img src="docs/screens/home.png" alt="Home: a greeting, the composer, and next steps below it" width="100%"></td>
+    <td><img src="docs/screens/home.png" alt="Home: the Otis mark, the composer, and next steps below it" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">
       <b>3. Ask, then watch it work</b><br><br>
-      Every step is visible: the model's thinking, each command, and each edit as a diff. Otis asks before running a
-      command or touching a file outside the workspace. Steer the turn or queue a follow-up while it works, and get
-      the summary, the diff stats, and the context meter when it ends.
+      Every step is visible: the model's thinking, and its reads, commands, and edits summed up in one line that opens
+      to each action and its diff. Otis asks before running a command or touching a file outside the workspace. Steer
+      the turn or queue a follow-up while it works, and get the summary, the diff stats, and how full the context is
+      when it ends. Select any phrase of an answer and Otis explains it in the margin.
     </td>
-    <td><img src="docs/screens/done.png" alt="A finished turn: the diff, a summary table, and the test result" width="100%"></td>
+    <td><img src="docs/screens/done.png" alt="A finished turn: its reads, edit, and command in one line, the diff, a summary table, and a margin note on a highlighted phrase" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">
@@ -145,7 +146,7 @@ PowerShell.
       One picker holds every model Otis can reach: managed local models with their memory needs, models on your own
       servers, and hosted ones. The star marks the local model that fits this computer best.
     </td>
-    <td><img src="docs/screens/picker.png" alt="The model picker opened on its local section, with the recommended model starred" width="100%"></td>
+    <td><img src="docs/screens/picker.png" alt="The model picker on its OpenRouter section: Claude, Gemini, GPT, Kimi, and Inkling" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">

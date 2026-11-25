@@ -13,7 +13,14 @@ import {
   userMessageText,
 } from "../inference/messages.js"
 import type { ChatMessage, InferenceClient, UserChatMessage } from "../inference/types.js"
-import type { ReplayTurnSegment, SessionToolActivity } from "../storage/session-events.js"
+import type {
+  AnswerAddress,
+  AnswerLevel,
+  ReplayTurnSegment,
+  SavedNote,
+  SavedZoom,
+  SessionToolActivity,
+} from "../storage/session-events.js"
 import { describeToolCall, type ToolAction, type ToolActivityKind } from "../tools/activity.js"
 import { parseSerializedToolCall } from "../tools/schema.js"
 
@@ -71,7 +78,19 @@ export type TranscriptEntry = {
    * point a branch of the conversation can be cut at.
    */
   turnSeq?: number
+  /** On an answer whose turn has ended: where the session keeps it, for its notes and length. */
+  answer?: AnswerAddress
+  notes?: TranscriptNote[]
+  zoom?: TranscriptZoom
 }
+
+/**
+ * A margin note, without its text while the model writes it, or with why the write failed.
+ */
+export type TranscriptNote = Omit<SavedNote, "text"> & { text?: string; error?: string }
+
+/** An answer's length, with the one being written while the model works and why a write failed. */
+export type TranscriptZoom = Omit<SavedZoom, "answer"> & { writing?: AnswerLevel; error?: string }
 
 /**
  * Saved tool cards keyed by call id, in order, so repeated ids across compacted turns pair up with
@@ -162,12 +181,56 @@ export class TranscriptStore {
       this.loadEntries(turn.messages, turn.toolActivities ?? [], turn.throughSeq)
   }
 
-  /** The user message that opened a turn learns where the session recorded the turn's end. */
-  markTurnEnded(id: number, turnSeq: number) {
-    const entry = this.entries.find((entry) => entry.id === id)
-    if (!entry) return
-    entry.turnSeq = turnSeq
-    this.emit({ op: "upsert", id })
+  /**
+   * The user message that opened a turn learns where the session recorded the turn's end, and the
+   * turn's answers their places in it: the answers streamed since, matched in order to the texts
+   * saved. One the save does not match, such as an error line, gets none.
+   */
+  markTurnEnded(id: number, turnSeq: number, messages: readonly ChatMessage[]) {
+    const start = this.entries.findIndex((entry) => entry.id === id)
+    if (start === -1) return
+    this.updateEntry(id, { turnSeq })
+    // The turn's answer texts, in the order the transcript lists them.
+    const texts = messages.flatMap((message) =>
+      message.role === "assistant"
+        ? message.content.flatMap((part) => (part.type === "text" && part.text ? [part.text] : []))
+        : [],
+    )
+    let index = 0
+    for (const entry of this.entries.slice(start + 1)) {
+      if (index === texts.length) break
+      if (entry.kind !== "message" || entry.speaker !== "Otis") continue
+      if (entry.text.trim() !== texts[index].trim()) continue
+      this.updateEntry(entry.id, { answer: { turnSeq, index: index++ } })
+    }
+  }
+
+  /** The answer the session keeps at `address`, when it is on screen. */
+  answerAt(address: AnswerAddress) {
+    return this.entries.find(
+      (entry) => entry.answer?.turnSeq === address.turnSeq && entry.answer.index === address.index,
+    )
+  }
+
+  /**
+   * Changes an answer's notes or length; the change shows wherever the transcript does. The entry
+   * is replaced, never changed in place, as every update is: what a surface last received is the
+   * old entry, which it compares the new one against.
+   */
+  updateAnswer(
+    address: AnswerAddress,
+    change: (entry: TranscriptEntry) => Pick<TranscriptEntry, "notes" | "zoom">,
+  ) {
+    const entry = this.answerAt(address)
+    if (entry) this.updateEntry(entry.id, change(entry))
+  }
+
+  /** Lays a replayed session's saved notes and lengths over its answers. */
+  annotate({ notes, zooms }: { notes: readonly SavedNote[]; zooms: readonly SavedZoom[] }) {
+    for (const note of notes)
+      this.updateAnswer(note.answer, (entry) => ({ notes: [...(entry.notes ?? []), note] }))
+    for (const { answer, level, texts } of zooms)
+      this.updateAnswer(answer, () => ({ zoom: { level, texts } }))
   }
 
   /** Replace model context while keeping the user's scrollback and pending entries intact. */
@@ -391,6 +454,7 @@ export class TranscriptStore {
   ) {
     const activities = groupToolActivities(toolActivities)
     let opened = false
+    let answers = 0
     for (const message of messages) {
       if (message.role === "user" && !isCompactionSummary(message) && !isCoworkerReport(message)) {
         // The turn's first prompt carries its end; steering that joined later does not.
@@ -399,7 +463,10 @@ export class TranscriptStore {
       }
       if (message.role !== "assistant") continue
       for (const part of message.content) {
-        if (part.type === "text" && part.text) this.addAssistantMessage(part.text)
+        if (part.type === "text" && part.text) {
+          const entry: TranscriptEntry = this.addAssistantMessage(part.text)
+          if (throughSeq !== undefined) entry.answer = { turnSeq: throughSeq, index: answers++ }
+        }
         if (part.type === "reasoning" && part.text) {
           const elapsed =
             part.startedAt && part.endedAt

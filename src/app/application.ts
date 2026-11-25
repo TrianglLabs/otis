@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { stat } from "node:fs/promises"
 import { homedir, networkInterfaces } from "node:os"
 import { basename, isAbsolute, parse, relative, resolve, sep } from "node:path"
@@ -103,6 +104,7 @@ import {
 } from "../skills/catalog.js"
 import type { SkillManager } from "../skills/manager.js"
 import { forkSession } from "../storage/session.js"
+import type { AnswerAddress, AnswerLevel } from "../storage/session-events.js"
 import { defaultSessionDirectory, sessionFile } from "../storage/session-files.js"
 import {
   projectInstructionsFile,
@@ -136,7 +138,13 @@ import {
 import { Routines } from "./routines.js"
 import { type OpenSession, SESSION_REASONS, SessionCoordinator } from "./sessions.js"
 import { type SubagentStatus, SubagentTraces } from "./subagents.js"
-import { type TranscriptChange, TranscriptStore } from "./transcript.js"
+import {
+  type TranscriptChange,
+  type TranscriptEntry,
+  type TranscriptNote,
+  TranscriptStore,
+  type TranscriptZoom,
+} from "./transcript.js"
 
 type ApplicationOptions = {
   cwd?: string
@@ -168,6 +176,24 @@ export type RuntimeSummary = {
   diffs: { added: number; removed: number }
   contextTokens: number
 }
+
+/** What a zoom writes: an answer at another length, or a note on a phrase of it. */
+type ZoomRequest =
+  | { kind: "answer"; level: Exclude<AnswerLevel, 0> }
+  | { kind: "note"; quote: string }
+
+/**
+ * Notes and lengths are written outside the conversation, from the question and the answer
+ * alone, so they take these few lines instead of the working agent's instructions and tools.
+ */
+const ZOOM_SYSTEM_PROMPT = `You help a reader with an answer they were given: you rewrite it at another length, or write a short margin note on a phrase they highlighted. Work only from the question and the answer provided; you cannot run tools or look anything up. Output only the text asked for, with no preamble.`
+
+const ANSWER_ZOOM = {
+  [-2]: "as a single sentence",
+  [-1]: "in about half as many words, keeping only what matters most",
+  1: "in about twice as many words, adding the detail and reasons a reader would want next",
+  2: "thoroughly, with the context, details, examples and caveats a careful reader would want",
+} as const
 
 /** A connected server as adapters show it: the address and what was entered beside it. */
 export type ServerStatus = {
@@ -1749,6 +1775,130 @@ export class Application {
     if (this.#deleting || affected.some((other) => other.busy && !(inTurn && other === runtime)))
       return { ok: false, reason: "Finish the current work before switching models." }
     return undefined
+  }
+
+  /**
+   * Semantic zoom on an answer of `runtime`'s session, written by its own model outside the
+   * conversation, which neither sees nor keeps it; its usage counts toward the session. The model
+   * reads the whole answer as it was given, which already fit its context, and the start of the
+   * question it replies to.
+   */
+  async #zoomText(runtime: SessionRuntime, entry: TranscriptEntry, request: ZoomRequest) {
+    const client = runtime.client
+    if (!client) return { ok: false as const, reason: "The model is not ready." }
+    const session = runtime.sessions.current
+    const entries = runtime.transcript.entries
+    const question = entries
+      .slice(0, entries.indexOf(entry))
+      .findLast((row) => row.kind === "message" && row.speaker === "You")
+    const context = `${
+      question ? `Question:\n${(question.messageText ?? question.text).slice(0, 2_000)}\n\n` : ""
+    }Answer:\n${entry.text}`
+    const prompt =
+      request.kind === "answer"
+        ? `Rewrite this answer ${ANSWER_ZOOM[request.level]}. Keep its facts, language and formatting style, and add nothing it would not stand behind.
+
+${context}`
+        : `${context}
+
+Highlighted phrase: "${request.quote}"
+
+Write the note in two to four sentences: what the phrase means in this answer, and anything it leaves vague, gets wrong, or leaves out. Bold the one or two terms that matter most, as Markdown; use no headings, lists, or quote of the phrase.`
+    try {
+      const text = await client.complete([{ role: "user", content: prompt }], {
+        systemPrompt: ZOOM_SYSTEM_PROMPT,
+        sessionId: session?.id,
+        onUsage: async (usage) => {
+          await session?.recordUsage(usage, "zoom")
+        },
+      })
+      return text
+        ? { ok: true as const, text }
+        : { ok: false as const, reason: "The model wrote nothing." }
+    } catch (error) {
+      return { ok: false as const, reason: describeError(error) }
+    }
+  }
+
+  /**
+   * A margin note on a phrase of an answer in `runtimeId`'s session: it shows while the model
+   * writes it, and is kept with the session once written.
+   */
+  async addNote(runtimeId: number, answer: AnswerAddress, quote: string) {
+    const runtime = this.#runtimes.find((entry) => entry.id === runtimeId)
+    if (!runtime?.transcript.answerAt(answer)) return
+    const id = `note_${randomUUID()}`
+    runtime.transcript.updateAnswer(answer, (entry) => ({
+      notes: [...(entry.notes ?? []), { id, answer, quote }],
+    }))
+    await this.writeNote(runtimeId, id)
+  }
+
+  /**
+   * Writes a note that has no text yet, a new one or one whose write failed, and keeps it with
+   * the session once written, unless it was removed meanwhile.
+   */
+  async writeNote(runtimeId: number, noteId: string) {
+    const runtime = this.#runtimes.find((entry) => entry.id === runtimeId)
+    const entry = runtime?.transcript.entries.find((row) =>
+      row.notes?.some((note) => note.id === noteId),
+    )
+    const answer = entry?.answer
+    const note = entry?.notes?.find(({ id }) => id === noteId)
+    if (!runtime || !entry || !answer || !note || note.text !== undefined) return
+    const update = (change: Partial<TranscriptNote>) =>
+      runtime.transcript.updateAnswer(answer, (row) => ({
+        notes: row.notes?.map((each) => (each.id === noteId ? { ...each, ...change } : each)),
+      }))
+    update({ error: undefined })
+    const result = await this.#zoomText(runtime, entry, { kind: "note", quote: note.quote })
+    if (!result.ok) return update({ error: result.reason })
+    update({ text: result.text })
+    if (!runtime.transcript.answerAt(answer)?.notes?.some(({ id }) => id === noteId)) return
+    await runtime.sessions.current?.saveNote({ ...note, text: result.text })
+  }
+
+  async removeNote(runtimeId: number, noteId: string) {
+    const runtime = this.#runtimes.find((entry) => entry.id === runtimeId)
+    const answer = runtime?.transcript.entries.find((row) =>
+      row.notes?.some((note) => note.id === noteId),
+    )?.answer
+    if (!runtime || !answer) return
+    runtime.transcript.updateAnswer(answer, (row) => ({
+      notes: row.notes?.filter((note) => note.id !== noteId),
+    }))
+    await runtime.sessions.current?.removeNote(noteId)
+  }
+
+  /**
+   * Shows an answer at `level`, from a sentence to a thorough account, its own length being 0. A
+   * length not yet written is written first, and one written after another was asked for keeps
+   * its text without taking the answer back to it. Each change is kept with the session.
+   */
+  async setAnswerLength(runtimeId: number, answer: AnswerAddress, level: AnswerLevel) {
+    const runtime = this.#runtimes.find((entry) => entry.id === runtimeId)
+    const entry = runtime?.transcript.answerAt(answer)
+    if (!runtime || !entry) return
+    const zoom = () => runtime.transcript.answerAt(answer)?.zoom ?? { level: 0 as const, texts: {} }
+    const update = (change: (zoom: TranscriptZoom) => TranscriptZoom) =>
+      runtime.transcript.updateAnswer(answer, () => ({ zoom: change(zoom()) }))
+    const shown = ({ writing: _, error: __, ...rest }: TranscriptZoom) => ({ ...rest, level })
+    // The session keeps each version once, as it is written, and every change of length.
+    let texts: TranscriptZoom["texts"] = {}
+    if (level === 0 || zoom().texts[level] !== undefined) update(shown)
+    else {
+      update((each) => ({ ...each, writing: level, error: undefined }))
+      const result = await this.#zoomText(runtime, entry, { kind: "answer", level })
+      update((each) => {
+        const asked = each.writing === level
+        if (!result.ok) return asked ? { ...each, writing: undefined, error: result.reason } : each
+        const written = { ...each, texts: { ...each.texts, [level]: result.text } }
+        return asked ? shown(written) : written
+      })
+      if (!result.ok) return
+      texts = { [level]: result.text }
+    }
+    await runtime.sessions.current?.saveZoom({ answer, level: zoom().level, texts })
   }
 
   /**

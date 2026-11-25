@@ -382,6 +382,7 @@ ${lines.join("\n")}`
     this.#title = session.hasTitle() ? session.title() : undefined
     const transcript = session.replayTranscript()
     this.options.transcript.replaceMessages(session.replay().messages, transcript.turns)
+    this.options.transcript.annotate(session.annotations())
     this.options.subagents.load(transcript.subagents)
     this.options.onReplay?.(transcript.messages, transcript.toolActivities, session)
     this.#added = 0

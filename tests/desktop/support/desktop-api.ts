@@ -119,6 +119,10 @@ export function fakeApi(
   return {
     getSnapshot: vi.fn(async () => snapshot),
     getArtifact: vi.fn(async () => ({ ok: false as const, stale: true, reason: "stale" })),
+    addNote: vi.fn(async () => {}),
+    writeNote: vi.fn(async () => {}),
+    removeNote: vi.fn(async () => {}),
+    setAnswerLength: vi.fn(async () => {}),
     getArtifactAsset: vi.fn(async () => ({ ok: false as const, stale: true, reason: "stale" })),
     openArtifact: vi.fn(async () => ({ ok: true as const })),
     openPublishedArtifact: vi.fn(async () => ({ ok: true as const })),

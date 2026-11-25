@@ -26,7 +26,7 @@ import {
 import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
-import type { MessageKey, Translate } from "../../i18n/messages/en.js"
+import type { MessageKey } from "../../i18n/messages/en.js"
 import { useDesktop } from "../../runtime.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
 import type { ToolRun } from "./TranscriptList.js"
@@ -100,15 +100,6 @@ function ActivityText({
       {folder === undefined ? null : <span className="toolCard-dir">· {folder}/</span>}
     </span>
   )
-}
-
-function runSummary(run: ToolRun, t: Translate) {
-  const counts = new Map<MessageKey, number>()
-  for (const entry of run.entries) {
-    const key = RUN_COUNTS[entry.activityKind ?? "shell"]
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-  }
-  return [...counts].map(([key, count]) => t(key, { count })).join(" · ")
 }
 
 /** The Canvas document a tool entry presents: the turn's last revision, once the turn settled. */
@@ -218,6 +209,18 @@ export function ToolRunCard({
 }) {
   const { t } = useI18n()
   const latest = run.entries[run.entries.length - 1]
+  // What a finished run did, kind by kind in the order they first happened, the edits followed
+  // by the lines they changed.
+  const counts = new Map<MessageKey, number>()
+  const lines = { added: 0, removed: 0 }
+  for (const entry of run.entries) {
+    const key = RUN_COUNTS[entry.activityKind ?? "shell"]
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+    if (entry.diff === undefined) continue
+    const { added, removed } = countDiffLines(entry.diff)
+    lines.added += added
+    lines.removed += removed
+  }
   return (
     <div className={`toolCard toolRun${active ? " toolCard-active" : ""}`}>
       <button
@@ -238,7 +241,25 @@ export function ToolRunCard({
             className="toolCard-label toolRun-label"
           />
         ) : (
-          <span className="toolCard-label">{runSummary(run, t)}</span>
+          <span className="toolCard-label">
+            {[...counts].map(([key, count], index) => (
+              // Each dot leads its part, so a summary that wraps moves the two together.
+              <span key={key} className="toolRun-part">
+                {index > 0 ? (
+                  <span className="toolRun-dot" aria-hidden>
+                    ·
+                  </span>
+                ) : null}
+                {t(key, { count })}
+                {key === "toolRun.changes" && lines.added + lines.removed > 0 ? (
+                  <span className="headerDiff">
+                    <span className="headerDiff-add">+{lines.added}</span>
+                    <span className="headerDiff-remove">−{lines.removed}</span>
+                  </span>
+                ) : null}
+              </span>
+            ))}
+          </span>
         )}
         <span className="chevron">
           <ChevronRight size={13} aria-hidden />

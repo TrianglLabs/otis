@@ -980,6 +980,40 @@ describe("DesktopRuntime conversation flow", () => {
     await runtime.shutdown()
   })
 
+  it("sends the window an answer's place once its turn is saved, and every later change to it", async () => {
+    const { app, runtime, sent } = await setup()
+    mocks.executeTurn.mockImplementation(turnEvents("Hello from the model"))
+    await runtime.sendPrompt("hi")
+    await vi.waitFor(async () => {
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.entries.find((entry) => entry.speaker === "Otis")?.answer).toBeDefined()
+    })
+    await flush()
+    const upserts = () =>
+      sent.flatMap((event) =>
+        event.type === "transcript"
+          ? (event.ops ?? []).flatMap((op) => (op.op === "upsert" ? [op.entry] : []))
+          : [],
+      )
+    // The window learns where the turn ended and where its answer sits, not just the store.
+    expect(upserts().some((entry) => entry.speaker === "You" && entry.turnSeq)).toBe(true)
+    const answered = upserts().findLast((entry) => entry.speaker === "Otis" && entry.answer)
+    const address = answered?.answer
+    if (!address) throw new Error("expected the answer's place on the wire")
+    // A note added later reaches the window as a whole new entry, though the answer's text did not
+    // change. Over the wire the window holds a copy of what it was sent, so an entry changed in
+    // place would compare equal to itself here and ship as an empty append instead.
+    const sentBefore = upserts().length
+    app.transcript.updateAnswer(address, () => ({
+      notes: [{ id: "note_a", answer: address, quote: "Hello", text: "Hi." }],
+    }))
+    await flush()
+    const latest = upserts()
+    expect(latest).toHaveLength(sentBefore + 1)
+    expect(latest.at(-1)?.notes?.[0]?.text).toBe("Hi.")
+    await runtime.shutdown()
+  })
+
   it("streams tokens as transcript growth without status snapshots", async () => {
     const { runtime, sent } = await setup()
     const token = "token ".repeat(300)

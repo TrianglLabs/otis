@@ -10,6 +10,7 @@ import {
   type WorkspacePanelTab,
 } from "../../local/settings.js"
 import { isMemoryScope } from "../../memory/memory.js"
+import { answerAddress } from "../../storage/session-events.js"
 import type {
   DesktopAttachmentInput,
   DesktopStatus,
@@ -43,6 +44,32 @@ export type DesktopBackend = {
 export function desktopCall(runtime: DesktopRuntime) {
   const methods = {
     getSnapshot: () => runtime.snapshot(),
+    addNote: (target: unknown, value: unknown, quote: unknown) => {
+      const answer = answerAddress(value)
+      if (typeof target !== "number") throw new Error("addNote expects a numeric runtime id")
+      if (!answer) throw new Error("addNote expects an answer's turn and index")
+      if (typeof quote !== "string" || !quote.trim()) throw new Error("addNote expects a quote")
+      return runtime.addNote(target, answer, quote)
+    },
+    writeNote: (target: unknown, noteId: unknown) => {
+      if (typeof target !== "number") throw new Error("writeNote expects a numeric runtime id")
+      if (typeof noteId !== "string" || !noteId) throw new Error("writeNote expects a note id")
+      return runtime.writeNote(target, noteId)
+    },
+    removeNote: (target: unknown, noteId: unknown) => {
+      if (typeof target !== "number") throw new Error("removeNote expects a numeric runtime id")
+      if (typeof noteId !== "string" || !noteId) throw new Error("removeNote expects a note id")
+      return runtime.removeNote(target, noteId)
+    },
+    setAnswerLength: (target: unknown, value: unknown, level: unknown) => {
+      const answer = answerAddress(value)
+      if (typeof target !== "number")
+        throw new Error("setAnswerLength expects a numeric runtime id")
+      if (!answer) throw new Error("setAnswerLength expects an answer's turn and index")
+      if (level !== -2 && level !== -1 && level !== 0 && level !== 1 && level !== 2)
+        throw new Error("setAnswerLength expects a level from -2 to 2")
+      return runtime.setAnswerLength(target, answer, level)
+    },
     getArtifact: (target: unknown, id: unknown, revision: unknown) => {
       if (typeof target !== "number") throw new Error("getArtifact expects a numeric runtime id")
       if (typeof id !== "string" || !id) throw new Error("getArtifact expects an artifact id")

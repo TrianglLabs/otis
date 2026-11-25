@@ -21,10 +21,13 @@ import {
   replaySession,
   replaySessionMessages,
   replaySessionTranscript,
+  type SavedNote,
+  type SavedZoom,
   type SessionEvent,
   type SessionTurnDetails,
   type SessionTurnSegment,
   type SessionView,
+  sessionAnnotations,
   type UsagePurpose,
 } from "./session-events.js"
 import {
@@ -206,6 +209,23 @@ export class JsonlSession {
     return this.append({ type: "title_renamed", title })
   }
 
+  /** The session's margin notes and answer lengths as they stand. */
+  annotations() {
+    return sessionAnnotations(this.events)
+  }
+
+  saveNote({ id, ...note }: SavedNote) {
+    return this.append({ type: "note_saved", noteId: id, ...note })
+  }
+
+  removeNote(noteId: string) {
+    return this.append({ type: "note_removed", noteId })
+  }
+
+  saveZoom(zoom: SavedZoom) {
+    return this.append({ type: "answer_zoomed", ...zoom })
+  }
+
   /** The arrangement this session was last on screen in, or none recorded. */
   view(): SessionView | undefined {
     return sessionView(this.events)
@@ -326,21 +346,31 @@ export async function forkSession(options: SessionOptions, throughSeq?: number) 
         : [],
     ),
   )
-  const kept = parent.filter(
-    (event) =>
-      event.seq <= cut &&
-      event.type !== "usage_recorded" &&
-      event.type !== "view_arranged" &&
-      (event.type !== "prompt_admitted" || begun.has(event.promptId)),
+  // Notes and lengths travel with the answers they belong to, however late they were made.
+  const notedTurns = new Map(
+    parent.flatMap((event) =>
+      event.type === "note_saved" ? [[event.noteId, event.answer.turnSeq] as const] : [],
+    ),
+  )
+  const kept = parent.filter((event) =>
+    event.type === "note_saved" || event.type === "answer_zoomed"
+      ? event.answer.turnSeq <= cut
+      : event.type === "note_removed"
+        ? (notedTurns.get(event.noteId) ?? Infinity) <= cut
+        : event.seq <= cut &&
+          event.type !== "usage_recorded" &&
+          event.type !== "view_arranged" &&
+          (event.type !== "prompt_admitted" || begun.has(event.promptId)),
   )
   if (kept[0]?.type !== "session_started") throw new Error(`Session ${parentId} has no events.`)
   const id = newSessionId()
+  const renumbered = (seq: number) => kept.filter((event) => event.seq <= seq).length
   const events = kept.map((event, index): SessionEvent => {
     const copy = { ...event, seq: index + 1, sessionId: id }
-    if (copy.type === "compacted" && copy.throughSeq !== undefined) {
-      const through = copy.throughSeq
-      copy.throughSeq = kept.filter((event) => event.seq <= through).length
-    }
+    if (copy.type === "compacted" && copy.throughSeq !== undefined)
+      copy.throughSeq = renumbered(copy.throughSeq)
+    if (copy.type === "note_saved" || copy.type === "answer_zoomed")
+      copy.answer = { ...copy.answer, turnSeq: renumbered(copy.answer.turnSeq) }
     return copy
   })
   events.push({

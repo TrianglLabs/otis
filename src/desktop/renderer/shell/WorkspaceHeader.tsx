@@ -9,12 +9,9 @@ import {
   SquarePen,
   SquareTerminal,
 } from "lucide-react"
-import { Fragment } from "react"
-import { addUsage, emptyUsage, type UsageTotals } from "../../../inference/types.js"
 import { Button, IconButton } from "../components/Button.js"
 import { TabStrip } from "../components/TabStrip.js"
 import { unseenRun } from "../features/routines/RoutinesHome.js"
-import { formatTokenCount, usageBreakdown } from "../format.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
 import { isChange } from "./WorkspacePanel.js"
@@ -24,7 +21,8 @@ export type HomeView = "home" | "projects" | "routines"
 
 /**
  * The compact bar above the conversation: session title centered (the Home / Projects / Routines control on
- * the home screen), session metadata (diffs, context) plus search and settings on the right.
+ * the home screen), the session's changed lines plus search and settings on the right. How full
+ * the context is shows in the composer, beside the model it belongs to.
  * Session navigation lives in the ⌘K palette.
  */
 export function WorkspaceHeader({
@@ -50,9 +48,6 @@ export function WorkspaceHeader({
   const { t } = useI18n()
   const state = useDesktopState(
     "diffs",
-    "contextTokens",
-    "contextLimit",
-    "usage",
     "session",
     "panes",
     "runtimes",
@@ -67,15 +62,11 @@ export function WorkspaceHeader({
   const hasChanges = useDesktopSelector((snapshot) => snapshot?.entries.some(isChange) ?? false)
   if (!state) return <header className="workspaceHeader" />
 
-  const { diffs, contextTokens, contextLimit } = state
+  const { diffs } = state
   const conversation = hasEntries || state.panes.length > 1
   const folder = foldersSpanned(state.runtimes)
     ? state.runtimes.find((entry) => entry.focused)?.workspace.label
     : undefined
-  const contextPercent =
-    contextTokens === undefined
-      ? 0
-      : Math.min(100, Math.round((contextTokens / Math.max(1, contextLimit)) * 100))
 
   return (
     <header className="workspaceHeader">
@@ -131,36 +122,6 @@ export function WorkspaceHeader({
             <span className="headerDiff-remove">−{diffs.removed}</span>
           </span>
         ) : null}
-        {hasEntries && contextTokens !== undefined && state.panes.length === 1 ? (
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard focus opens the token breakdown.
-          <div className="contextMeter noDrag" tabIndex={0}>
-            <span className="contextMeter-track">
-              <span className="contextMeter-fill" style={{ width: `${contextPercent}%` }} />
-            </span>
-            <span className="contextMeter-text">{formatTokenCount(contextTokens)}</span>
-            <div className="contextMeter-popover">
-              <p className="contextMeter-section">
-                {t("header.context")}
-                <span>{t("header.contextShare", { percent: `${contextPercent}%` })}</span>
-              </p>
-              <dl className="contextMeter-rows">
-                <dt>{t("header.contextUsed")}</dt>
-                <dd>{formatTokenCount(contextTokens)}</dd>
-                <dt>{t("header.contextAutoCompact")}</dt>
-                <dd>{formatTokenCount(contextLimit)}</dd>
-              </dl>
-              {state.usage?.last ? (
-                <>
-                  <UsageRows
-                    title={t("header.lastRequest")}
-                    usage={addUsage(emptyUsage(), state.usage.last)}
-                  />
-                  <UsageRows title={t("header.thisSession")} usage={state.usage.total} />
-                </>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
         <div className="workspaceHeader-actions">
           {state.remote ? (
             <IconButton
@@ -213,25 +174,4 @@ export function WorkspaceHeader({
 /** Open sessions in more than one folder: each then says which it is in. */
 export function foldersSpanned(runtimes: readonly { workspace: { path: string } }[]) {
   return new Set(runtimes.map((entry) => entry.workspace.path)).size > 1
-}
-
-function UsageRows({ title, usage }: { title: string; usage: UsageTotals }) {
-  const { locale, t } = useI18n()
-  const { hitRate, rows } = usageBreakdown(usage, t, locale)
-  return (
-    <>
-      <p className="contextMeter-section">
-        {title}
-        {hitRate ? <span>{hitRate}</span> : null}
-      </p>
-      <dl className="contextMeter-rows">
-        {rows.map((row) => (
-          <Fragment key={row.id}>
-            <dt>{row.label}</dt>
-            <dd>{formatTokenCount(row.tokens)}</dd>
-          </Fragment>
-        ))}
-      </dl>
-    </>
-  )
 }

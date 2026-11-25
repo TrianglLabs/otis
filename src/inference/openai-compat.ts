@@ -228,6 +228,7 @@ export async function collectCompletionText(
   let usage: TokenUsage | undefined
   for await (const event of client.streamChat({
     messages,
+    systemPrompt: options.systemPrompt,
     projectContext: options.projectContext,
     signal: options.signal,
     sessionId: options.sessionId,

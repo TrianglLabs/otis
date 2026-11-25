@@ -15,11 +15,12 @@ import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { PaneDrop, PaneSide, PendingPermission, SessionOpResult } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
+import { ContextRing } from "../../components/ContextRing.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { MatrixLoader } from "../../components/MatrixLoader.js"
 import { OtisMark } from "../../components/OtisMark.js"
-import { formatAge, formatSessionDetail, formatTokenCount, inView } from "../../format.js"
+import { formatAge, formatSessionDetail, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
 import type { HomeView } from "../../shell/WorkspaceHeader.js"
@@ -228,7 +229,7 @@ const ConversationPane = memo(function ConversationPane({
 }) {
   const { api } = useDesktop()
   const branch = useCallback((turnSeq: number) => onBranch(runtime, turnSeq), [onBranch, runtime])
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const state = useDesktopSelector((snapshot) => {
     const own = snapshot?.runtimes.find((entry) => entry.runtime === runtime)
     const permission = snapshot?.permission ?? null
@@ -374,23 +375,11 @@ const ConversationPane = memo(function ConversationPane({
               </span>
             ) : null}
             {state.entries.length > 0 ? (
-              <span
-                className="contextMeter"
-                title={t("header.contextTokens", {
-                  used: state.contextTokens.toLocaleString(locale),
-                  limit: state.contextLimit.toLocaleString(locale),
-                })}
-              >
-                <span className="contextMeter-track">
-                  <span
-                    className="contextMeter-fill"
-                    style={{
-                      width: `${Math.min(100, Math.round((state.contextTokens / Math.max(1, state.contextLimit)) * 100))}%`,
-                    }}
-                  />
-                </span>
-                <span className="contextMeter-text">{formatTokenCount(state.contextTokens)}</span>
-              </span>
+              <ContextRing
+                tokens={state.contextTokens}
+                limit={state.contextLimit}
+                placement="below"
+              />
             ) : null}
           </span>
         </div>
@@ -418,6 +407,7 @@ const ConversationPane = memo(function ConversationPane({
             onFindCount={finder.setMatchCount}
             rail={!split}
             onBranch={branch}
+            runtime={runtime}
           />
         </PaneRuntimeContext.Provider>
       )}
@@ -464,38 +454,13 @@ export const SessionStrip = memo(function SessionStrip() {
   )
 })
 
-// Home's headline by the part of the day, one of two alternating by date.
-const GREETINGS = {
-  morning: ["home.greeting.morning", "home.greeting.morning2"],
-  afternoon: ["home.greeting.afternoon", "home.greeting.afternoon2"],
-  evening: ["home.greeting.evening", "home.greeting.evening2"],
-  night: ["home.greeting.night", "home.greeting.night2"],
-} as const
-
 /**
- * The top of a quiet home screen: the mark and a headline, or the setup guidance while no model is
- * configured. The composer follows, then Home's next steps, its projects, or its routines.
+ * The top of a quiet home screen: the mark, with the setup guidance while no model is configured.
+ * The composer follows, then Home's next steps, its projects, or its routines.
  */
 function EmptyState() {
   const { t } = useI18n()
   const state = useDesktopState("modelState")
-  // Picked when Home opens, so it never changes while on screen.
-  const [greeting] = useState(() => {
-    const now = new Date()
-    const hour = now.getHours()
-    const part =
-      hour < 5
-        ? "night"
-        : hour < 12
-          ? "morning"
-          : hour < 17
-            ? "afternoon"
-            : hour < 22
-              ? "evening"
-              : "night"
-    const day = Math.floor(now.getTime() / 86_400_000 - now.getTimezoneOffset() / 1440)
-    return GREETINGS[part][day % 2]
-  })
   if (!state) return null
   return (
     <div className="home">
@@ -506,9 +471,7 @@ function EmptyState() {
           <p>{t("home.noModel")}</p>
           <p className="home-setupHint">{t("home.setupHint")}</p>
         </div>
-      ) : (
-        <h1 className="home-greeting">{t(greeting)}</h1>
-      )}
+      ) : null}
     </div>
   )
 }
