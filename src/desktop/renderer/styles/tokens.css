@@ -86,6 +86,14 @@
   --header-height: 48px;
   --composer-max: 240px;
   --content-max: 780px;
+  /* The reading column's side padding: 28px, growing toward 36px as the column reaches the pane's
+     edges, so the answer controls in its left margin keep clear of them. It reads the container
+     where it is used, less the scrollbar the column centers beside. */
+  --column-pad: clamp(
+    28px,
+    calc(36px - (100cqw - var(--scrollbar) - var(--content-max)) / 2),
+    36px
+  );
   --scrollbar: 10px; /* the overlay scrollbar's track, mirrored by gutters and masks */
 
   /* Depth on a dark page: a shadow has little darker tone to fade into, so beside a border it

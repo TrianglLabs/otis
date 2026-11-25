@@ -158,54 +158,6 @@ const VERSION_LABELS = {
 } as const
 
 /**
- * An answer's length, picked in the column's left margin beside its first line: Shorter and
- * Longer, there while the answer is hovered or focused and faintly while it shows another length
- * than its own. Only then does a caption under it take a line, saying which version shows, with
- * the way back.
- */
-function AnswerLength({
-  level,
-  onPick,
-}: {
-  level: AnswerLevel
-  onPick: (level: AnswerLevel) => void
-}) {
-  const { t } = useI18n()
-  return (
-    <>
-      <fieldset
-        aria-label={t("zoom.length")}
-        className={`answerLength${level === 0 ? "" : " answerLength-zoomed"}`}
-      >
-        <IconButton
-          icon={ChevronsUpDown}
-          label={t("zoom.longer")}
-          size={20}
-          disabled={level === 2}
-          onClick={() => onPick((level + 1) as AnswerLevel)}
-        />
-        <IconButton
-          icon={ChevronsDownUp}
-          label={t("zoom.shorter")}
-          size={20}
-          disabled={level === -2}
-          onClick={() => onPick((level - 1) as AnswerLevel)}
-        />
-      </fieldset>
-      {level !== 0 ? (
-        <p className="answerLength-caption">
-          <span>{t(VERSION_LABELS[level])}</span>
-          <span aria-hidden>·</span>
-          <button type="button" onClick={() => onPick(0)}>
-            {t("zoom.showOriginal")}
-          </button>
-        </p>
-      ) : null}
-    </>
-  )
-}
-
-/**
  * A phrase selected in an answer, waiting for its Explain button: the row, and where the
  * selection's first line starts and centers in it.
  */
@@ -787,8 +739,48 @@ export const TranscriptList = memo(function TranscriptList({
             onExpandedChange={setEntryExpanded}
             onBranch={onBranch}
           />
+          {/* The answer's length in the margin beside it, following the reading down a long one:
+              faint while it shows another length than its own, when a caption under it says which,
+              with the way back, or that the version asked for is being written. */}
           {runtime !== undefined && item.answer ? (
-            <AnswerLength level={target} onPick={(level) => setAnswerLength(item.id, level)} />
+            <>
+              <fieldset
+                aria-label={t("zoom.length")}
+                className={`answerLength${target === 0 ? "" : " answerLength-zoomed"}`}
+              >
+                <div className="answerLength-buttons">
+                  <IconButton
+                    icon={ChevronsUpDown}
+                    label={t("zoom.longer")}
+                    size={20}
+                    disabled={target === 2}
+                    onClick={() => setAnswerLength(item.id, (target + 1) as AnswerLevel)}
+                  />
+                  <IconButton
+                    icon={ChevronsDownUp}
+                    label={t("zoom.shorter")}
+                    size={20}
+                    disabled={target === -2}
+                    onClick={() => setAnswerLength(item.id, (target - 1) as AnswerLevel)}
+                  />
+                </div>
+              </fieldset>
+              {zoom?.writing !== undefined ? (
+                <p className="answerLength-caption" role="status">
+                  <span className="thinking-label" data-text={t("zoom.rewriting")}>
+                    {t("zoom.rewriting")}
+                  </span>
+                </p>
+              ) : target !== 0 ? (
+                <p className="answerLength-caption">
+                  <span>{t(VERSION_LABELS[target])}</span>
+                  <span aria-hidden>·</span>
+                  <button type="button" onClick={() => setAnswerLength(item.id, 0)}>
+                    {t("zoom.showOriginal")}
+                  </button>
+                </p>
+              ) : null}
+            </>
           ) : null}
           {zoom?.error ? <p className="answerZoom-error">{zoom.error}</p> : null}
           {/* A selected phrase's Explain button just above it, and the answer's notes: beside the
