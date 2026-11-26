@@ -1,73 +1,73 @@
 import type { CudaVersion, HardwareBackend } from "./hardware.js"
 
-const LLAMA_CPP_RELEASE_TAG = "b12728"
+const LLAMA_CPP_RELEASE_TAG = "b12776"
 /** Upstream's last CUDA 13.4 build, for R615 drivers, which CUDA 13.5's R620 branch excludes. */
 const CUDA_13_4_RELEASE_TAG = "b11438"
 
 const LLAMA_CPP_ASSETS: Record<string, LlamaCppAssetMetadata> = {
-  "llama-b12728-bin-macos-arm64.tar.gz": {
-    size: 16_834_886,
-    sha256: "001140842db7fa5253e57f891c14db5377937faf07d955a2646b471df0e7d9bd",
+  "llama-b12776-bin-macos-arm64.tar.gz": {
+    size: 16_889_708,
+    sha256: "cb0c5c97a1a4ad50a0d64e228a67694de5c3a876d1ae0077b39e3c2381f3a039",
   },
-  "llama-b12728-bin-macos-x64.tar.gz": {
-    size: 12_557_446,
-    sha256: "817b0faa91432ff32ccd6895a7b11a19f0d6ee57d3800c75e93c7d78265c1a9d",
+  "llama-b12776-bin-macos-x64.tar.gz": {
+    size: 12_619_033,
+    sha256: "e644d574b6800879163352cea41b4ebbe03d88a6704adab28dddbe44805f4918",
   },
-  "llama-b12728-bin-ubuntu-arm64.tar.gz": {
-    size: 18_951_947,
-    sha256: "fd00c6490374e11509e22feebfeb3e576662736a18c1ce56b190e388c2e7b003",
+  "llama-b12776-bin-ubuntu-arm64.tar.gz": {
+    size: 19_013_663,
+    sha256: "69a37e8fc18bf06214052d39fd83605846273ba08d7a6d88651e95788ca926db",
   },
-  "llama-b12728-bin-ubuntu-vulkan-arm64.tar.gz": {
-    size: 30_078_554,
-    sha256: "49661bc1b434d77385e7cffa5741c874155276c4de2b2463c3033938d7a7f859",
+  "llama-b12776-bin-ubuntu-vulkan-arm64.tar.gz": {
+    size: 30_138_633,
+    sha256: "068f25e73b6fbc83a56002b6cdb49ffe5143b02b03c553c8ebcf7e0993397443",
   },
-  "llama-b12728-bin-ubuntu-vulkan-x64.tar.gz": {
-    size: 37_107_359,
-    sha256: "99b1a7a54829fa53964c5db6ab34c5f9a7734fb8029506e55bf3d04e24ba4979",
+  "llama-b12776-bin-ubuntu-vulkan-x64.tar.gz": {
+    size: 37_166_385,
+    sha256: "de4b743151f04d616eaadd0bbe962e1b7fb0c6f20edb738878899d3ed465043f",
   },
-  "llama-b12728-bin-ubuntu-x64.tar.gz": {
-    size: 23_392_294,
-    sha256: "7c8d787ff15384423d6742a42fad8e7e453d61b94a9c4cd85296e800d538b178",
+  "llama-b12776-bin-ubuntu-x64.tar.gz": {
+    size: 23_454_955,
+    sha256: "27e18f608c7cd1e2f86d70f91bde4299e795113c0065322f6339cbe5135e79c2",
   },
-  "llama-b12728-bin-ubuntu-cuda-12.8-x64.tar.gz": {
-    size: 220_573_131,
-    sha256: "fa933e8c59cecfca0f4eda3358afca026fb1557f857a7e86896820fabef7b0af",
+  "llama-b12776-bin-ubuntu-cuda-12.8-x64.tar.gz": {
+    size: 220_351_062,
+    sha256: "a264116d76b2bf41fdd4ff636fe1218f6dba2167faf2a164016ff48e38b0132a",
   },
-  "llama-b12728-bin-ubuntu-cuda-13.5-x64.tar.gz": {
-    size: 224_917_210,
-    sha256: "69bc2ff5eb78f86ab91a9be5523282d201a87228b2782cae4a186e6cf4dd3e69",
+  "llama-b12776-bin-ubuntu-cuda-13.5-x64.tar.gz": {
+    size: 225_737_288,
+    sha256: "c1ec29413577f5ddb9f65687da5649b0e0b3a1f820a0bedf1c8b7f2721817144",
   },
-  "llama-b12728-bin-ubuntu-cuda-13.5-arm64.tar.gz": {
-    size: 219_840_618,
-    sha256: "4e2487045f76f929df999ac3a4d90085cb30e07873a4090141e0fc966fc1a4b1",
+  "llama-b12776-bin-ubuntu-cuda-13.5-arm64.tar.gz": {
+    size: 220_730_496,
+    sha256: "e2463b2ea626fff57fa7abd9e9a90c9e8bde11d1fc9dd4796326904d99b8bb95",
   },
-  "llama-b12728-bin-win-cpu-arm64.zip": {
-    size: 13_299_036,
-    sha256: "c4babfa1a8ba38b7a86f3719c7254cf15b918eca81179b1a0c76a23779d3985a",
+  "llama-b12776-bin-win-cpu-arm64.zip": {
+    size: 13_358_743,
+    sha256: "e0b56f7388e77bb7ee2adffa006ef41fe2485b2f5bf28eb3cc8ea16a96fdfa99",
   },
-  "llama-b12728-bin-win-cpu-x64.zip": {
-    size: 25_230_941,
-    sha256: "a8ace09d44bb10e2617268c55c3f2db0e0adeedd9c1ba722969920665a3ae698",
+  "llama-b12776-bin-win-cpu-x64.zip": {
+    size: 25_287_912,
+    sha256: "bba23437a597b7b346acb87dbac2e5452c7b188cec67ca6315bec513a067ace8",
   },
-  "llama-b12728-bin-win-vulkan-arm64.zip": {
-    size: 26_735_751,
-    sha256: "e8deb834cbd0e0cdece4b5a11831acc0ba2e262c11f26d0aece125499bd6d8e9",
+  "llama-b12776-bin-win-vulkan-arm64.zip": {
+    size: 26_792_137,
+    sha256: "fe4e0be1d97a305e0bab0953db2ce593a71e80032f54e18d53d3c3284092a882",
   },
-  "llama-b12728-bin-win-vulkan-x64.zip": {
-    size: 39_101_990,
-    sha256: "d95e91824e3efc5a0de2746ba09a99700e9b81e741573e0b7ffbe404e500257d",
+  "llama-b12776-bin-win-vulkan-x64.zip": {
+    size: 39_159_731,
+    sha256: "2202593e579709ed5a30d34604b4e75214cea4bef8d9449b64ef78848c3b52e5",
   },
-  "llama-b12728-bin-win-cuda-12.4-x64.zip": {
-    size: 358_626_875,
-    sha256: "85b6e332ed7b40fd7a240ac7f32c4f1a29e9ddf6b52853925a215fda23ef24b3",
+  "llama-b12776-bin-win-cuda-12.4-x64.zip": {
+    size: 357_982_680,
+    sha256: "661637cfc6d75f63fd8bc9e837c70a2221a62eb1c91dea91088681ab878c238e",
   },
-  "llama-b12728-bin-win-cuda-13.5-x64.zip": {
-    size: 226_090_452,
-    sha256: "dc4a26a3b6c8b5c8a5437963e3dd7edd0a6ac4d1e585306291f5bb4d8ee235cd",
+  "llama-b12776-bin-win-cuda-13.5-x64.zip": {
+    size: 226_954_424,
+    sha256: "83085e6e64d2874290e7fa7f8ec9e1a71469ba67d278de473b2a9a413e7fdef6",
   },
-  "llama-b12728-bin-win-cuda-13.5-arm64.zip": {
-    size: 213_434_775,
-    sha256: "79dbb977647adb319f20b28f8efe35e6c8d7f8173c5bafe9729883d513ff66cf",
+  "llama-b12776-bin-win-cuda-13.5-arm64.zip": {
+    size: 214_244_192,
+    sha256: "7e1661fd17657056d02029ec6218a86d2c4ed273c96e94faa0b7ea504acce818",
   },
   "llama-b11438-bin-ubuntu-cuda-13.4-x64.tar.gz": {
     size: 152_519_019,
@@ -94,26 +94,26 @@ const LLAMA_CPP_ASSETS: Record<string, LlamaCppAssetMetadata> = {
 const CUDA_RUNTIME_ARCHIVES: Record<string, LlamaCppArchive> = {
   "linux-12.8-x64": cudaRuntimeArchive(
     LLAMA_CPP_RELEASE_TAG,
-    "cudart-llama-b12728-bin-ubuntu-cuda-12.8-x64.tar.gz",
+    "cudart-llama-b12776-bin-ubuntu-cuda-12.8-x64.tar.gz",
     {
-      size: 594_371_473,
-      sha256: "682f4ee2bd14383654ec918b03c33f544db1c3f8490af2171447f18e24b79e73",
+      size: 594_379_015,
+      sha256: "24c0d70f7616fc35707636c6ddb1a2cf5bc5ae569f6d41125fccc22ac7d6c008",
     },
   ),
   "linux-13.5-x64": cudaRuntimeArchive(
     LLAMA_CPP_RELEASE_TAG,
-    "cudart-llama-b12728-bin-ubuntu-cuda-13.5-x64.tar.gz",
+    "cudart-llama-b12776-bin-ubuntu-cuda-13.5-x64.tar.gz",
     {
-      size: 444_078_952,
-      sha256: "040197cd2f0e08da395f7fe0a6d78feaca37f72af7c16db04852dc9ab14a71c1",
+      size: 444_080_184,
+      sha256: "69395ae36b1fc5ef0920f8b1513e4bf0a0a80a6eb15f1907f6986d04727e6db2",
     },
   ),
   "linux-13.5-arm64": cudaRuntimeArchive(
     LLAMA_CPP_RELEASE_TAG,
-    "cudart-llama-b12728-bin-ubuntu-cuda-13.5-arm64.tar.gz",
+    "cudart-llama-b12776-bin-ubuntu-cuda-13.5-arm64.tar.gz",
     {
-      size: 559_872_707,
-      sha256: "bde425dd8cc70c84d0a632a0aff8311812b5bf5632c4225029c29c0b93a8b0dd",
+      size: 559_873_925,
+      sha256: "83b5b7a29ee1ad9777dac4809937299c8a661f2a69569cfe4eae1dc945729136",
     },
   ),
   "linux-13.4-x64": cudaRuntimeArchive(

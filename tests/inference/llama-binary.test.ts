@@ -7,25 +7,25 @@ import {
 
 describe("llama.cpp binary selection", () => {
   it("builds deterministic asset URLs for the pinned release", () => {
-    expect(llamaRuntimeReleaseTag()).toBe("b12728")
+    expect(llamaRuntimeReleaseTag()).toBe("b12776")
     expect(pinnedLlamaCppAsset({ platform: "darwin", arch: "arm64", backend: "metal" })).toEqual({
-      name: "llama-b12728-bin-macos-arm64.tar.gz",
-      url: "https://github.com/ggml-org/llama.cpp/releases/download/b12728/llama-b12728-bin-macos-arm64.tar.gz",
-      size: 16_834_886,
-      sha256: "001140842db7fa5253e57f891c14db5377937faf07d955a2646b471df0e7d9bd",
+      name: "llama-b12776-bin-macos-arm64.tar.gz",
+      url: "https://github.com/ggml-org/llama.cpp/releases/download/b12776/llama-b12776-bin-macos-arm64.tar.gz",
+      size: 16_889_708,
+      sha256: "cb0c5c97a1a4ad50a0d64e228a67694de5c3a876d1ae0077b39e3c2381f3a039",
     })
     expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "vulkan" }).name).toBe(
-      "llama-b12728-bin-ubuntu-vulkan-x64.tar.gz",
+      "llama-b12776-bin-ubuntu-vulkan-x64.tar.gz",
     )
     expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "cpu" }).name).toBe(
-      "llama-b12728-bin-ubuntu-x64.tar.gz",
+      "llama-b12776-bin-ubuntu-x64.tar.gz",
     )
   })
 
   it.each([
-    ["x64", "12.8", "b12728"],
-    ["x64", "13.5", "b12728"],
-    ["arm64", "13.5", "b12728"],
+    ["x64", "12.8", "b12776"],
+    ["x64", "13.5", "b12776"],
+    ["arm64", "13.5", "b12776"],
     // R615 drivers keep the last 13.4 release, since 13.5 needs R620.
     ["x64", "13.4", "b11438"],
     ["arm64", "13.4", "b11438"],
@@ -71,18 +71,18 @@ describe("llama.cpp binary selection", () => {
 describe("Windows llama.cpp assets", () => {
   it("pins the zip builds for CPU, Vulkan, and CUDA with NVIDIA's libraries beside them", () => {
     expect(pinnedLlamaCppAsset({ platform: "win32", arch: "x64", backend: "cpu" })).toEqual({
-      name: "llama-b12728-bin-win-cpu-x64.zip",
-      url: "https://github.com/ggml-org/llama.cpp/releases/download/b12728/llama-b12728-bin-win-cpu-x64.zip",
-      size: 25_230_941,
-      sha256: "a8ace09d44bb10e2617268c55c3f2db0e0adeedd9c1ba722969920665a3ae698",
+      name: "llama-b12776-bin-win-cpu-x64.zip",
+      url: "https://github.com/ggml-org/llama.cpp/releases/download/b12776/llama-b12776-bin-win-cpu-x64.zip",
+      size: 25_287_912,
+      sha256: "bba23437a597b7b346acb87dbac2e5452c7b188cec67ca6315bec513a067ace8",
     })
     expect(pinnedLlamaCppAsset({ platform: "win32", arch: "arm64", backend: "vulkan" }).name).toBe(
-      "llama-b12728-bin-win-vulkan-arm64.zip",
+      "llama-b12776-bin-win-vulkan-arm64.zip",
     )
     for (const [arch, cudaVersion, tag] of [
-      ["x64", "12.4", "b12728"],
-      ["x64", "13.5", "b12728"],
-      ["arm64", "13.5", "b12728"],
+      ["x64", "12.4", "b12776"],
+      ["x64", "13.5", "b12776"],
+      ["arm64", "13.5", "b12776"],
       ["x64", "13.4", "b11438"],
       ["arm64", "13.4", "b11438"],
     ] as const) {
