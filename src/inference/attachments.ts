@@ -1,17 +1,8 @@
 import { readFile, stat } from "node:fs/promises"
 import { basename, extname, resolve } from "node:path"
-import {
-  MAX_DOCUMENTS_PER_MESSAGE,
-  MAX_RAW_DOCUMENT_BYTES,
-  SUPPORTED_DOCUMENT_EXTENSIONS,
-} from "./document-constraints.js"
+import { MAX_DOCUMENTS_PER_MESSAGE, MAX_RAW_DOCUMENT_BYTES } from "./document-constraints.js"
 import { createDocumentAttachment, validateDocumentAttachments } from "./documents.js"
-import {
-  createImageAttachment,
-  detectImageMimeType,
-  parsePastedFilePaths,
-  validateImageAttachments,
-} from "./images.js"
+import { createImageAttachment, detectImageMimeType, validateImageAttachments } from "./images.js"
 import {
   type AttachmentContentPart,
   type DocumentContentPart,
@@ -19,11 +10,6 @@ import {
   MAX_IMAGES_PER_REQUEST,
   SUPPORTED_IMAGE_EXTENSIONS,
 } from "./types.js"
-
-const ATTACHMENT_FILE_EXTENSIONS = new Set<string>([
-  ...SUPPORTED_IMAGE_EXTENSIONS,
-  ...SUPPORTED_DOCUMENT_EXTENSIONS,
-])
 
 export async function createAttachment(
   bytes: Uint8Array,
@@ -70,8 +56,4 @@ export function validateAttachments(attachments: readonly AttachmentContentPart[
       (attachment): attachment is DocumentContentPart => attachment.type === "document",
     ),
   )
-}
-
-export function parsePastedAttachmentPaths(value: string): string[] | undefined {
-  return parsePastedFilePaths(value, ATTACHMENT_FILE_EXTENSIONS)
 }

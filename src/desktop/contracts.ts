@@ -312,7 +312,7 @@ export type DesktopStatus = {
   servers: Partial<Record<ServerProvider, ServerStatus>>
   /** The saved routines with their run state; a running one names its runtime. */
   routines: RoutineStatus[]
-  /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
+  /** Session-only debug mode; applies from the next turn. */
   debug: boolean
   update: DesktopUpdateState
   cli: DesktopCliState | null
@@ -470,9 +470,11 @@ export type DesktopApi = {
   closeArtifact(runtime: number, id: string): Promise<void>
   saveArtifact(runtime: number, id: string, revision: number): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>
+  /** Steers a running turn with the prompt, or with `queue` waits to run it after the turn. */
   sendPrompt(
     text: string,
     attachments?: readonly DesktopAttachmentInput[],
+    queue?: boolean,
   ): Promise<SendPromptResult>
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>

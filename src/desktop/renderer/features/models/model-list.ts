@@ -41,8 +41,7 @@ export function isPickerRowSelectable(
 type PickerDetailPart = { label: string; modality?: "text" | "vision" }
 
 /**
- * Structured row metadata lets the GUI decorate capabilities without parsing the TUI-compatible
- * label. A row leads with its provider when a server names it, or under Favorites, away from its
+ * Structured row metadata lets the GUI decorate capabilities without parsing the plain label. A row leads with its provider when a server names it, or under Favorites, away from its
  * section header; a PAIR row's engine stands in.
  */
 export function pickerDetailParts(
@@ -84,10 +83,8 @@ export function pickerDetailParts(
 }
 
 /**
- * Row subtitle when no live status overrides it. Mirrors modelMeta in the TUI's model picker
- * (src/cli/ui/model-picker.ts) string-for-string — "Est." is a managed-local concept, hosted rows
- * show the exact context — except that PAIR rows also lead with the engine label the TUI renders as
- * a name suffix, since this picker has no suffix column.
+ * Row subtitle when no live status overrides it. "Est." is a managed-local concept, hosted rows show
+ * the exact context, and PAIR rows lead with their engine's name.
  */
 export function pickerDetailLabel(item: ModelPickerChoice, t: Translate = englishT): string {
   return pickerDetailParts(item, t)

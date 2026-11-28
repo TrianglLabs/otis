@@ -221,9 +221,8 @@ const TEXT_SIZE_LABELS = {
 
 /**
  * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the
- * whole window. Mirrors the TUI's /settings submenu: hosted API keys, local model-server endpoints,
- * theme, plus the /thinking toggle; the /debug toggle is development-only and never renders
- * in production builds. Model selection and local-model deletion live in the composer's model
+ * whole window: hosted API keys, local model-server endpoints, theme, and the thinking toggle; the
+ * debug toggle is development-only and never renders in production builds. Model selection and local-model deletion live in the composer's model
  * picker. Every control writes through the main process; status events update the UI.
  */
 export function SettingsPage({

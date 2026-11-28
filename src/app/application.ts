@@ -298,12 +298,6 @@ export const NO_TOOL_MODELS = "The hosted provider returned no public models wit
 const CANCELLED: SelectionResult = { ok: false, reason: SELECTION_CANCELLED }
 const SUPERSEDED: SelectionResult = { ok: false, reason: SELECTION_SUPERSEDED }
 
-export function isSelectionCancelled(result: SelectionResult) {
-  return (
-    !result.ok && (result.reason === SELECTION_CANCELLED || result.reason === SELECTION_SUPERSEDED)
-  )
-}
-
 /** The catalog model behind a hosted picker row, without the row's own fields. */
 function hostedCatalogModel(choice: HostedPickerChoice): HostedModel {
   const {

@@ -66,7 +66,6 @@ describe("pickerItemKey", () => {
   })
 })
 
-// These strings mirror modelMeta in the TUI's model picker (src/cli/ui/model-picker.ts) exactly.
 describe("pickerDetailLabel", () => {
   it("suffixes local availability with the modality", () => {
     expect(pickerDetailLabel(localItem as LocalPickerChoice)).toBe("Est. 32K · Q4_K_M · Text")

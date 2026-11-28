@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { agentSummary } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
 
-// These strings mirror subagentSummary in the TUI's subagent panel (src/cli/ui/subagent-panel.ts)
-// exactly.
 describe("agentSummary", () => {
   it("shows the tool count and lifecycle state", () => {
     expect(agentSummary({ status: "running", tools: 1 })).toBe("1 tool · running")

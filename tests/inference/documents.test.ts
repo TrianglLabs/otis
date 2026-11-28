@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto"
 import mammoth from "mammoth"
 import { describe, expect, it, vi } from "vitest"
-import { parsePastedAttachmentPaths } from "../../src/inference/attachments.js"
 import {
   createDocumentAttachment,
   DOCX_MIME_TYPE,
@@ -114,7 +113,7 @@ describe("document attachments", () => {
     ).rejects.toThrow("Legacy Word .doc")
   })
 
-  it("validates aggregate limits and parses shell-escaped document paths", async () => {
+  it("validates aggregate limits", async () => {
     const document = await createDocumentAttachment(new TextEncoder().encode("small"), "small.txt")
     const tooMany = Array.from({ length: 11 }, (_, index) => ({
       ...document,
@@ -122,11 +121,6 @@ describe("document attachments", () => {
     }))
 
     expect(() => validateDocumentAttachments(tooMany)).toThrow("at most 10 documents")
-    expect(parsePastedAttachmentPaths("'notes one.md' report.pdf photo.png")).toEqual([
-      "notes one.md",
-      "report.pdf",
-      "photo.png",
-    ])
   })
 
   it("rejects tampered aggregate metadata before use", () => {

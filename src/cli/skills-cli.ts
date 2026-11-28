@@ -88,7 +88,7 @@ export function skillCount(count: number) {
 
 const SKILLS_HELP = `Usage: otis skills <command>
 
-Manage Git-backed Agent Skills without starting OpenTUI.
+Manage Git-backed Agent Skills without starting the terminal UI.
 
 Commands:
   install <git-url> [--name NAME]  Install and activate skills from a Git repository, or from

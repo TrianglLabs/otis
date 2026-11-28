@@ -3,7 +3,7 @@
 ## Product direction
 
 Otis is a general interactive terminal agent, with coding as an important capability. Keep the product centered on the
-OpenTUI CLI.
+terminal UI.
 
 Desktop Canvas is for rendered documents, webpages, diagrams, and visual outputs. Plain code, configuration, and
 raw text files stay in the main conversation; reading or editing them must not open Canvas. Canvas exports preserve
@@ -19,9 +19,13 @@ with it over a private network using a local token. There is no relay, account, 
 
 ## Current technical decisions
 
-- Frontend: OpenTUI CLI, with shared application behavior in `src/app` for the terminal, headless, and future adapters.
+- Frontend: the terminal UI in `tui/`, Rust with ratatui and crossterm, drawn inline in the terminal's scrollback and
+  matching the desktop's design. It drives the runtime as a client of the desktop API over `otis rpc`
+  (newline-delimited wire frames on stdio); the desktop app and `otis serve` reach the same API in process and over a
+  WebSocket. Shared application behavior lives in `src/app` for the desktop runtime, headless, and future adapters.
   `src/app` owns conversation lifecycle and model-selection transactions; adapters own screens and rendering.
-- Runtime and package manager: TypeScript on Bun.
+- Runtime and package manager: TypeScript on Bun. A release `otis` is the Rust UI with the compiled runtime embedded,
+  unpacked into the data folder on first run, so every platform still ships one binary.
 - Inference: the hosted providers' OpenAI-compatible chat completions (Fireworks, Together AI, Baseten, Prime
   Intellect, River AI, OpenRouter), called directly from the local runtime; local models via either Otis-managed llama.cpp
   `llama-server`, user-managed oMLX, or an NVIDIA PAIR endpoint on loopback.
@@ -84,8 +88,8 @@ Preserve provider-native reasoning and tool-call history when sending later turn
 
 - Do not add compatibility layers unless persisted user data or a released interface requires one.
 - Keep network transport, persistence, tool execution, and UI rendering in their existing source boundaries.
-- Keep reusable conversation, session, and model coordination in `src/app`. `src/app` must not import OpenTUI,
-  Electron, React, or anything from `src/cli`.
+- Keep reusable conversation, session, and model coordination in `src/app`. `src/app` must not import Electron,
+  React, or anything from `src/cli`. The terminal UI reaches the runtime only through the desktop API.
 - Add tests that assert real behavior and failure modes. Remove obsolete tests instead of preserving dead product flows.
 - Run the relevant tests, typecheck, formatter/linter checks, and release build before declaring work complete.
 
@@ -109,8 +113,8 @@ The refactoring algorithm, in order:
 Syntax and style:
 
 - Do not split code into more files. Merge a module into its only consumer when both stay in the same boundary.
-- Soft 80-column, hard 100-column limit. Biome and ruff enforce 100.
-- 2-space indents in TypeScript, CSS, and JSON, following the ecosystem norm. Python stays at 4.
+- Soft 80-column, hard 100-column limit. Biome, ruff, and rustfmt enforce 100.
+- 2-space indents in TypeScript, CSS, and JSON, following the ecosystem norm. Python and Rust stay at 4.
 - Single-line guard clauses such as `if (!x) return` are fine. Do not one-line loops or multi-statement branches.
 - Do not align continuation lines to an opening paren; the formatter handles this.
 - Apply semantic vertical spacing between blocks of code sparingly.

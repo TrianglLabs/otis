@@ -107,6 +107,11 @@ type DesktopRuntimeOptions = {
   platform: NodeJS.Platform
   /** Whether this app's window can change its icon; a daemon has no window and leaves it off. */
   appIconSupported?: boolean
+  /**
+   * The terminal UI's runtime: it renders no Canvas, and leaves routines and serving other devices
+   * to the desktop app or daemon on this machine.
+   */
+  terminal?: boolean
   /** Delivers the ordered event stream to the renderer. */
   send: (event: DesktopEvent) => void
   /** Delivers the workspace shell's output; not state, so it rides its own channel. */
@@ -178,7 +183,7 @@ export class DesktopRuntime {
   #lastPickerItems: ModelPickerItem[] | undefined
   /** What the renderer holds; the next status event carries only the fields that differ. */
   #sentStatus: DesktopStatus | undefined
-  /** Session-only debug mode, mirroring the TUI's /debug toggle. */
+  /** Session-only debug mode. */
   #debug = false
   /**
    * Global session listing is disk-heavy; the shared promise coalesces concurrent status snapshots.
@@ -229,7 +234,7 @@ export class DesktopRuntime {
   static async create(options: DesktopRuntimeOptions) {
     const app = await Application.create({
       cwd: options.cwd,
-      outputCapabilities: CANVAS,
+      outputCapabilities: options.terminal ? {} : CANVAS,
     })
     const runtime = DesktopRuntime.forApplication(app, options)
     app.watchNetwork()
@@ -239,14 +244,15 @@ export class DesktopRuntime {
 
   /**
    * Builds a runtime around an existing application and starts its saved selection. A saved local
-   * model needs its managed server started before any prompt can run, exactly as the TUI does at
-   * launch; hosted and PAIR selections already have their client from `savedSelection`. This
+   * model needs its managed server started before any prompt can run; hosted and PAIR selections
+   * already have their client from `savedSelection`. This
    * is the test seam for DesktopRuntime.
    */
   static forApplication(app: Application, options: DesktopRuntimeOptions) {
     const runtime = new DesktopRuntime(app, options)
     void runtime.#startSavedSelection()
     void runtime.#refreshStats()
+    if (options.terminal) return runtime
     runtime.#startRoutines()
     const serve = app.settings.serve
     // The daemon's flags decide for it; the app serves again when it was serving.
@@ -593,6 +599,7 @@ export class DesktopRuntime {
   async sendPrompt(
     text: string,
     inputs: readonly DesktopAttachmentInput[] = [],
+    queue = false,
   ): Promise<SendPromptResult> {
     // A live renderer sending a prompt un-gates the queue after a renderer crash.
     this.#rendererGone = false
@@ -642,7 +649,7 @@ export class DesktopRuntime {
       }
     }
     try {
-      const { delivery } = await app.conversation.submit(message)
+      const { delivery } = await app.conversation.submit(message, queue)
       this.#markStateDirty()
       return { accepted: true, delivery }
     } catch (error) {
@@ -1370,11 +1377,18 @@ export class DesktopRuntime {
     })
   }
 
-  /** Session-only debug mode; applies from the next turn, matching the TUI. */
+  /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean) {
     this.#debug = enabled
     this.app.debug = enabled
     this.#markStateDirty()
+  }
+
+  /** Summarizes the focused session's older turns to free context; refused while it works. */
+  async compact(instructions?: string): Promise<SessionOpResult> {
+    const refused = await this.app.compact(instructions)
+    this.#markStateDirty()
+    return refused ? { ok: false, reason: refused } : { ok: true }
   }
 
   cancelModelSelection() {
@@ -1390,7 +1404,7 @@ export class DesktopRuntime {
       : { revision, entries: transcript ? [...transcript.entries] : [] }
   }
 
-  /** Persists the delegated-runs rail preference, mirroring the TUI's subagent panel setting. */
+  /** Persists the delegated-runs rail preference. */
   async setAgentsPanelVisible(visible: boolean) {
     this.app.settings.subagentPanelVisible = visible
     await saveSubagentPanelVisible(visible)

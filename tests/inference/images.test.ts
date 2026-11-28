@@ -1,9 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { parsePastedAttachmentPaths } from "../../src/inference/attachments.js"
 import {
   createImageAttachment,
   estimateImageTokens,
@@ -58,27 +56,6 @@ describe("image attachments", () => {
     expect(() =>
       validateImageAttachments(Array.from({ length: MAX_IMAGES_PER_REQUEST + 1 }, () => image)),
     ).toThrow(`at most ${MAX_IMAGES_PER_REQUEST} images`)
-  })
-
-  it("parses shell-escaped, quoted, and file-URL paths produced by terminal drag and drop", () => {
-    expect(
-      parsePastedAttachmentPaths(
-        "/Users/me/Desktop/Screenshot\\ 2026-07-31\\ at\\ 9.22.10 PM.png ",
-      ),
-    ).toEqual(["/Users/me/Desktop/Screenshot 2026-07-31 at 9.22.10 PM.png"])
-    expect(parsePastedAttachmentPaths("'/tmp/first image.jpg' \"/tmp/second image.PNG\"")).toEqual([
-      "/tmp/first image.jpg",
-      "/tmp/second image.PNG",
-    ])
-    expect(parsePastedAttachmentPaths(pathToFileURL(resolve("/tmp/a picture.gif")).href)).toEqual([
-      resolve("/tmp/a picture.gif"),
-    ])
-  })
-
-  it("does not claim regular pasted text or malformed shell quoting", () => {
-    expect(parsePastedAttachmentPaths("What does screenshot.png contain?")).toBeUndefined()
-    expect(parsePastedAttachmentPaths("'/tmp/unfinished.png")).toBeUndefined()
-    expect(parsePastedAttachmentPaths("/tmp/archive.zip")).toBeUndefined()
   })
 })
 

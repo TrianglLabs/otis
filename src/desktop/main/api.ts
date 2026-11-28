@@ -119,8 +119,10 @@ export function desktopCall(runtime: DesktopRuntime) {
       if (typeof id !== "string" || !id) throw new Error("closeArtifact expects an artifact id")
       runtime.closeArtifact(target, id)
     },
-    sendPrompt: (text: unknown, attachments: unknown) => {
+    sendPrompt: (text: unknown, attachments: unknown, queue: unknown) => {
       if (typeof text !== "string") throw new Error("sendPrompt expects a string")
+      if (queue !== undefined && typeof queue !== "boolean")
+        throw new Error("sendPrompt expects queue to be a boolean")
       const valid =
         attachments === undefined ||
         (Array.isArray(attachments) &&
@@ -133,7 +135,7 @@ export function desktopCall(runtime: DesktopRuntime) {
               attachment.bytes instanceof Uint8Array,
           ))
       if (!valid) throw new Error("sendPrompt expects valid attachments")
-      return runtime.sendPrompt(text, attachments)
+      return runtime.sendPrompt(text, attachments, queue)
     },
     stop: () => runtime.stop(),
     openTerminal: () => runtime.openTerminal(),
@@ -447,6 +449,11 @@ export function desktopCall(runtime: DesktopRuntime) {
     setDebugMode: (enabled: unknown) => {
       if (typeof enabled !== "boolean") throw new Error("Invalid debug flag.")
       return runtime.setDebugMode(enabled)
+    },
+    compact: (instructions: unknown) => {
+      if (instructions !== undefined && typeof instructions !== "string")
+        throw new Error("Invalid compaction instructions.")
+      return runtime.compact(instructions)
     },
     getSubagentTrace: (toolCallId: unknown, seen: unknown) => {
       if (typeof toolCallId !== "string" || !toolCallId) throw new Error("Invalid tool call id.")
