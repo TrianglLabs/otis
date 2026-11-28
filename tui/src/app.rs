@@ -117,8 +117,12 @@ enum Reply {
     /// A local model's files removed, which relists the catalog.
     Deleted,
     Models,
+    /// Every catalog, hidden models included, for choosing what the picker shows.
+    Catalogs,
+    /// The skills, printed when asked, or with a name to turn off or back on.
     Skills {
         print: bool,
+        toggle: Option<String>,
     },
     Memory,
     Release,
@@ -140,6 +144,8 @@ enum PickerKind {
     Provider,
     Theme,
     Settings,
+    /// Which models the model picker shows.
+    Shown,
     Effort,
     Agents,
 }
@@ -153,7 +159,7 @@ struct Row {
     active: bool,
     favorite: bool,
     disabled: bool,
-    /// A downloaded managed-local model, by the id `deleteLocalModel` takes.
+    /// What Ctrl+X deletes: a downloaded managed-local model, or a session, by its id.
     deletable: Option<String>,
     /// A session's workspace folder and session store.
     path: Option<String>,
@@ -174,12 +180,14 @@ struct Picker {
     /// The selected row's key, kept across refreshes and filtering.
     selected: Option<String>,
     loading: bool,
+    /// The row a first Ctrl+X asked to delete; a second deletes it, any other key forgets it.
+    armed: Option<String>,
 }
 
 impl Picker {
     fn new(kind: PickerKind, title: &'static str, rows: Vec<Row>) -> Self {
         let selected = rows.iter().find(|row| row.active && !row.header).map(|row| row.key.clone());
-        Self { kind, title, query: String::new(), rows, selected, loading: false }
+        Self { kind, title, query: String::new(), rows, selected, loading: false, armed: None }
     }
 
     /// The rows the query matches, each section's header kept above its matches.
@@ -216,11 +224,26 @@ impl Picker {
     }
 }
 
-/// A line typed in for a hosted provider's API key, or a local server's address, by its key.
+/// What is typed in: a hosted provider's API key, or a local server, by its key, with its address
+/// and, for oMLX and custom servers, the API key, model, and context limit the desktop's form
+/// also takes.
 enum Field {
     Key(&'static str, String),
-    Server(&'static str, String),
+    Server { server: &'static str, values: [String; 4], focus: usize },
 }
+
+impl Field {
+    /// The value being typed into.
+    fn input(&mut self) -> &mut String {
+        match self {
+            Field::Key(_, input) => input,
+            Field::Server { values, focus, .. } => &mut values[*focus],
+        }
+    }
+}
+
+/// A server form's fields; NVIDIA PAIR takes only the first.
+const SERVER_FIELDS: [&str; 4] = ["Address", "API key", "Model", "Context"];
 
 enum Overlay {
     Picker(Picker),
@@ -252,6 +275,8 @@ pub struct App {
     overlay: Option<Overlay>,
     /// The model catalog as last listed, before favorites are arranged.
     catalog: Vec<Row>,
+    /// Every provider's models by provider, id, and name, hidden ones included.
+    catalogs: Vec<(String, String, String)>,
     menu_index: usize,
     menu_dismissed: bool,
     skills: Option<Vec<(String, String)>>,
@@ -289,6 +314,7 @@ impl App {
             session: None,
             overlay: None,
             catalog: Vec::new(),
+            catalogs: Vec::new(),
             menu_index: 0,
             menu_dismissed: false,
             skills: None,
@@ -376,7 +402,7 @@ impl App {
                         self.exited = Some(format!("Otis could not start: {reason}"));
                         self.done = true;
                     }
-                    (Err(reason), Reply::Models) => {
+                    (Err(reason), Reply::Models | Reply::Catalogs) => {
                         self.overlay = None;
                         self.tell(reason, true);
                     }
@@ -487,7 +513,32 @@ impl App {
                     }
                 }
             }
-            Reply::Skills { print } => {
+            // `{ local: [...], openrouter: [...], ... }`, listed on-device first, then the hosted
+            // providers in the order Otis offers them.
+            Reply::Catalogs => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Model {
+                    id: String,
+                    display_name: String,
+                }
+                let order = std::iter::once("local").chain(PROVIDERS.iter().map(|(id, _)| *id));
+                self.catalogs = order
+                    .flat_map(|provider| {
+                        let field = value.get(provider).cloned().unwrap_or_default();
+                        let models: Vec<Model> = serde_json::from_value(field).unwrap_or_default();
+                        models
+                            .into_iter()
+                            .map(move |m| (provider.to_string(), m.id, m.display_name))
+                    })
+                    .collect();
+                let rows = shown_rows(&self.catalogs, &self.state.status.hidden_models);
+                if let Some(picker) = self.open_picker(PickerKind::Shown) {
+                    picker.rows = rows;
+                    picker.loading = false;
+                }
+            }
+            Reply::Skills { print, toggle } => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase")]
                 struct Skill {
@@ -540,6 +591,17 @@ impl App {
                         lines.push(dim_line(hint, &theme));
                     }
                     self.print(lines);
+                }
+                // Off keeps a skill loaded but out of the model's offer and the menu.
+                if let Some(name) = toggle {
+                    let Some(skill) = skills.iter().find(|skill| skill.name == name) else {
+                        return self.tell(format!("There is no skill named {name}."), true);
+                    };
+                    self.op("setSkillHidden", vec![json!(name), json!(!skill.hidden)]);
+                    let state = if skill.hidden { "back on" } else { "off" };
+                    self.tell(format!("Turned /{name} {state}."), false);
+                    self.skills = None;
+                    return;
                 }
                 let invocable = skills.into_iter().filter(|s| s.user_invocable && !s.hidden);
                 let menu =
@@ -622,6 +684,12 @@ impl App {
             Some(Overlay::Picker(p)) if p.kind == PickerKind::Model && !p.loading => {
                 p.rows = model_rows(&self.catalog, &status.favorite_models)
             }
+            Some(Overlay::Picker(p)) if p.kind == PickerKind::Shown && !p.loading => {
+                p.rows = shown_rows(&self.catalogs, &status.hidden_models)
+            }
+            Some(Overlay::Picker(p)) if p.kind == PickerKind::Session => {
+                p.rows = session_rows(status)
+            }
             _ => {}
         }
         if self.state.resets != self.resets {
@@ -643,9 +711,7 @@ impl App {
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => self.key(key),
             Event::Paste(text) => match self.overlay.as_mut() {
-                Some(Overlay::Field(Field::Key(_, input) | Field::Server(_, input))) => {
-                    input.push_str(text.trim())
-                }
+                Some(Overlay::Field(field)) => field.input().push_str(text.trim()),
                 Some(Overlay::Picker(picker)) => {
                     picker.query.push_str(text.lines().next().unwrap_or(""))
                 }
@@ -779,7 +845,7 @@ impl App {
             self.menu_index = 0;
             self.menu_dismissed = false;
         } else if self.skills.is_none() {
-            self.call("listSkills", vec![], Reply::Skills { print: false });
+            self.call("listSkills", vec![], Reply::Skills { print: false, toggle: None });
         }
     }
 
@@ -811,20 +877,27 @@ impl App {
     fn overlay_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         if let Some(Overlay::Field(field)) = &mut self.overlay {
-            let (Field::Key(_, input) | Field::Server(_, input)) = field;
-            match key.code {
-                KeyCode::Esc => self.overlay = None,
-                KeyCode::Backspace => {
-                    input.pop();
+            let back = matches!(key.code, KeyCode::BackTab | KeyCode::Up);
+            match (key.code, field) {
+                (KeyCode::Esc, _) => self.overlay = None,
+                (KeyCode::Tab | KeyCode::Down | KeyCode::BackTab | KeyCode::Up, field) => {
+                    let Field::Server { server, focus, .. } = field else { return };
+                    let pair = matches!(*server, "ollama" | "lmStudio");
+                    let fields = if pair { 1 } else { SERVER_FIELDS.len() };
+                    *focus = (*focus + if back { fields - 1 } else { 1 }) % fields;
                 }
-                KeyCode::Char('o') if ctrl => {
-                    if let Field::Key(provider, _) = field {
-                        let provider = *provider;
-                        self.op("openHostedKeyPage", vec![json!(provider)]);
-                    }
+                (KeyCode::Backspace, field) => {
+                    field.input().pop();
                 }
-                KeyCode::Char(ch) if !ctrl => input.push(ch),
-                KeyCode::Enter if !input.trim().is_empty() => {
+                (KeyCode::Char('o'), Field::Key(provider, _)) if ctrl => {
+                    let provider = *provider;
+                    self.op("openHostedKeyPage", vec![json!(provider)]);
+                }
+                (KeyCode::Char(ch), field) if !ctrl => field.input().push(ch),
+                (
+                    KeyCode::Enter,
+                    Field::Key(_, first) | Field::Server { values: [first, ..], .. },
+                ) if !first.trim().is_empty() => {
                     let Some(Overlay::Field(field)) = self.overlay.take() else { unreachable!() };
                     let (method, args, doing) = match field {
                         Field::Key(provider, key) => (
@@ -832,10 +905,10 @@ impl App {
                             vec![json!(provider), json!(key.trim())],
                             format!("Checking the {} key…", provider_name(provider)),
                         ),
-                        Field::Server(server, address) => (
+                        Field::Server { server, values, .. } => (
                             "connectLocalServers",
-                            vec![server_inputs(&self.state.status, server, address.trim())],
-                            format!("Connecting to {}…", address.trim()),
+                            vec![server_inputs(&self.state.status, server, &values)],
+                            format!("Connecting to {}…", values[0].trim()),
                         ),
                     };
                     self.tell(doing, false);
@@ -846,6 +919,7 @@ impl App {
             return;
         }
         let Some(Overlay::Picker(picker)) = &mut self.overlay else { return };
+        let armed = picker.armed.take();
         match key.code {
             KeyCode::Esc => {
                 if picker.kind == PickerKind::Model {
@@ -868,10 +942,19 @@ impl App {
                     self.op("setModelFavorite", vec![json!(key), json!(!favorite)]);
                 }
             }
-            KeyCode::Char('x') if ctrl && picker.kind == PickerKind::Model => {
-                let deletable = picker.current().and_then(|row| row.deletable.clone());
-                if let Some(id) = deletable {
+            // Deleting takes a second Ctrl+X on the same row: a downloaded model's files, or a
+            // stored session.
+            KeyCode::Char('x') if ctrl => {
+                let Some(Row { key, deletable: Some(id), dir, .. }) = picker.current().cloned()
+                else {
+                    return;
+                };
+                if armed.as_ref() != Some(&key) {
+                    picker.armed = Some(key);
+                } else if picker.kind == PickerKind::Model {
                     self.call("deleteLocalModel", vec![json!(id)], Reply::Deleted);
+                } else {
+                    self.op("deleteSession", vec![json!(id), json!(dir)]);
                 }
             }
             KeyCode::Char(ch) if !ctrl => picker.query.push(ch),
@@ -888,12 +971,25 @@ impl App {
                         picker.selected = Some(row.key.clone());
                         self.call("selectModel", vec![json!(row.key)], Reply::Select);
                     }
+                    // A server's form opens on what is saved for it; its key stays blank, which
+                    // keeps the saved one.
                     PickerKind::Provider => {
                         let server = SERVERS
                             .iter()
                             .find(|(id, ..)| Some(*id) == row.key.strip_prefix("server:"));
                         self.overlay = Some(Overlay::Field(match server {
-                            Some((id, ..)) => Field::Server(id, row.detail.clone()),
+                            Some((server, ..)) => {
+                                let saved = self.state.status.servers.get(*server);
+                                let saved = saved.cloned().unwrap_or_default();
+                                let limit = saved.context_length.map(|n| n.to_string());
+                                let values = [
+                                    row.detail.clone(),
+                                    String::new(),
+                                    saved.model.unwrap_or_default(),
+                                    limit.unwrap_or_default(),
+                                ];
+                                Field::Server { server, values, focus: 0 }
+                            }
                             None => {
                                 let provider = PROVIDERS.iter().find(|(id, _)| *id == row.key);
                                 Field::Key(provider.expect("a listed provider").0, String::new())
@@ -903,12 +999,11 @@ impl App {
                     PickerKind::Session => {
                         self.overlay = None;
                         let here = &self.state.status.workspace.path;
+                        let id = row.deletable;
                         match row.path.filter(|path| path != here) {
-                            Some(path) => self.op(
-                                "openSessionAt",
-                                vec![json!(path), json!(row.key), json!(row.dir)],
-                            ),
-                            None => self.op("selectSession", vec![json!(row.key), json!(row.dir)]),
+                            Some(path) => self
+                                .op("openSessionAt", vec![json!(path), json!(id), json!(row.dir)]),
+                            None => self.op("selectSession", vec![json!(id), json!(row.dir)]),
                         }
                     }
                     PickerKind::Theme => {
@@ -929,6 +1024,12 @@ impl App {
                             Reply::Trace(row.label),
                         );
                     }
+                    // Rows are keyed `provider:id`; a shown model hides, a hidden one returns.
+                    PickerKind::Shown => {
+                        let (provider, id) = row.key.split_once(':').expect("a provider:id key");
+                        let args = vec![json!(provider), json!([id]), json!(row.active)];
+                        self.op("setModelsHidden", args);
+                    }
                     PickerKind::Settings => {
                         let status = &self.state.status;
                         let auto = status.permission_mode == "auto";
@@ -941,6 +1042,11 @@ impl App {
                                     ..Row::default()
                                 });
                                 return self.picker(PickerKind::Theme, "Theme", rows.collect());
+                            }
+                            "shown" => {
+                                let title = "Models in the picker";
+                                let (kind, reply) = (PickerKind::Shown, Reply::Catalogs);
+                                return self.open_loading(kind, title, "listModelCatalogs", reply);
                             }
                             "thinking" => ("setThinkingVisible", json!(!status.thinking_visible)),
                             "permissions" => {
@@ -1018,28 +1124,7 @@ impl App {
         match command {
             "/new" => self.op("startNewSession", vec![]),
             "/history" => {
-                let rows = status
-                    .sessions
-                    .iter()
-                    .map(|item| Row {
-                        key: item.id.clone(),
-                        label: if item.title.is_empty() {
-                            "Untitled".into()
-                        } else {
-                            item.title.clone()
-                        },
-                        detail: [item.workspace_label.as_str(), item.detail.as_str()]
-                            .into_iter()
-                            .filter(|part| !part.is_empty())
-                            .collect::<Vec<_>>()
-                            .join(" · "),
-                        active: status.session.as_ref().is_some_and(|s| s.id == item.id),
-                        path: item.workspace_path.clone(),
-                        dir: item.dir_name.clone(),
-                        ..Row::default()
-                    })
-                    .collect();
-                self.picker(PickerKind::Session, "Sessions", rows);
+                self.picker(PickerKind::Session, "Sessions", session_rows(status));
             }
             "/fork" => match status.session.as_ref().map(|s| s.id.clone()) {
                 Some(id) => self.op("forkSession", vec![json!(id)]),
@@ -1122,7 +1207,11 @@ impl App {
                 Some(("install", url)) => self.op("installSkills", vec![json!(url)]),
                 Some(("update", id)) => self.op("updateSkills", vec![json!(id)]),
                 Some(("remove", id)) => self.op("removeSkills", vec![json!(id)]),
-                _ => self.call("listSkills", vec![], Reply::Skills { print: true }),
+                Some(("toggle", name)) => {
+                    let toggle = Some(name.trim_start_matches('/').to_string());
+                    self.call("listSkills", vec![], Reply::Skills { print: false, toggle })
+                }
+                _ => self.call("listSkills", vec![], Reply::Skills { print: true, toggle: None }),
             },
             "/memory" => match action {
                 Some(("remember", fact)) => {
@@ -1138,11 +1227,16 @@ impl App {
         }
     }
 
-    fn open_models(&mut self) {
-        let mut picker = Picker::new(PickerKind::Model, "Choose a model", Vec::new());
+    /// A picker that spins until `method`'s reply fills it.
+    fn open_loading(&mut self, kind: PickerKind, title: &'static str, method: &str, reply: Reply) {
+        let mut picker = Picker::new(kind, title, Vec::new());
         picker.loading = true;
         self.overlay = Some(Overlay::Picker(picker));
-        self.call("listModels", vec![], Reply::Models);
+        self.call(method, vec![], reply);
+    }
+
+    fn open_models(&mut self) {
+        self.open_loading(PickerKind::Model, "Choose a model", "listModels", Reply::Models);
     }
 
     /// The hosted providers by key, then the servers on this computer by address.
@@ -1526,6 +1620,8 @@ impl App {
             Span::styled(picker.title, Style::new().fg(theme.text).add_modifier(Modifier::BOLD));
         let hint = match picker.kind {
             PickerKind::Model => "enter select · ⌃F favorite · ⌃X delete download · esc close",
+            PickerKind::Session => "enter open · ⌃X delete · esc close",
+            PickerKind::Shown => "enter show or hide · esc close",
             _ => "↑↓ choose · enter select · esc close",
         };
         let gap = width.saturating_sub(text::width(picker.title) + text::width(hint));
@@ -1585,6 +1681,9 @@ impl App {
                 (false, false) => theme.text,
             };
             let (detail, detail_ink) = match load.filter(|load| load.model_id == row.key) {
+                _ if picker.armed.as_ref() == Some(&row.key) => {
+                    ("⌃X again to delete".to_string(), theme.pink)
+                }
                 Some(load) => {
                     let percent =
                         load.status.percent.map(|p| format!(" {p:.0}%")).unwrap_or_default();
@@ -1620,40 +1719,86 @@ impl App {
         let theme = &self.theme;
         let width = (self.size.0 as usize).saturating_sub(2 * MARGIN).max(12);
         let edge = Style::new().fg(theme.accent);
-        let (title, about, hint, shown) = match field {
+        // Each row: its label (none for a lone key), what is typed (a key masked), and whether the
+        // cursor is in it.
+        let (title, about, hint, rows) = match field {
             Field::Key(provider, key) => (
                 format!("Connect {}", provider_name(provider)),
                 "Paste an API key. It is saved on this computer and sent only to the provider.",
                 "enter save · ctrl+o open the key page · esc cancel",
-                "•".repeat(key.chars().count()),
+                vec![("", "•".repeat(key.chars().count()), true)],
             ),
-            Field::Server(server, address) => (
-                format!(
-                    "Connect {}",
-                    SERVERS.iter().find(|(id, ..)| id == server).map_or("a server", |s| s.1)
-                ),
-                "The address it serves on, on this computer. Otis connects only over loopback.",
-                "enter connect · esc cancel",
-                address.clone(),
-            ),
+            Field::Server { server, values, focus } => {
+                let name = SERVERS.iter().find(|(id, ..)| id == server).map_or("a server", |s| s.1);
+                let pair = matches!(*server, "ollama" | "lmStudio");
+                let rows =
+                    SERVER_FIELDS.iter().zip(values).enumerate().take(if pair { 1 } else { 4 });
+                let rows = rows.map(|(index, (label, value))| {
+                    let shown = if index == 1 {
+                        "•".repeat(value.chars().count())
+                    } else {
+                        value.clone()
+                    };
+                    (*label, shown, index == *focus)
+                });
+                let (about, hint) = match pair {
+                    true => (
+                        "Its address on this computer; Otis connects only over loopback.",
+                        "enter connect · esc cancel",
+                    ),
+                    false => (
+                        concat!(
+                            "Its address on this computer, over loopback. A blank key keeps the ",
+                            "saved one; the model and context limit are needed only where the ",
+                            "server reports none.",
+                        ),
+                        "tab next field · enter connect · esc cancel",
+                    ),
+                };
+                (format!("Connect {name}"), about, hint, rows.collect())
+            }
         };
-        let shown: String =
-            shown.chars().rev().take(width - 6).collect::<Vec<_>>().into_iter().rev().collect();
-        let lines = vec![
-            Line::from(vec![
-                margin(),
-                Span::styled(title, Style::new().fg(theme.text).add_modifier(Modifier::BOLD)),
-            ]),
-            dim_line(about, theme),
-            Line::from(vec![margin(), Span::styled(format!("╭{}╮", "─".repeat(width - 2)), edge)]),
-            boxed(vec![Span::styled(shown.clone(), Style::new().fg(theme.text))], width - 4, edge),
-            Line::from(vec![margin(), Span::styled(format!("╰{}╯", "─".repeat(width - 2)), edge)]),
-            Line::from(vec![
-                Span::raw(" ".repeat(MARGIN + 2)),
-                Span::styled(hint, Style::new().fg(theme.faint)),
-            ]),
-        ];
-        (lines, Some((MARGIN + 2 + text::width(&shown), 3)))
+        let labels = rows.iter().map(|(label, ..)| text::width(label)).max().unwrap_or(0);
+        let labels = if labels > 0 { labels + 2 } else { 0 };
+        let room = width.saturating_sub(5 + labels);
+        let mut lines = vec![Line::from(vec![
+            margin(),
+            Span::styled(title, Style::new().fg(theme.text).add_modifier(Modifier::BOLD)),
+        ])];
+        lines.extend(indented(
+            &[Span::styled(about, Style::new().fg(theme.dim))],
+            self.size.0 as usize,
+            "",
+        ));
+        let above = lines.len() + 1;
+        lines.push(Line::from(vec![
+            margin(),
+            Span::styled(format!("╭{}╮", "─".repeat(width - 2)), edge),
+        ]));
+        let mut cursor = None;
+        for (row, (label, shown, focused)) in rows.into_iter().enumerate() {
+            // The end of a long value stays in view, where the typing happens.
+            let skip = shown.chars().count().saturating_sub(room);
+            let shown: String = shown.chars().skip(skip).collect();
+            if focused {
+                cursor = Some((MARGIN + 2 + labels + text::width(&shown), above + row));
+            }
+            let ink = if focused { theme.accent_ink } else { theme.faint };
+            let spans = vec![
+                Span::styled(format!("{label:<labels$}"), Style::new().fg(ink)),
+                Span::styled(shown, Style::new().fg(theme.text)),
+            ];
+            lines.push(boxed(spans, width - 4, edge));
+        }
+        lines.push(Line::from(vec![
+            margin(),
+            Span::styled(format!("╰{}╯", "─".repeat(width - 2)), edge),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw(" ".repeat(MARGIN + 2)),
+            Span::styled(hint, Style::new().fg(theme.faint)),
+        ]));
+        (lines, cursor)
     }
 
     fn permission_lines(&self) -> Vec<Line<'static>> {
@@ -1785,8 +1930,10 @@ fn model_rows(catalog: &[Row], favorites: &[String]) -> Vec<Row> {
 }
 
 /// Every local endpoint as `connectLocalServers` takes them, since it keeps only those it is
-/// given: the saved ones, with `server` at `address`. A blank key keeps a server's saved key.
-fn server_inputs(status: &Status, server: &str, address: &str) -> Value {
+/// given: the saved ones, with `server` as its form now reads (address, key, model, context
+/// limit). The form opens on what is saved, so a field left blank is one cleared, except the key,
+/// which, blank, keeps the saved one for the same address.
+fn server_inputs(status: &Status, server: &str, values: &[String; 4]) -> Value {
     let mut inputs = serde_json::Map::new();
     let endpoints = &status.pair_endpoints;
     for (key, endpoint) in [("ollama", &endpoints.ollama), ("lmStudio", &endpoints.lm_studio)] {
@@ -1804,13 +1951,61 @@ fn server_inputs(status: &Status, server: &str, address: &str) -> Value {
         }
         inputs.insert(provider.clone(), input);
     }
-    match server {
-        "ollama" | "lmStudio" => {
-            inputs.insert(server.into(), json!(address));
+    let [address, key, model, limit] = values.each_ref().map(|value| value.trim());
+    let input = match server {
+        "ollama" | "lmStudio" => json!(address),
+        _ => {
+            let mut input = json!({ "baseURL": address });
+            for (field, value) in [("apiKey", key), ("model", model), ("contextLength", limit)] {
+                if !value.is_empty() {
+                    input[field] = json!(value);
+                }
+            }
+            input
         }
-        _ => inputs.entry(server).or_insert_with(|| json!({}))["baseURL"] = json!(address),
-    }
+    };
+    inputs.insert(server.into(), input);
     Value::Object(inputs)
+}
+
+/// Every stored session, newest first, keyed `dir/id` since ids repeat across workspaces; the one
+/// on screen is the runtime's `active` row.
+fn session_rows(status: &Status) -> Vec<Row> {
+    status
+        .sessions
+        .iter()
+        .map(|item| Row {
+            key: format!("{}/{}", item.dir_name, item.id),
+            deletable: Some(item.id.clone()),
+            label: if item.title.is_empty() { "Untitled".into() } else { item.title.clone() },
+            detail: [item.workspace_label.as_str(), item.detail.as_str()]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" · "),
+            active: item.active == Some(true),
+            path: item.workspace_path.clone(),
+            dir: item.dir_name.clone(),
+            ..Row::default()
+        })
+        .collect()
+}
+
+/// Every catalog model by provider, shown or hidden, keyed `provider:id` as settings stores them.
+fn shown_rows(catalogs: &[(String, String, String)], hidden: &[String]) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let mut section = "";
+    for (provider, id, name) in catalogs {
+        if provider != section {
+            section = provider;
+            rows.push(Row::header(provider, &provider_name(provider)));
+        }
+        let key = format!("{provider}:{id}");
+        let shown = !hidden.contains(&key);
+        let detail = if shown { "Shown" } else { "Hidden" }.into();
+        rows.push(Row { key, label: name.clone(), detail, active: shown, ..Row::default() });
+    }
+    rows
 }
 
 fn settings_rows(status: &Status) -> Vec<Row> {
@@ -1824,6 +2019,7 @@ fn settings_rows(status: &Status) -> Vec<Row> {
     let approve = if status.permission_mode == "auto" { "Automatically" } else { "Ask first" };
     vec![
         row("theme", "Theme", capitalized(&status.theme)),
+        row("shown", "Models in the picker", format!("{} hidden", status.hidden_models.len())),
         row("thinking", "Thinking traces", on(status.thinking_visible)),
         row("permissions", "Approve edits and commands", approve.into()),
         row("notify", "Bell when a turn finishes", on(status.notify_on_completion)),
@@ -1952,7 +2148,7 @@ fn attachment(path: &std::path::Path) -> Result<Attachment, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{PairEndpoints, Server};
+    use crate::protocol::{PairEndpoints, Server, SessionItem};
 
     #[test]
     fn reads_dropped_paths_and_leaves_prose_alone() {
@@ -2019,20 +2215,60 @@ mod tests {
             )]),
             ..Status::default()
         };
-        let inputs = server_inputs(&status, "custom", "http://127.0.0.1:9100");
+        let form = |values: [&str; 4]| values.map(String::from);
+        let inputs =
+            server_inputs(&status, "custom", &form(["http://127.0.0.1:9100", "sk-1", "m", ""]));
         assert_eq!(
             inputs,
             json!({
                 "ollama": "http://127.0.0.1:11434",
-                "custom": {
-                    "baseURL": "http://127.0.0.1:9100",
-                    "model": "m",
-                    "contextLength": "8192",
-                },
+                "custom": { "baseURL": "http://127.0.0.1:9100", "apiKey": "sk-1", "model": "m" },
             })
         );
-        let inputs = server_inputs(&status, "omlx", "http://127.0.0.1:8000");
+        let inputs = server_inputs(&status, "omlx", &form(["http://127.0.0.1:8000", "", "", ""]));
         assert_eq!(inputs["omlx"], json!({ "baseURL": "http://127.0.0.1:8000" }));
         assert_eq!(inputs["custom"]["baseURL"], "http://127.0.0.1:9000");
+        assert_eq!(inputs["custom"]["contextLength"], "8192");
+        let inputs =
+            server_inputs(&status, "lmStudio", &form(["http://127.0.0.1:1234", "", "", ""]));
+        assert_eq!(inputs["lmStudio"], "http://127.0.0.1:1234");
+    }
+
+    #[test]
+    fn keys_session_rows_by_store_since_ids_repeat() {
+        let item = |dir: &str, active| SessionItem {
+            id: "default".into(),
+            dir_name: dir.into(),
+            active: Some(active),
+            ..SessionItem::default()
+        };
+        let status =
+            Status { sessions: vec![item("a", false), item("b", true)], ..Status::default() };
+        let rows = session_rows(&status);
+        let keys: Vec<&str> = rows.iter().map(|row| row.key.as_str()).collect();
+        assert_eq!(keys, ["a/default", "b/default"]);
+        assert!(rows[1].active && !rows[0].active);
+        assert_eq!(rows[1].deletable.as_deref(), Some("default"));
+    }
+
+    #[test]
+    fn lists_every_catalog_model_shown_or_hidden_by_provider() {
+        let model = |provider: &str, id: &str| (provider.into(), id.into(), id.to_uppercase());
+        let catalogs =
+            [model("local", "gemma"), model("openrouter", "kimi"), model("openrouter", "glm")];
+        let rows = shown_rows(&catalogs, &["openrouter:glm".to_string()]);
+        let shown: Vec<(&str, &str)> =
+            rows.iter().map(|row| (row.label.as_str(), row.detail.as_str())).collect();
+        assert_eq!(
+            shown,
+            [
+                ("Local", ""),
+                ("GEMMA", "Shown"),
+                ("OpenRouter", ""),
+                ("KIMI", "Shown"),
+                ("GLM", "Hidden")
+            ]
+        );
+        assert_eq!(rows[4].key, "openrouter:glm");
     }
 }

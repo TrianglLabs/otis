@@ -280,6 +280,8 @@ pub struct Status {
     pub hosted_configured: HashMap<String, bool>,
     /// Picker rows the user favorited, by their selection keys.
     pub favorite_models: Vec<String>,
+    /// Models kept out of the picker, by `provider:id`.
+    pub hidden_models: Vec<String>,
     pub notify_on_completion: bool,
     pub keep_awake: bool,
     pub offline_fallback: bool,
