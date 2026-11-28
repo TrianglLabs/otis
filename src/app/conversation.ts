@@ -283,15 +283,6 @@ export class Conversation {
     await this.#active?.task
   }
 
-  takeQueued() {
-    return this.#queued.shift()
-  }
-
-  /** The next queued prompt without removing it, so a caller can check the backlog first. */
-  peekQueued() {
-    return this.#queued[0]
-  }
-
   async queue(message: UserChatMessage): Promise<QueuedPrompt> {
     const { sessions, transcript, artifacts } = this.options
     try {

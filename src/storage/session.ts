@@ -57,11 +57,6 @@ export type PromptAdmission = {
   message: UserChatMessage
 }
 
-type SessionSearchResult = SessionSummary & {
-  /** The first content match, flattened to one line with context; absent for title-only hits. */
-  snippet?: string
-}
-
 /**
  * Global session history rows carry the storage dir name (identity when ids repeat across
  * workspaces) and the registered workspace path when known — pre-registration history reports
@@ -72,7 +67,10 @@ type GlobalSessionSummary = SessionSummary & {
   workspacePath?: string
 }
 
-type GlobalSessionSearchResult = GlobalSessionSummary & { snippet?: string }
+type GlobalSessionSearchResult = GlobalSessionSummary & {
+  /** The first content match, flattened to one line with context; absent for title-only hits. */
+  snippet?: string
+}
 
 export class JsonlSession {
   private appendQueue: Promise<void> = Promise.resolve()
@@ -409,20 +407,6 @@ export async function listSessions(
   options: Omit<SessionOptions, "sessionId">,
 ): Promise<SessionSummary[]> {
   return (await digestSessions(options)).map((session) => session.summary)
-}
-
-export async function searchSessions(
-  options: Omit<SessionOptions, "sessionId">,
-  query: string,
-): Promise<SessionSearchResult[]> {
-  return matchSessions(await digestSessions(options, true), query)
-}
-
-/** Every workspace's sessions under the shared data root, merged and recency-ordered. */
-export async function listAllSessions(
-  options: { seeds?: string[] } = {},
-): Promise<GlobalSessionSummary[]> {
-  return (await digestAllSessions(options.seeds)).sessions.map((session) => session.summary)
 }
 
 /** With `words`, every word of the query counts on its own, as recall asks; else the phrase. */

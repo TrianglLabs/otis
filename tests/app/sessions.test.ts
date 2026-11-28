@@ -1,6 +1,7 @@
 import { chmod, readdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
+import { listGlobalHistory } from "../../src/app/global-sessions.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
@@ -76,7 +77,7 @@ describe("SessionCoordinator", () => {
 
     expect(await sessions.select(stored.id)).toBe("loaded")
     expect(sessions.current?.view()).toEqual(view)
-    const items = await sessions.listPickerItems([])
+    const items = (await listGlobalHistory(0, { seeds: [cwd] })).sessions
     expect(items.find((item) => item.id === stored.id)?.view).toEqual(view)
   })
 

@@ -8,9 +8,9 @@ import type { HostedClient } from "../../src/inference/client.js"
 import { createDocumentAttachment } from "../../src/inference/documents.js"
 import { remember } from "../../src/memory/memory.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
-import { emptySkillCatalog } from "../../src/skills/catalog.js"
 import { useOtisHome } from "../app/support/otis-home.js"
 import { minimalDocx } from "../inference/support/document-fixtures.js"
+import { emptySkillCatalog } from "../support/skills.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
 const client = {

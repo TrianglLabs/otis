@@ -10,7 +10,6 @@ import {
   type ModelProvider,
 } from "../../src/inference/types.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
-import { emptySkillCatalog } from "../../src/skills/catalog.js"
 import {
   describeToolCall,
   executeToolCall,
@@ -19,6 +18,7 @@ import {
   TOOL_DEFINITIONS,
 } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
+import { emptySkillCatalog } from "../support/skills.js"
 
 const streamMock = vi.hoisted(() => vi.fn())
 const client = {

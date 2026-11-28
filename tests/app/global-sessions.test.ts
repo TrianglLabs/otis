@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { listGlobalHistory, listGlobalSessionPickerItems } from "../../src/app/global-sessions.js"
+import { listGlobalHistory } from "../../src/app/global-sessions.js"
 import { sessionRootDirectory } from "../../src/storage/session-files.js"
 import { registerWorkspacePath } from "../../src/storage/workspace-registry.js"
 import { useOtisHome } from "./support/otis-home.js"
@@ -36,13 +36,13 @@ describe("global picker items", () => {
     const open = (dirName: string) => [
       { id: "default", dirName, shown: true, working: false, unseen: false },
     ]
-    const items = await listGlobalSessionPickerItems({ open: open("beta-bbbbbbbbbbbb") })
+    const items = (await listGlobalHistory(0, { open: open("beta-bbbbbbbbbbbb") })).sessions
     expect(items).toHaveLength(2)
     const active = items.filter((item) => item.active)
     expect(active).toHaveLength(1)
     expect(active[0].dirName).toBe("beta-bbbbbbbbbbbb")
 
-    const none = await listGlobalSessionPickerItems({ open: open("elsewhere-cccccccccccc") })
+    const none = (await listGlobalHistory(0, { open: open("elsewhere-cccccccccccc") })).sessions
     expect(none.every((item) => !item.active)).toBe(true)
   })
 })

@@ -7,8 +7,6 @@ type MermaidCanvasArtifact = {
   source: string
 }
 
-export type CanvasArtifact = MermaidCanvasArtifact | ArtifactMetadata
-
 /**
  * One Canvas tab as the panel lists it: a session's open document, or the diagram opened from a
  * card, which belongs to the renderer alone. `activated` orders tabs by when they last took the
