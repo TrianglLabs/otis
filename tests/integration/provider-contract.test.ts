@@ -13,7 +13,6 @@ import type {
   TokenUsage,
 } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
-import { emptySkillCatalog } from "../../src/skills/catalog.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
 import {
@@ -22,6 +21,7 @@ import {
   startFakeOpenAIServer,
   usageChunk,
 } from "../support/openai-fake-server.js"
+import { emptySkillCatalog } from "../support/skills.js"
 
 /**
  * Both hosted and local transports run end to end through the agent loop against a fake that

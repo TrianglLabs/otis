@@ -7,10 +7,8 @@ import {
   createSession,
   deleteSession,
   type JsonlSession,
-  listSessions,
   openSession,
   type SessionSummary,
-  searchSessions,
 } from "../storage/session.js"
 import type { SessionToolActivity, SessionView } from "../storage/session-events.js"
 import { defaultSessionDirectory } from "../storage/session-files.js"
@@ -261,33 +259,6 @@ export class SessionCoordinator {
     void this.releaseLock()
     this.reset()
     return true
-  }
-
-  /** Rows of this workspace's store, marked by the sessions open in this process. */
-  async listPickerItems(open: readonly OpenSession[]): Promise<SessionPickerItem[]> {
-    const summaries = await listSessions({ cwd: this.options.cwd })
-    return summaries.map((summary) => toSessionPickerItem(summary, this.#openState(open, summary)))
-  }
-
-  /** Title-first session search for the desktop command palette; content hits carry a snippet. */
-  async searchPickerItems(
-    query: string,
-    open: readonly OpenSession[],
-  ): Promise<SessionPickerItem[]> {
-    const results = await searchSessions({ cwd: this.options.cwd }, query)
-    return results.map((result) => ({
-      ...toSessionPickerItem(result, this.#openState(open, result)),
-      snippet: result.snippet,
-    }))
-  }
-
-  #openState(open: readonly OpenSession[], summary: SessionSummary) {
-    const dirName = basename(defaultSessionDirectory(this.options.cwd))
-    return open.find((entry) => entry.id === summary.id && entry.dirName === dirName)
-  }
-
-  provisionalLabel(input: string) {
-    return formatSessionLabel(input)
   }
 
   activeLabel() {

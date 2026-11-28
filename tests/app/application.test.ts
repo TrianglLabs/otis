@@ -456,14 +456,15 @@ describe("Application prompt admission", () => {
     await app.conversation.queue({ role: "user", content: "hold this" })
     app.conversation.drain()
     expect(mocks.executeTurn).not.toHaveBeenCalled()
-    expect(app.conversation.peekQueued()).toBeTruthy()
+    const parked = () => app.transcript.entries.some((entry) => entry.delivery === "queued")
+    expect(parked()).toBe(true)
 
     // A selection settling with a client re-drives the backlog.
     await app.models.enqueueSelection(async () => serve(app, fakeClient))
     await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalledOnce())
     expect(JSON.stringify(mocks.executeTurn.mock.calls[0]?.[0].input)).toContain("hold this")
     await app.conversation.idle()
-    expect(app.conversation.peekQueued()).toBeUndefined()
+    expect(parked()).toBe(false)
     await app.shutdown()
   })
 

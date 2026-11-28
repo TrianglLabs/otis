@@ -66,10 +66,6 @@ export async function loadSkillCatalog(
   return { skills: ordered, byName: new Map(ordered.map((skill) => [skill.name, skill])), problems }
 }
 
-export function emptySkillCatalog(): SkillCatalog {
-  return { skills: [], byName: new Map(), problems: [] }
-}
-
 export async function loadSkillPackage(directory: string): Promise<Skill | undefined> {
   const instructionsPath = join(directory, "SKILL.md")
   let contents: string

@@ -2,7 +2,7 @@ import { basename } from "node:path"
 import { isCanvasArtifact } from "../artifacts/canvas.js"
 import type { ArtifactKind, PublishedArtifactReference } from "../artifacts/types.js"
 import { sessionPinKey } from "../local/settings.js"
-import { digestAllSessions, listAllSessions, searchAllSessions } from "../storage/session.js"
+import { digestAllSessions, searchAllSessions } from "../storage/session.js"
 import { type OpenSession, type SessionPickerItem, toSessionPickerItem } from "./sessions.js"
 
 /**
@@ -83,13 +83,6 @@ export type WorkspaceHistory = {
   path?: string
   sessions: number
   updatedAt?: string
-}
-
-export async function listGlobalSessionPickerItems(
-  options: GlobalOptions,
-): Promise<GlobalSessionPickerItem[]> {
-  const summaries = await listAllSessions({ seeds: options.seeds })
-  return summaries.map((summary) => toGlobalItem(summary, options))
 }
 
 /** Title-first search across all workspaces; content hits carry a snippet. */

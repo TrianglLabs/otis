@@ -309,19 +309,18 @@ describe("Conversation", () => {
 
     const started = conversation.start({ role: "user", content: "first" })
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
-    await conversation.queue({ role: "user", content: "next" })
-    const queued = conversation.takeQueued()
-    expect(queued?.admission.message).toEqual({ role: "user", content: "next" })
+    const queued = await conversation.queue({ role: "user", content: "next" })
+    expect(queued.admission.message).toEqual({ role: "user", content: "next" })
     expect(transcript.entries.some((entry) => entry.delivery === "queued")).toBe(true)
     expect(
       sessions.current?.events.some(
-        (event) => event.type === "turn_started" && event.promptId === queued?.admission.promptId,
+        (event) => event.type === "turn_started" && event.promptId === queued.admission.promptId,
       ),
     ).toBe(false)
     conversation.cancel()
     await started
 
-    if (!queued) throw new Error("Expected a queued prompt")
+    // Nothing drives a queue filled directly; draining runs the parked prompt as its own turn.
     mocks.executeTurn.mockImplementationOnce(async () => {
       expect(sessions.current?.events.at(-1)).toMatchObject({
         type: "turn_started",
@@ -329,10 +328,12 @@ describe("Conversation", () => {
       })
       return { status: "complete", messages: [], details: {} }
     })
-    await conversation.start(queued)
+    conversation.drain()
+    await conversation.idle()
     expect(sessions.current?.events.filter((event) => event.type === "turn_started")).toHaveLength(
       2,
     )
+    expect(transcript.entries.some((entry) => entry.delivery === "queued")).toBe(false)
   })
 
   it("accepts steering on a queued turn that has already been admitted", async () => {
@@ -469,19 +470,18 @@ describe("Conversation", () => {
     expect(compacted).toMatchObject({ type: "compacted", throughSeq: (admittedSeq ?? 0) - 1 })
     expect(transcript.history.some(isCompactionSummary)).toBe(true)
 
-    const next = conversation.takeQueued()
-    if (!next) throw new Error("Expected the queued prompt")
     mocks.executeTurn.mockImplementationOnce(
       async (): Promise<TurnResult> => ({
         status: "complete",
-        messages: [next.admission.message, reply("later done")],
+        messages: [queued.admission.message, reply("later done")],
         details: {},
       }),
     )
-    await conversation.start(next)
+    conversation.drain()
+    await conversation.idle()
     expect(session.replayMessages()).toEqual(transcript.history)
     expect(session.replayMessages().slice(-2)).toEqual([
-      next.admission.message,
+      queued.admission.message,
       reply("later done"),
     ])
   })

@@ -1,11 +1,16 @@
 import { appendFile, mkdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { createSession, listAllSessions, searchAllSessions } from "../../src/storage/session.js"
+import { createSession, digestAllSessions, searchAllSessions } from "../../src/storage/session.js"
 import { sessionRootDirectory } from "../../src/storage/session-files.js"
 import { useOtisHome } from "../app/support/otis-home.js"
 
 const isolate = useOtisHome()
+
+/** Every workspace's sessions, as the history listings read them. */
+async function listAllSessions() {
+  return (await digestAllSessions(undefined)).sessions.map((session) => session.summary)
+}
 
 /**
  * A session file the way releases before workspace registration wrote it: no marker, no cwd on
