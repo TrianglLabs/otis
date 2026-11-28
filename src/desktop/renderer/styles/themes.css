@@ -1,4 +1,4 @@
-/* Theme overrides mirroring src/cli/theme.ts. The default theme lives in tokens.css (:root). */
+/* Theme overrides, mirrored by tui/src/theme.rs. The default theme lives in tokens.css (:root). */
 
 [data-theme="pearl"] {
   color-scheme: light;

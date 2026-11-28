@@ -304,6 +304,31 @@ describe("Application keep awake", () => {
 })
 
 describe("Application prompt admission", () => {
+  it("queues a separate follow-up behind a turn whose steering inbox is open", async () => {
+    const app = await ready()
+    const first = gate()
+    let calls = 0
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        calls += 1
+        if (calls === 1) await first.promise
+        return turnEvents(`reply ${calls}`)(options)
+      },
+    )
+    const { conversation } = app
+    await conversation.submit({ role: "user", content: "first" })
+    expect(await conversation.submit({ role: "user", content: "later" }, true)).toEqual({
+      delivery: "queued",
+    })
+    expect(calls).toBe(1)
+    first.resolve()
+    await vi.waitFor(() => expect(calls).toBe(2))
+    await conversation.idle()
+    const userEntries = app.transcript.entries.filter((entry) => entry.speaker === "You")
+    expect(userEntries.map((entry) => entry.text)).toEqual(["first", "later"])
+    await app.shutdown()
+  })
+
   it("starts, steers into the running turn, and queues behind it, draining in order", async () => {
     const app = await ready()
     const first = gate()

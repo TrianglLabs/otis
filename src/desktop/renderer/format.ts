@@ -79,7 +79,6 @@ export function inView(
 
 /**
  * A wall-clock span in whole units: `1s`, `34s`, `2m 5s`, `1h 12m`. Sub-second rounds up to `1s`.
- * Duplicates src/cli/ui/format.ts to keep the CLI module out of the renderer bundle.
  */
 export function formatElapsed(durationMs: number): string {
   const total = Math.max(1, Math.round(durationMs / 1_000))

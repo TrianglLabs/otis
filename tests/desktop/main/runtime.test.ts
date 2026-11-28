@@ -9,6 +9,7 @@ import type {
   DesktopSnapshot,
   DesktopStatus,
 } from "../../../src/desktop/contracts.js"
+import { desktopCall } from "../../../src/desktop/main/api.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import { findLocalModel } from "../../../src/inference/local-catalog.js"
 import type { discoverPairModels, PairEndpoints } from "../../../src/inference/pair.js"
@@ -507,6 +508,41 @@ describe("DesktopRuntime subagents", () => {
     await runtime.setDebugMode(true)
     expect((await runtime.snapshot()).debug).toBe(true)
     expect(await loadLocalSettings()).not.toHaveProperty("debug")
+    await runtime.shutdown()
+  })
+
+  it("compacts the focused session, naming the reason when it refuses", async () => {
+    const { app, runtime } = await setup()
+    const compact = vi.spyOn(app, "compact").mockResolvedValueOnce(undefined)
+    expect(await runtime.compact("keep the plan")).toEqual({ ok: true })
+    expect(compact).toHaveBeenCalledWith("keep the plan")
+    compact.mockResolvedValueOnce("Finish the current turn first.")
+    expect(await runtime.compact()).toEqual({ ok: false, reason: "Finish the current turn first." })
+    expect(() => desktopCall(runtime)("compact", [42])).toThrow("Invalid compaction instructions.")
+    await runtime.shutdown()
+  })
+
+  it("leaves serving other devices and running routines to the desktop app in a terminal", async () => {
+    const home = await isolate("otis-desktop-")
+    const cwd = join(home, "workspace")
+    await mkdir(cwd, { recursive: true })
+    await saveServe({ enabled: true, host: "127.0.0.1" })
+    const app = await Application.create({ cwd })
+    const routines = app.routines as NonNullable<typeof app.routines>
+    const attach = vi.spyOn(routines, "attach")
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      terminal: true,
+      send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
+    })
+    expect((await runtime.snapshot()).serve).toMatchObject({ enabled: false, listening: null })
+    expect(attach).not.toHaveBeenCalled()
     await runtime.shutdown()
   })
 

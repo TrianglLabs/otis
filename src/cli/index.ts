@@ -4,7 +4,7 @@ import { runHeadlessCommand } from "./headless-cli.js"
 import { runSkillsCommand } from "./skills-cli.js"
 import { runUpdateCommand } from "./update.js"
 
-// A crash must not orphan a multi-gigabyte llama-server. Both the interactive app and headless
+// A crash must not orphan a multi-gigabyte llama-server. The terminal UI's runtime and headless
 // runs shut down on SIGTERM through their own quit paths, which stop the managed server; raise
 // that in-process, then exit with the original error once the loop drains or a deadline passes.
 const crash = (error: unknown) => {
@@ -33,6 +33,13 @@ try {
       globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr })
       process.exitCode = await runHeadlessCommand(args)
       break
+    case "rpc": {
+      // Stdout carries the terminal UI's frames alone.
+      globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr })
+      const { runRpcCommand } = await import("./serve.js")
+      await runRpcCommand()
+      break
+    }
     case "skills":
       await runSkillsCommand(args)
       break
@@ -46,18 +53,9 @@ try {
     case "version":
       console.log(`otis ${process.env.OTIS_VERSION ?? "dev"}`)
       break
-    default: {
-      // A desktop launcher or a pipe has no terminal: the TUI would draw into nothing and wait
-      // forever. Refuse before any settings, sessions or managed runtimes load.
-      if (!process.stdin.isTTY || !process.stdout.isTTY) {
-        throw new Error(
-          "otis needs an interactive terminal. Run it from a terminal, or use `otis exec` " +
-            "for scripts.",
-        )
-      }
-      const { InteractiveApp } = await import("./interactive-app.js")
-      await InteractiveApp.start()
-    }
+    default:
+      // The terminal UI is the `otis` binary in front of this runtime; it spawns `rpc` itself.
+      throw new Error(`Unknown command: ${command ?? "(none)"}. Run \`otis\` for the terminal UI.`)
   }
 } catch (error) {
   console.error(`Error: ${describeError(error)}`)

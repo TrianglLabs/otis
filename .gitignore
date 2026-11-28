@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+tui/target/
 build/
 out/
 *.tsbuildinfo
@@ -37,7 +38,7 @@ __pycache__/
 .otis-documents-venv/
 .ruff_cache/
 
-# Native/OpenTUI build artifacts
+# Native build artifacts
 *.node
 *.dylib
 *.so

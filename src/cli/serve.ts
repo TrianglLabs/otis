@@ -1,9 +1,21 @@
 import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
+import { createInterface } from "node:readline"
+import { desktopCall } from "../desktop/main/api.js"
 import { DesktopRuntime } from "../desktop/main/runtime.js"
 import { resolveWorkspaceCwd } from "../desktop/main/workspace.js"
-import { SERVE_PORT } from "../desktop/wire.js"
+import {
+  type ClientMessage,
+  decode,
+  encode,
+  SERVE_PORT,
+  type ServerMessage,
+} from "../desktop/wire.js"
+import { describeError } from "../inference/errors.js"
+import { HOSTED_PROVIDER_INFO, isHostedProvider } from "../inference/types.js"
 import { loadLocalSettings } from "../local/settings.js"
+import { FEEDBACK_ADDRESS, feedbackEmail, openURL } from "./links.js"
+import { checkForUpdate } from "./update.js"
 
 const USAGE =
   "Usage: otis serve [--host ADDRESS] [--port PORT] [--cwd DIR]\n\n" +
@@ -81,4 +93,56 @@ export async function runServeCommand(args: string[]) {
     for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => resolve())
   })
   await server.close()
+}
+
+/**
+ * The runtime behind the terminal UI, which spawns it: the desktop API in this folder as
+ * newline-delimited wire frames, calls on stdin and answers and events on stdout, until the UI
+ * closes stdin.
+ */
+export async function runRpcCommand() {
+  const write = (message: ServerMessage) => process.stdout.write(`${encode(message)}\n`)
+  const version = process.env.OTIS_VERSION ?? "dev"
+  const runtime = await DesktopRuntime.create({
+    cwd: process.cwd(),
+    version,
+    platform: process.platform,
+    terminal: true,
+    send: (event) => write({ event }),
+    notify: (notify) => write({ notify }),
+    sendTerminal: () => {},
+    spawnPty: () => {
+      throw new Error("The terminal UI has no workspace shell.")
+    },
+  })
+  const desktop = desktopCall(runtime)
+  // The pages the desktop main opens with Electron's shell, opened here on the UI's machine, and
+  // the release the terminal UI offers `otis update` for.
+  const call = (method: string, args: unknown[]) => {
+    if (method === "latestRelease") return checkForUpdate()
+    if (method === "openHostedKeyPage") {
+      if (!isHostedProvider(args[0])) throw new Error("Invalid hosted provider.")
+      return openURL(HOSTED_PROVIDER_INFO[args[0]].keyURL)
+    }
+    if (method !== "sendFeedback") return desktop(method, args)
+    return openURL(feedbackEmail(version, "terminal")).then((opened) => ({
+      opened,
+      address: FEEDBACK_ADDRESS,
+    }))
+  }
+  const lines = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY })
+  process.once("SIGTERM", () => lines.close())
+  for await (const line of lines) {
+    if (!line) continue
+    const { id, method, args } = decode(line) as ClientMessage
+    // As over the WebSocket: JSON has no undefined, so a null argument is an omitted one.
+    const omitted = (args ?? []).map((arg) => arg ?? undefined)
+    Promise.resolve()
+      .then(() => call(method, omitted))
+      .then(
+        (result) => write({ id, result: result ?? null }),
+        (error) => write({ id, error: describeError(error) }),
+      )
+  }
+  await runtime.shutdown()
 }

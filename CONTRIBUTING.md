@@ -4,8 +4,9 @@ Otis favors focused changes, explicit boundaries, and tests that prove observabl
 
 ## Setup
 
-Otis uses Bun for dependency management, development, tests, and release builds. macOS and Linux on arm64 and x64 and
-Windows on x64 are the supported targets. A Windows checkout needs Git for Windows, which is both the agent's shell
+Otis uses Bun for dependency management, development, tests, and release builds, and stable Rust
+([rustup](https://rustup.rs)) for the terminal UI in `tui/`. macOS and Linux on arm64 and x64 and Windows on x64 are
+the supported targets. A Windows checkout needs Git for Windows, which is both the agent's shell
 and the source of `bash` for the scripts below; the checkout stays LF through `.gitattributes`.
 
 ```sh
@@ -14,6 +15,8 @@ cd otis
 bun install --frozen-lockfile
 bun run dev
 ```
+
+`bun run dev` builds and starts the terminal UI, which runs the TypeScript runtime from source with Bun.
 
 To exercise the complete agent locally, set a hosted provider key (`FIREWORKS_API_KEY`, `TOGETHER_API_KEY`,
 `BASETEN_API_KEY`, or `PRIME_API_KEY`) or enter it through the first-run UI. Never commit API
@@ -25,14 +28,17 @@ Run the standard verification suite:
 
 ```sh
 bun run verify
+cd tui && cargo fmt --check && cargo clippy -- -D warnings && cargo test
 ```
 
-Run `bun run build` when changing startup, OpenTUI integration, dependencies, the installer, inference transport, or
-release tooling.
+Run `bun run build` when changing startup, the terminal UI's link to the runtime, dependencies, the installer,
+inference transport, or release tooling. It builds this machine's release archive: the terminal UI with the compiled
+runtime embedded.
 
 ## Code organization
 
-- `src/cli` owns command routing and terminal interaction.
+- `tui` owns the terminal UI: drawing, input, and the client side of `otis rpc`.
+- `src/cli` owns command routing, `otis rpc`, `otis serve`, and the headless command.
 - `src/app` owns shared application composition used by the CLI and future adapters, including conversation lifecycle
   and model-selection transactions.
 - `src/core` owns the agent loop and conversation behavior.
@@ -50,8 +56,8 @@ persistence, or tool execution into the UI controller.
 Add tests for observable behavior, regressions, persisted-data compatibility, and security boundaries. Avoid assertions
 that only prove a module imports, a mock was called without checking its effect, or a function did not throw.
 
-Tests mirror the source tree under `tests/`. OpenTUI integration tests use the real `@opentui/core/testing` renderer and
-therefore run Vitest through Bun; use the package scripts instead of invoking `vitest` directly.
+Tests mirror the source tree under `tests/` and run Vitest through Bun; use the package scripts instead of invoking
+`vitest` directly. The terminal UI's tests sit beside its code and run with `cargo test`.
 
 Provider tests must use documented response shapes or local fakes. They must never call a hosted inference provider
 or Parallel or depend on a real API key.

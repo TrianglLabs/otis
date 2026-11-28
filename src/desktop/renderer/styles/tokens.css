@@ -1,10 +1,9 @@
 @import "./fonts.css";
 
 /*
- * Design tokens for the Otis desktop UI. The default theme shares the TUI's accent and syntax
- * colors (src/cli/theme.ts) on deeper, neutral surfaces of its own; themes.css remaps them per
- * theme. Everything visual derives from these tokens so themes stay consistent across the whole
- * interface.
+ * Design tokens for the Otis desktop UI; themes.css remaps them per theme. Everything visual
+ * derives from these tokens so themes stay consistent across the whole interface. The terminal UI
+ * carries the same palettes and mixes (tui/src/theme.rs); change them together.
  */
 :root,
 [data-theme="default"] {

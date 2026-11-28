@@ -168,7 +168,7 @@ otis exec --file requirements.pdf --file notes.docx "Compare these documents"
 ## How it works
 
 ```txt
-Desktop app / OpenTUI terminal / headless CLI
+Desktop app / terminal UI / headless CLI
   └─ Otis shared application runtime
       ├─ Conversation lifecycle, tools, permissions, and coworkers
       ├─ Private local configuration, sessions, diffs, and stats
@@ -295,7 +295,9 @@ usage by day and model, and messages, tool calls, and skills over the last 7 or 
 | `Ctrl+C` | Exit |
 
 Drag text files, PDFs, DOCX documents, or images into the terminal or the desktop composer to attach them to the
-next message. Only image attachments need a vision model.
+next message; in the terminal, Ctrl+V attaches an image on the clipboard. Only image attachments need a vision model.
+In the terminal, `/queue <prompt>` runs a follow-up after the current turn instead of steering it, and `/copy` puts
+the last answer on the clipboard.
 
 ## Documents and artifacts
 
@@ -348,13 +350,14 @@ vulnerability reporting.
 
 ## Development
 
-[Bun](https://bun.sh/) is the runtime and package manager.
+[Bun](https://bun.sh/) is the runtime and package manager; the terminal UI is Rust, built with
+[rustup](https://rustup.rs)'s stable toolchain.
 
 ```sh
 git clone https://github.com/TrianglLabs/otis.git
 cd otis
 bun install --frozen-lockfile
-bun run dev                  # OpenTUI terminal interface
+bun run dev                  # terminal UI, running the runtime from source
 bun run dev:desktop          # Otis Dev, alongside the installed app
 bun run dev:desktop:refresh  # the same, first bringing over newer history from the installed app
 bun run dev:demo             # the desktop app with simulated sessions, for UI work

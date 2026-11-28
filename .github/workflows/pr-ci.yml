@@ -32,6 +32,15 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Check Terminal UI
+        working-directory: tui
+        run: |
+          rustup update stable --no-self-update
+          rustup target add x86_64-unknown-linux-musl
+          cargo fmt --check
+          cargo clippy --locked -- -D warnings
+          cargo test --locked
+
       # The bundles are part of what a merge ships: a renderer that pulls in a Node module or a
       # dependency the bundler cannot parse passes every test above and fails only here.
       - name: Build CLI

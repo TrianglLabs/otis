@@ -67,7 +67,7 @@ instructions, but cannot replace the code that this tool executes. See [Document
 
 ## Install a Git-backed collection
 
-Manage shared skill repositories without starting OpenTUI:
+Manage shared skill repositories without starting the terminal UI:
 
 ```sh
 otis skills install https://github.com/obra/superpowers

@@ -7,7 +7,7 @@ optional connection to NVIDIA PAIR or oMLX on loopback.
 
 ```txt
 User terminal or server process
-  -> OpenTUI CLI or headless command
+  -> terminal UI (tui/) over `otis rpc`, or a headless command
     -> shared application
       -> agent loop, tools, permissions, sessions, and inference
       -> local Agent Skills
@@ -25,6 +25,7 @@ user's own machine; see the desktop daemon boundary.
 ## Source boundaries
 
 ```txt
+tui (Rust) --stdio wire frames--> src/cli rpc --> src/desktop/main runtime
 src/cli
   +-> src/app ------> src/core ------> src/inference
   |                     |      +----------> src/tools
@@ -32,14 +33,21 @@ src/cli
   |                     +-> src/skills -----> local skill packages
   |                     +-> src/local -----> src/storage
   |                     +-> src/storage ---> src/core message types
-  +-> OpenTUI rendering and headless process adapters
+  +-> rpc, serve, and headless process adapters
 ```
 
-- `src/cli` owns command routing, OpenTUI rendering, and headless process adapters. It must not be imported by
-  `src/app` or backend modules. Headless commands do not initialize OpenTUI.
+- `tui` is the terminal UI, a Rust binary on ratatui and crossterm. It draws inline: finished output goes into the
+  terminal's scrollback and only the live turn and the composer redraw. It owns no application state; it spawns
+  `otis rpc` and is a client of the desktop API, so sessions, models, permissions, and settings behave as on the
+  desktop. A release `otis` embeds the compiled runtime, unpacks it into the data folder's `runtime/` on first run,
+  and forwards every subcommand (`exec`, `serve`, `skills`, `update`) to it with `OTIS_UPDATE_TARGET` naming itself,
+  so `otis update` replaces the one installed file.
+- `src/cli` owns command routing and the process adapters: `otis rpc` (the desktop runtime in terminal mode, as
+  newline-delimited wire frames on stdio, with no Canvas, routines, or serving), `otis serve`, and headless commands.
+  It must not be imported by `src/app` or backend modules.
 - `src/app` owns shared application composition: conversation projection and turn lifecycle, session ownership, model
-  selection transactions, and workspace loading. Adapters call this layer; it does not import OpenTUI, Electron, React,
-  or `src/cli`. `Application.shutdown()` cancels an active conversation and in-flight model selection, then stops the
+  selection transactions, and workspace loading. Adapters call this layer; it does not import Electron, React, or
+  `src/cli`. `Application.shutdown()` cancels an active conversation and in-flight model selection, then stops the
   model runtime. A `Workspace` is one folder's project context, skills and permission rules, loaded once per folder
   and shared by every session runtime in it; one `Application` holds runtimes in any number of folders, and its
   `cwd`, `projectContext`, `skills` and `permissionRules` are those of the focused runtime's folder. Routines
@@ -243,8 +251,8 @@ Legacy `.doc` files are rejected. Scanned PDFs still render in Canvas, but the m
 notice because OCR is outside the current boundary.
 
 Compaction and title prompts include extracted document text or image metadata, never copied base64 source data.
-OpenTUI claims a text paste only when the entire payload parses as one or more supported shell-escaped attachment
-paths; ordinary text continues through the normal editor paste path. Paths are never evaluated by a shell. The local
+The terminal UI attaches a paste only when the entire payload parses as one or more shell-escaped, quoted, or
+`file://` paths to existing files of a supported type; ordinary text continues through the normal editor paste path. Paths are never evaluated by a shell. The local
 `read` tool extracts supported PDF and DOCX text through the same bounded document pipeline used by attachments, and
 continues to reject images and unsupported binary files.
 
@@ -259,10 +267,10 @@ the field the provider streamed it in so later tool-use requests receive the rea
 thinking. Each hosted provider declares that field (`reasoningField` in `HOSTED_PROVIDER_INFO`) and takes back only
 reasoning in it: a session resumed on another provider sends that provider the text and tool calls but not the other
 dialect's reasoning, which strict providers reject as an unknown key. Local servers declare none and replay every stored
-field. Sessions persist the complete block for replay. Display policy is independent: OpenTUI hides thinking by
-default and saves the user's `/thinking` visibility preference. Visible blocks render a compact three-line preview
-and keep per-block expansion as ephemeral UI state, while headless output includes trace text only when
-`--include-reasoning` is explicitly requested. These traces are provider output and may contain sensitive context.
+field. Sessions persist the complete block for replay. Display policy is independent: thinking is hidden by
+default, and the terminal UI (`/thinking`, Ctrl+T) and the desktop share one saved visibility preference. Shown, a
+live block renders a three-line preview; the terminal prints a finished one under its duration and the desktop folds
+it behind one, while headless output includes trace text only when `--include-reasoning` is explicitly requested. These traces are provider output and may contain sensitive context.
 
 ## Local llama.cpp boundary
 
@@ -383,8 +391,8 @@ not full-context memory capacity, and never runs against user-managed oMLX or PA
 When cached GGUFs exist, Settings exposes a second-level local-model deletion list. It only targets files in Otis'
 model cache, stops Otis' server before deleting the active or final model, and clears an active selection before
 offering the model picker again. Inactive model deletion does not interrupt a different active local model.
-Interactive `/exit`, Ctrl+C, and SIGINT/SIGTERM wait for `llama-server` to stop before destroying the OpenTUI renderer.
-Headless `otis exec` awaits that stop in `finally`.
+Quitting the terminal UI (`/exit`, Ctrl+D, or Ctrl+C twice) closes `otis rpc`'s stdin, and the UI waits while the
+runtime shuts down, `llama-server` included. Headless `otis exec` awaits that stop in `finally`.
 
 First-run setup offers local and hosted inference before requesting credentials. Local inference then offers the
 existing Otis-managed path and the external PAIR path as separate choices; hosted inference offers the provider list.
@@ -472,8 +480,8 @@ This location is separate from the Otis executable, and the updater replaces onl
 The runtime validates provider-native structured tool calls, evaluates every call through a centralized permission
 policy, executes approved tools in the local workspace, and appends bounded results to the conversation. The policy
 normalizes each call to a tool and resource, merges private user policy with restrictive project policy and temporary
-CLI rules, and resolves matching rules deny-first. An `ask` result is sent to the OpenTUI approval surface or denied in
-non-interactive execution. Current tools cover skill loading, web search, web reading, file reading, file search, file
+CLI rules, and resolves matching rules deny-first. An `ask` result is sent to the shared approval queue, which the terminal UI
+and the desktop show, or denied in non-interactive execution. Current tools cover skill loading, web search, web reading, file reading, file search, file
 creation, exact text edits, native document edits, shell commands, and subagent delegation. Web tools call
 Parallel directly; local file and shell tools never pass through a remote Otis service.
 
@@ -505,18 +513,16 @@ request at a time, so concurrent children take turns when a rule requires approv
 
 Every child event surfaces through the parent's event stream wrapped in a `subagent` envelope that names the
 delegating call and the run's title. The parent's own conversation still receives only the final report, but the
-interface can show the whole run. OpenTUI keeps the transcript flat with one agent card per delegation and lists the
-session's runs in a right-hand panel whose titles shimmer while they work; clicking a run or focusing the panel with
-arrow keys and Enter swaps the conversation for that run's full trace, rendered by the same transcript view, until
-Escape, Left, or the next prompt returns to the chat. The
-panel also hides on narrow terminals and when `/settings subagents` turns it off; that preference is saved locally.
+interface can show the whole run. The desktop lists the session's runs in its delegated-runs rail, whose visibility is
+saved locally, and opens a run's full trace from it; the terminal UI shows each delegation as a line of tool activity.
 Headless JSONL emits the envelope as `subagent` events with the inner public event,
 and plain output indents a child's tool lines beneath the delegation. Each run persists in the turn event as a
 subagent record with its title, status, messages, tool cards, and duration, validated against an `agent` tool call in
 the turn, so a resumed session can still open every trace; compaction keeps only the records whose delegating call
 survives.
 
-OpenTUI starts in `auto` mode unless private user configuration selects another mode. Headless execution keeps its
+Interactive use starts in `auto` mode unless private user configuration selects another mode; Shift+Tab in the
+terminal UI switches between `ask` and `auto`. Headless execution keeps its
 fail-closed `dontAsk` default and requires `--auto` or an explicitly configured auto mode for unmatched mutations.
 
 Shell resources are currently matched against the complete command string. Patterns are anchored and Otis does not
@@ -541,7 +547,7 @@ digest, using atomic no-clobber files and checking existing resources against th
 rejects traversal, symlinked cache directories, and modified scripts. No provider key or document content is placed in
 this helper cache. Dependencies are separate from Otis's Bun runtime and installed only through normal shell actions.
 
-The provider-independent `otis skills` command manages optional Git-backed sources without initializing OpenTUI or
+The provider-independent `otis skills` command manages optional Git-backed sources without the terminal UI or
 inference. Each source has a private checkout under the platform local-data directory and an atomic manifest recording
 the skill activations it owns. Install validates the complete source before creating activation symlinks under
 `~/.agents/skills`; collisions fail without replacing existing content. Update permits fast-forward-only pulls and
@@ -644,7 +650,7 @@ app; a pairing is proven against the daemon before it is saved. The terminal pan
 
 ## Headless execution
 
-`otis exec` is a one-turn process interface over the same shared application and agent loop used by OpenTUI. Its plain mode
+`otis exec` is a one-turn process interface over the same shared application and agent loop the terminal UI drives. Its plain mode
 reserves stdout for the final assistant message and sends progress to stderr. JSON mode emits one result object; JSONL
 mode emits versioned, Otis-owned events rather than exposing provider stream shapes. The command accepts explicit
 working-directory, model, tool-allowlist, timeout, and session policies, making process invocation the

@@ -1,6 +1,7 @@
 # Tool permissions
 
-Otis evaluates every structured tool call through one permission policy shared by OpenTUI and `otis exec`. A rule
+Otis evaluates every structured tool call through one permission policy shared by the terminal UI, the desktop app,
+and `otis exec`. A rule
 matches a tool and its primary resource: a shell command, workspace-relative path, URL, or search query.
 
 ## Effects and modes
@@ -16,7 +17,8 @@ or redirections, so authorize compound commands explicitly.
 
 The available modes are:
 
-- `ask`: request approval for unmatched mutating calls in OpenTUI; fail closed in headless execution.
+- `ask`: request approval for unmatched mutating calls in the terminal UI and the desktop app; fail closed in headless
+  execution.
 - `auto`: allow unmatched `write`, `edit`, `edit_document`, `document`, `save_attachment`, and `bash` calls. Explicit deny rules still apply.
 - `dontAsk`: deny unmatched mutating calls without prompting.
 

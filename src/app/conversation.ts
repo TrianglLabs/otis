@@ -338,17 +338,22 @@ export class Conversation {
   }
 
   /**
-   * Admits one prompt: steered into the running turn (queued behind it when the inbox is closed),
-   * queued behind a parked backlog, or started as a new turn. Throws with the gate's reason when
-   * nothing can serve it. steer() and queue() admit the prompt to the session before returning,
-   * and a started prompt is acknowledged only after its admission, so an accepted delivery means
-   * the prompt is durably recorded; a rejection means nothing was saved and the draft must be kept.
+   * Admits one prompt: steered into the running turn (queued behind it when the inbox is closed,
+   * or when `queue` asks for a separate follow-up), queued behind a parked backlog, or started as a
+   * new turn. Throws with the gate's reason when nothing can serve it. steer() and queue() admit
+   * the prompt to the session before returning, and a started prompt is acknowledged only after
+   * its admission, so an accepted delivery means the prompt is durably recorded; a rejection means
+   * nothing was saved and the draft must be kept.
    */
-  async submit(message: UserChatMessage): Promise<{ delivery: "started" | "steered" | "queued" }> {
+  async submit(
+    message: UserChatMessage,
+    queue = false,
+  ): Promise<{ delivery: "started" | "steered" | "queued" }> {
     const blocked = this.options.gate()
     if (blocked) throw new Error(blocked)
     if (this.busy) {
-      const delivery = await this.steer(message)
+      if (queue) await this.queue(message)
+      const delivery = queue ? "queued" : await this.steer(message)
       if (delivery === "queued") this.drain()
       return { delivery }
     }

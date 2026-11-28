@@ -1,6 +1,5 @@
 import { readFile, stat } from "node:fs/promises"
-import { basename, extname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { basename, resolve } from "node:path"
 import {
   type ImageContentPart,
   type ImageMimeType,
@@ -67,15 +66,6 @@ export function createImageAttachment(
     name: safeAttachmentName(name, `image.${extensionForMimeType(mimeType)}`),
     sizeBytes: bytes.byteLength,
   }
-}
-
-export function createPastedImageAttachment(
-  bytes: Uint8Array,
-  sequence: number,
-  declaredMimeType?: string,
-): ImageContentPart {
-  const image = createImageAttachment(bytes, "", declaredMimeType)
-  return { ...image, name: `pasted-image-${sequence}.${extensionForMimeType(image.mimeType)}` }
 }
 
 export function validateImageAttachments(images: readonly ImageContentPart[]) {
@@ -191,50 +181,4 @@ function startsWith(bytes: Uint8Array, signature: readonly number[]) {
 
 function ascii(bytes: Uint8Array, start: number, length: number) {
   return String.fromCharCode(...bytes.slice(start, start + length))
-}
-
-/**
- * Parses shell-escaped paths emitted when files are dropped into common macOS and Linux
- * terminals.
- */
-export function parsePastedFilePaths(
-  value: string,
-  allowedExtensions: ReadonlySet<string>,
-): string[] | undefined {
-  const tokens: string[] = []
-  let token = ""
-  let quote: "'" | '"' | undefined
-  let escaped = false
-  for (const character of value.trim()) {
-    if (escaped) {
-      token += character
-      escaped = false
-    } else if (character === "\\" && quote !== "'") {
-      escaped = true
-    } else if (character === "'" && quote !== '"') {
-      quote = quote ? undefined : "'"
-    } else if (character === '"' && quote !== "'") {
-      quote = quote ? undefined : '"'
-    } else if (!quote && " \t\r\n".includes(character)) {
-      if (token) tokens.push(token)
-      token = ""
-    } else {
-      token += character
-    }
-  }
-  if (escaped || quote) return undefined
-  if (token) tokens.push(token)
-  if (tokens.length === 0) return undefined
-
-  const paths = tokens.map((token) => {
-    if (!token.startsWith("file://")) return token
-    try {
-      return fileURLToPath(token)
-    } catch {
-      return ""
-    }
-  })
-  if (paths.some((path) => !path || !allowedExtensions.has(extname(path).toLowerCase())))
-    return undefined
-  return paths
 }

@@ -77,14 +77,57 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## OpenTUI
+## Rust crates in the terminal command
 
-Otis uses `@opentui/core`, and the reference material under `.agents/skills/opentui` is sourced from
-[OpenTUI](https://github.com/anomalyco/opentui). Both are distributed under the MIT License:
+The `otis` terminal command is built from the crates below (`tui/Cargo.lock`). Each crate's copyright holders are
+named in its own repository.
+
+- `gethostname` 1.1.0, `moxcms` 0.8.1, `pxfm` 0.1.30, and `ryu` 1.0.23 are used under the Apache License 2.0, whose
+  text is under "Apache License 2.0" below.
+- `foldhash` 0.1.5 and 0.2.0 are used under the zlib License, below.
+- `clipboard-win` 5.4.3 and `error-code` 3.4.0, Windows only, are distributed under the Boost Software License 1.0,
+  which asks nothing of a distribution as executable code.
+- The rest are used under the MIT License, alone or as one of the licenses each offers:
+
+adler2 2.0.1, allocator-api2 0.2.22, arboard 3.7.0, base64 0.23.1, bitflags 2.13.2, bytemuck 1.25.2,
+byteorder-lite 0.1.0, castaway 0.2.4, cfg-if 1.0.5, compact_str 0.9.1, crc32fast 1.5.6, crossterm 0.29.0,
+crossterm_winapi 0.9.1, crunchy 0.2.4, derive_more 2.1.1, downcast-rs 1.2.1, either 1.19.0, equivalent 1.0.3,
+errno 0.3.15, fax 0.2.7, fdeflate 0.3.7, fixedbitset 0.5.9, flate2 1.1.11, half 2.7.1, hashbrown 0.15.5,
+hashbrown 0.17.2, image 0.25.10, indexmap 2.14.2, itertools 0.14.0, itoa 1.0.19, kasuari 0.4.13, libc 0.2.191,
+line-clipping 0.3.8, linux-raw-sys 0.12.1, lock_api 0.4.14, log 0.4.35, lru 0.18.5, memchr 2.8.3, miniz_oxide 0.8.9,
+miniz_oxide 0.9.1, mio 1.2.5, nom 8.0.0, num-traits 0.2.19, objc2 0.6.5, objc2-app-kit 0.3.2,
+objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-encode 4.1.0, objc2-foundation 0.3.2, os_pipe 1.2.3,
+parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, petgraph 0.8.3, png 0.18.1,
+pulldown-cmark 0.13.6, quick-error 2.0.1, ratatui 0.30.2, ratatui-core 0.1.2, ratatui-widgets 0.3.2,
+redox_syscall 0.5.18, rustix 1.1.6, scopeguard 1.2.0, serde 1.0.229, serde_core 1.0.229, serde_json 1.0.154,
+signal-hook 0.3.18, signal-hook-mio 0.2.5, signal-hook-registry 1.4.8, simd-adler32 0.3.10, smallvec 1.16.6,
+static_assertions 1.1.0, strum 0.28.0, terminal-colorsaurus 1.0.3, terminal-trx 0.2.6, thiserror 2.0.21,
+tiff 0.11.3, tree_magic_mini 3.2.2, unicase 2.10.0, unicode-segmentation 1.13.3, unicode-truncate 2.0.1,
+unicode-width 0.2.3, wasi 0.11.1, wayland-backend 0.3.17, wayland-client 0.31.15, wayland-protocols 0.32.13,
+wayland-protocols-wlr 0.3.12, wayland-sys 0.31.11, weezl 0.1.12, winapi 0.3.9, winapi-i686-pc-windows-gnu 0.4.0,
+winapi-x86_64-pc-windows-gnu 0.4.0, windows-link 0.2.1, windows-sys 0.61.2, wl-clipboard-rs 0.9.5, x11rb 0.13.2,
+x11rb-protocol 0.13.2, xterm-color 1.0.2, zerocopy 0.8.66, zmij 1.0.23, zune-core 0.5.3, zune-jpeg 0.5.15
+
+The zlib License, under which `foldhash` is distributed:
+
+This software is provided 'as-is', without any express or implied warranty. In no event will the authors be held
+liable for any damages arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter
+it and redistribute it freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If
+   you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not
+   required.
+2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original
+   software.
+3. This notice may not be removed or altered from any source distribution.
+
+The MIT License, under which the others are distributed:
 
 MIT License
 
-Copyright (c) 2025 opentui
+Copyright (c) the authors of each crate listed above
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 documentation files (the "Software"), to deal in the Software without restriction, including without limitation the

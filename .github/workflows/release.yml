@@ -26,8 +26,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build and Publish
+  verify:
+    name: Verify
     if: ${{ !inputs.desktop_only }}
     runs-on: ubuntu-latest
     env:
@@ -39,11 +39,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Preflight Release
         env:
@@ -76,11 +71,106 @@ jobs:
       - name: Verify Checks
         run: bun run verify
 
+      - name: Verify Terminal UI
+        working-directory: tui
+        run: |
+          rustup update stable --no-self-update
+          cargo fmt --check
+          cargo clippy --locked -- -D warnings
+          cargo test --locked
+
+  cli:
+    name: CLI (${{ matrix.name }})
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ inputs.version }}
+    strategy:
+      # The terminal UI compiles natively on a runner of each platform; the runtime it embeds
+      # cross-compiles with Bun. macOS builds both architectures.
+      matrix:
+        include:
+          - name: macOS
+            runner: macos-latest
+            targets: --target darwin-arm64 --target darwin-x64
+            triples: aarch64-apple-darwin x86_64-apple-darwin
+          - name: Linux x64
+            runner: ubuntu-latest
+            targets: --target linux-x64
+            triples: x86_64-unknown-linux-musl
+          - name: Linux arm64
+            runner: ubuntu-24.04-arm
+            targets: --target linux-arm64
+            triples: aarch64-unknown-linux-musl
+          - name: Windows x64
+            runner: windows-latest
+            targets: --target windows-x64
+            triples: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          rustup update stable --no-self-update
+          rustup target add ${{ matrix.triples }}
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      # The version commit lands after every platform built; each build stamps the version itself.
+      - name: Build Archives
+        shell: bash
+        run: |
+          jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
+          bun run build ${{ matrix.targets }}
+
+      - name: Upload Archives
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-${{ matrix.runner }}
+          path: dist/public/releases/v${{ inputs.version }}/otis-*
+          if-no-files-found: error
+
+  release:
+    name: Publish
+    needs: cli
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
       - name: Bump Version
         run: jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
 
-      - name: Build Binaries
-        run: bun run build
+      - name: Gather Archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: dist/public/releases/v${{ inputs.version }}
+
+      - name: Write Checksums And Manifest
+        run: bun run build --assemble
 
       - name: Tag Release
         run: |

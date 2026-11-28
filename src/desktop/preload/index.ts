@@ -35,7 +35,8 @@ const api: DesktopApi = {
   saveArtifact: (runtime, id, revision) =>
     invoke(DESKTOP_CHANNELS.saveArtifact, runtime, id, revision),
   getWindowState: () => invoke(DESKTOP_CHANNELS.getWindowState),
-  sendPrompt: (text, attachments) => invoke(DESKTOP_CHANNELS.sendPrompt, text, attachments),
+  sendPrompt: (text, attachments, queue) =>
+    invoke(DESKTOP_CHANNELS.sendPrompt, text, attachments, queue),
   stop: () => invoke(DESKTOP_CHANNELS.stop),
   respondToPermission: (id, allow) => invoke(DESKTOP_CHANNELS.respondToPermission, id, allow),
   selectSession: (id, dirName, at) => invoke(DESKTOP_CHANNELS.selectSession, id, dirName, at),

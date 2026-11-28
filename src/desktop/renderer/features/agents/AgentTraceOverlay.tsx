@@ -18,7 +18,7 @@ const TRACE_POLL_MS = 250
 /**
  * The full transcript of one delegated run, rendered with the same entry components as the main
  * transcript. While the run is live its entries are polled; the view closes when the run leaves
- * the session, mirroring the TUI's trace view.
+ * the session.
  */
 export function AgentTraceOverlay({
   toolCallId,
@@ -137,8 +137,7 @@ const STOPPED_ICONS: Record<Exclude<SubagentSummary["status"], "running">, typeo
 }
 
 /**
- * Progress line for a delegated run, mirroring subagentSummary in the TUI's subagent panel
- * (src/cli/ui/subagent-panel.ts) exactly: tool count, then "running" or the wall-clock time, then a
+ * Progress line for a delegated run: tool count, then "running" or the wall-clock time, then a
  * terminal lifecycle word for failed or interrupted runs.
  */
 export function agentSummary(

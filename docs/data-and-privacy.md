@@ -66,7 +66,8 @@ child and its device probe receive an allowlisted environment; Hugging Face toke
 forwarded to them.
 
 Model-provided thinking is assistant history and is retained in local sessions even when hidden in the UI. Treat it as
-potentially sensitive. Visible traces show a short preview and can be expanded in OpenTUI.
+potentially sensitive. Visible traces show a short preview while they stream, then print in full in the terminal and
+expand on request in the desktop app.
 
 ## Network boundaries
 
